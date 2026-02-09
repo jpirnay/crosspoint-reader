@@ -142,98 +142,99 @@ void KeyboardEntryActivity::handleKeyPress() {
 }
 
 void KeyboardEntryActivity::loop() {
-  // Navigation
-  if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+  // Orientation-aware navigation mapping
+  GfxRenderer::Orientation orientation = renderer.getOrientation();
+  // Map physical to logical directions
+  auto logicalUp = [&]() {
     if (selectedRow > 0) {
       selectedRow--;
-      // Clamp column to valid range for new row
       const int maxCol = getRowLength(selectedRow) - 1;
       if (selectedCol > maxCol) selectedCol = maxCol;
     } else {
-      // Wrap to bottom row
       selectedRow = NUM_ROWS - 1;
       const int maxCol = getRowLength(selectedRow) - 1;
       if (selectedCol > maxCol) selectedCol = maxCol;
     }
     updateRequired = true;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+  };
+  auto logicalDown = [&]() {
     if (selectedRow < NUM_ROWS - 1) {
       selectedRow++;
       const int maxCol = getRowLength(selectedRow) - 1;
       if (selectedCol > maxCol) selectedCol = maxCol;
     } else {
-      // Wrap to top row
       selectedRow = 0;
       const int maxCol = getRowLength(selectedRow) - 1;
       if (selectedCol > maxCol) selectedCol = maxCol;
     }
     updateRequired = true;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+  };
+  auto logicalLeft = [&]() {
     const int maxCol = getRowLength(selectedRow) - 1;
-
-    // Special bottom row case
     if (selectedRow == SPECIAL_ROW) {
-      // Bottom row has special key widths
       if (selectedCol >= SHIFT_COL && selectedCol < SPACE_COL) {
-        // In shift key, wrap to end of row
         selectedCol = maxCol;
       } else if (selectedCol >= SPACE_COL && selectedCol < BACKSPACE_COL) {
-        // In space bar, move to shift
         selectedCol = SHIFT_COL;
       } else if (selectedCol >= BACKSPACE_COL && selectedCol < DONE_COL) {
-        // In backspace, move to space
         selectedCol = SPACE_COL;
       } else if (selectedCol >= DONE_COL) {
-        // At done button, move to backspace
         selectedCol = BACKSPACE_COL;
       }
       updateRequired = true;
       return;
     }
-
     if (selectedCol > 0) {
       selectedCol--;
     } else {
-      // Wrap to end of current row
       selectedCol = maxCol;
     }
     updateRequired = true;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+  };
+  auto logicalRight = [&]() {
     const int maxCol = getRowLength(selectedRow) - 1;
-
-    // Special bottom row case
     if (selectedRow == SPECIAL_ROW) {
-      // Bottom row has special key widths
       if (selectedCol >= SHIFT_COL && selectedCol < SPACE_COL) {
-        // In shift key, move to space
         selectedCol = SPACE_COL;
       } else if (selectedCol >= SPACE_COL && selectedCol < BACKSPACE_COL) {
-        // In space bar, move to backspace
         selectedCol = BACKSPACE_COL;
       } else if (selectedCol >= BACKSPACE_COL && selectedCol < DONE_COL) {
-        // In backspace, move to done
         selectedCol = DONE_COL;
       } else if (selectedCol >= DONE_COL) {
-        // At done button, wrap to beginning of row
         selectedCol = SHIFT_COL;
       }
       updateRequired = true;
       return;
     }
-
     if (selectedCol < maxCol) {
       selectedCol++;
     } else {
-      // Wrap to beginning of current row
       selectedCol = 0;
     }
     updateRequired = true;
+  };
+
+  // Map physical button to logical direction per orientation
+  if (orientation == GfxRenderer::Portrait) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) logicalUp();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) logicalDown();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) logicalLeft();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) logicalRight();
+  } else if (orientation == GfxRenderer::PortraitInverted) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) logicalDown();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) logicalUp();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) logicalRight();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) logicalLeft();
+  } else if (orientation == GfxRenderer::LandscapeClockwise) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) logicalRight();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) logicalLeft();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) logicalUp();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) logicalDown();
+  } else if (orientation == GfxRenderer::LandscapeCounterClockwise) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) logicalLeft();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) logicalRight();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) logicalDown();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) logicalUp();
   }
 
   // Selection
@@ -356,12 +357,22 @@ void KeyboardEntryActivity::render() const {
     }
   }
 
-  // Draw help text
-  const auto labels = mappedInput.mapLabels("« Back", "Select", "Left", "Right");
+  // Orientation-aware button hints
+  GfxRenderer::Orientation orientation = renderer.getOrientation();
+  const char *leftHint = "Left", *rightHint = "Right", *upHint = "Up", *downHint = "Down";
+  switch (orientation) {
+    case GfxRenderer::Portrait:
+      leftHint = "Left"; rightHint = "Right"; upHint = "Up"; downHint = "Down"; break;
+    case GfxRenderer::PortraitInverted:
+      leftHint = "Right"; rightHint = "Left"; upHint = "Down"; downHint = "Up"; break;
+    case GfxRenderer::LandscapeClockwise:
+      leftHint = "Up"; rightHint = "Down"; upHint = "Right"; downHint = "Left"; break;
+    case GfxRenderer::LandscapeCounterClockwise:
+      leftHint = "Down"; rightHint = "Up"; upHint = "Left"; downHint = "Right"; break;
+  }
+  const auto labels = mappedInput.mapLabels("« Back", "Select", leftHint, rightHint);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  // Draw side button hints for Up/Down navigation
-  GUI.drawSideButtonHints(renderer, "Up", "Down");
+  GUI.drawSideButtonHints(renderer, upHint, downHint);
 
   renderer.displayBuffer();
 }

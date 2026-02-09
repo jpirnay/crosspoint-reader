@@ -108,6 +108,7 @@ def serial_worker(port, baud):
         print(f"{Fore.RED}Error opening port: {e}{Style.RESET_ALL}")
         return
 
+    lastline_was_gfx = False
     try:
         while True:
             try:
@@ -119,7 +120,12 @@ def serial_worker(port, baud):
                 clean_line = raw_data.strip()
                 if not clean_line:
                     continue
-
+                if "[GFX] !!" in clean_line:
+                    if lastline_was_gfx:
+                        continue # Dont bloat screen with repeated GFX lines
+                    lastline_was_gfx = True
+                else:
+                    lastline_was_gfx = False
                 # Add PC timestamp
                 pc_time = datetime.now().strftime("%H:%M:%S")
                 formatted_line = re.sub(r"^\[\d+\]", f"[{pc_time}]", clean_line)
