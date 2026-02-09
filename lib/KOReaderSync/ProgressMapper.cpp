@@ -41,43 +41,36 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
     return result;
   }
 
-  // First, try to get spine index from XPath (DocFragment)
-  int xpathSpineIndex = parseDocFragmentIndex(koPos.xpath);
-  if (xpathSpineIndex >= 0 && xpathSpineIndex < epub->getSpineItemsCount()) {
-    result.spineIndex = xpathSpineIndex;
-    // When we have XPath, go to page 0 of the spine - byte-based page calculation is unreliable
-    result.pageNumber = 0;
-  } else {
-    // Fall back to percentage-based lookup for both spine and page
-    const size_t targetBytes = static_cast<size_t>(bookSize * koPos.percentage);
+  // Use percentage-based lookup for both spine and page positioning
+  // XPath parsing is unreliable since CrossPoint doesn't preserve detailed HTML structure
+  const size_t targetBytes = static_cast<size_t>(bookSize * koPos.percentage);
 
-    // Find the spine item that contains this byte position
-    for (int i = 0; i < epub->getSpineItemsCount(); i++) {
-      const size_t cumulativeSize = epub->getCumulativeSpineItemSize(i);
-      if (cumulativeSize >= targetBytes) {
-        result.spineIndex = i;
-        break;
-      }
-    }
-
-    // Estimate page number within the spine item using percentage (only when no XPath)
-    if (totalPagesInSpine > 0 && result.spineIndex < epub->getSpineItemsCount()) {
-      const size_t prevCumSize = (result.spineIndex > 0) ? epub->getCumulativeSpineItemSize(result.spineIndex - 1) : 0;
-      const size_t currentCumSize = epub->getCumulativeSpineItemSize(result.spineIndex);
-      const size_t spineSize = currentCumSize - prevCumSize;
-
-      if (spineSize > 0) {
-        const size_t bytesIntoSpine = (targetBytes > prevCumSize) ? (targetBytes - prevCumSize) : 0;
-        const float intraSpineProgress = static_cast<float>(bytesIntoSpine) / static_cast<float>(spineSize);
-        const float clampedProgress = std::max(0.0f, std::min(1.0f, intraSpineProgress));
-        result.pageNumber = static_cast<int>(clampedProgress * totalPagesInSpine);
-        result.pageNumber = std::max(0, std::min(result.pageNumber, totalPagesInSpine - 1));
-      }
+  // Find the spine item that contains this byte position
+  for (int i = 0; i < epub->getSpineItemsCount(); i++) {
+    const size_t cumulativeSize = epub->getCumulativeSpineItemSize(i);
+    if (cumulativeSize >= targetBytes) {
+      result.spineIndex = i;
+      break;
     }
   }
 
-  Serial.printf("[%lu] [ProgressMapper] KOReader -> CrossPoint: %.2f%% at %s -> spine=%d, page=%d\n", millis(),
-                koPos.percentage * 100, koPos.xpath.c_str(), result.spineIndex, result.pageNumber);
+  // Estimate page number within the spine item using percentage
+  if (totalPagesInSpine > 0 && result.spineIndex < epub->getSpineItemsCount()) {
+    const size_t prevCumSize = (result.spineIndex > 0) ? epub->getCumulativeSpineItemSize(result.spineIndex - 1) : 0;
+    const size_t currentCumSize = epub->getCumulativeSpineItemSize(result.spineIndex);
+    const size_t spineSize = currentCumSize - prevCumSize;
+
+    if (spineSize > 0) {
+      const size_t bytesIntoSpine = (targetBytes > prevCumSize) ? (targetBytes - prevCumSize) : 0;
+      const float intraSpineProgress = static_cast<float>(bytesIntoSpine) / static_cast<float>(spineSize);
+      const float clampedProgress = std::max(0.0f, std::min(1.0f, intraSpineProgress));
+      result.pageNumber = static_cast<int>(clampedProgress * totalPagesInSpine);
+      result.pageNumber = std::max(0, std::min(result.pageNumber, totalPagesInSpine - 1));
+    }
+  }
+
+  Serial.printf("[%lu] [ProgressMapper] KOReader -> CrossPoint: %.2f%% -> spine=%d, page=%d/%d\n", millis(),
+                koPos.percentage * 100, result.spineIndex, result.pageNumber, totalPagesInSpine);
 
   return result;
 }
@@ -87,26 +80,4 @@ std::string ProgressMapper::generateXPath(int spineIndex, int pageNumber, int to
   // Use a simple xpath pointing to the DocFragment - KOReader will use the percentage for fine positioning
   // Avoid specifying paragraph numbers as they may not exist in the target document
   return "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body";
-}
-
-int ProgressMapper::parseDocFragmentIndex(const std::string& xpath) {
-  // Look for DocFragment[N] pattern
-  const size_t start = xpath.find("DocFragment[");
-  if (start == std::string::npos) {
-    return -1;
-  }
-
-  const size_t numStart = start + 12;  // Length of "DocFragment["
-  const size_t numEnd = xpath.find(']', numStart);
-  if (numEnd == std::string::npos) {
-    return -1;
-  }
-
-  try {
-    const int docFragmentIndex = std::stoi(xpath.substr(numStart, numEnd - numStart));
-    // KOReader uses 1-based indices, we use 0-based
-    return docFragmentIndex - 1;
-  } catch (...) {
-    return -1;
-  }
 }
