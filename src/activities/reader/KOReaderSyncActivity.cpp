@@ -131,7 +131,7 @@ void KOReaderSyncActivity::performSync() {
   state = SHOWING_RESULT;
 
   // Default to the option that corresponds to the furthest progress
-  if (hasRemoteProgress && localProgress.percentage > remoteProgress.percentage) {
+  if (localProgress.percentage > remoteProgress.percentage) {
     selectedOption = 1;  // Upload local progress
   } else {
     selectedOption = 0;  // Apply remote progress
