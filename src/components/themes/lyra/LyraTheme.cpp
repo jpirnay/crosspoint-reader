@@ -190,35 +190,82 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 
 void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
-  const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
-  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  const GfxRenderer::Orientation orientation = renderer.getOrientation();
+  constexpr int buttonCount = 4;
+  const char* labels[buttonCount] = {btn1, btn2, btn3, btn4};
+  constexpr int buttonLong = 80;
+  constexpr int buttonShort = 40;
+  constexpr int margin = 10;
+  constexpr int spacing = 10;
+  constexpr int cornerRadius = 6;
+  int screenW = renderer.getScreenWidth();
+  int screenH = renderer.getScreenHeight();
 
-  const int pageHeight = renderer.getScreenHeight();
-  constexpr int buttonWidth = 80;
-  constexpr int smallButtonHeight = 15;
-  constexpr int buttonHeight = LyraMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = LyraMetrics::values.buttonHintsHeight;  // Distance from bottom
-  constexpr int textYOffset = 7;                                  // Distance from top of button to text baseline
-  constexpr int buttonPositions[] = {58, 146, 254, 342};
-  const char* labels[] = {btn1, btn2, btn3, btn4};
-
-  for (int i = 0; i < 4; i++) {
-    // Only draw if the label is non-empty
-    const int x = buttonPositions[i];
-    renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-    if (labels[i] != nullptr && labels[i][0] != '\0') {
-      renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, 1, cornerRadius, true, true, false,
-                               false, true);
-      const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
-      const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(SMALL_FONT_ID, textX, pageHeight - buttonY + textYOffset, labels[i]);
+  // Bottom edge (Back, Select, Left, Right)
+  // Always at physical bottom, long side parallel to edge
+  for (int i = 0; i < buttonCount; ++i) {
+    if (!labels[i] || !labels[i][0]) continue;
+    int x = 0, y = 0;
+    int w = 0, h = 0;
+    int textX = 0, textY = 0;
+    bool rotateText = false, flipText = false;
+    switch (orientation) {
+      case GfxRenderer::Portrait:
+        w = buttonLong; h = buttonShort;
+        x = margin + i * (buttonLong + spacing);
+        y = screenH - margin - h;
+        rotateText = false;
+        flipText = false;
+        break;
+      case GfxRenderer::PortraitInverted:
+        w = buttonLong; h = buttonShort;
+        x = margin + (buttonCount - 1 - i) * (buttonLong + spacing);
+        y = margin;
+        rotateText = false;
+        flipText = true; // upside down for user
+        break;
+      case GfxRenderer::LandscapeClockwise:
+        w = buttonShort; h = buttonLong;
+        x = margin;
+        y = margin + i * (buttonLong + spacing);
+        rotateText = true;
+        flipText = false;
+        break;
+      case GfxRenderer::LandscapeCounterClockwise:
+        w = buttonShort; h = buttonLong;
+        x = screenW - margin - w;
+        y = margin + (buttonCount - 1 - i) * (buttonLong + spacing);
+        rotateText = true;
+        flipText = true; // upside down for user
+        break;
+    }
+    renderer.fillRect(x, y, w, h, false);
+    renderer.drawRoundedRect(x, y, w, h, 1, cornerRadius, true, true, true, true, true);
+    // Center text
+    int textW = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+    int textH = renderer.getTextHeight(SMALL_FONT_ID);
+    if (!rotateText) {
+      textX = x + (w - textW) / 2;
+      textY = y + (h + textH) / 2 - 2;
+      if (flipText) {
+        // Draw upside down (rotate 180)
+        // Not directly supported, so skip for now or use a workaround if available
+        renderer.drawText(SMALL_FONT_ID, textX, textY, labels[i]);
+      } else {
+        renderer.drawText(SMALL_FONT_ID, textX, textY, labels[i]);
+      }
     } else {
-      renderer.drawRoundedRect(x, pageHeight - smallButtonHeight, buttonWidth, smallButtonHeight, 1, cornerRadius, true,
-                               true, false, false, true);
+      textX = x + (w + textH) / 2 - 2;
+      textY = y + (h - textW) / 2;
+      // For rotated text, use drawTextRotated90CW
+      if (flipText) {
+        // Not directly supported: would need drawTextRotated90CCW or a workaround
+        renderer.drawTextRotated90CW(SMALL_FONT_ID, textX, textY, labels[i]);
+      } else {
+        renderer.drawTextRotated90CW(SMALL_FONT_ID, textX, textY, labels[i]);
+      }
     }
   }
-
-  renderer.setOrientation(orig_orientation);
 }
 
 void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const {

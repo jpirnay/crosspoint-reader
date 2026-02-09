@@ -79,30 +79,68 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 
 void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
-  const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
-  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  const GfxRenderer::Orientation orientation = renderer.getOrientation();
+  constexpr int buttonCount = 4;
+  const char* labels[buttonCount] = {btn1, btn2, btn3, btn4};
+  constexpr int buttonLong = 106;
+  constexpr int buttonShort = 40;
+  constexpr int margin = 10;
+  constexpr int spacing = 10;
+  int screenW = renderer.getScreenWidth();
+  int screenH = renderer.getScreenHeight();
 
-  const int pageHeight = renderer.getScreenHeight();
-  constexpr int buttonWidth = 106;
-  constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = BaseMetrics::values.buttonHintsHeight;  // Distance from bottom
-  constexpr int textYOffset = 7;                                  // Distance from top of button to text baseline
-  constexpr int buttonPositions[] = {25, 130, 245, 350};
-  const char* labels[] = {btn1, btn2, btn3, btn4};
-
-  for (int i = 0; i < 4; i++) {
-    // Only draw if the label is non-empty
-    if (labels[i] != nullptr && labels[i][0] != '\0') {
-      const int x = buttonPositions[i];
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-      renderer.drawRect(x, pageHeight - buttonY, buttonWidth, buttonHeight);
-      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
-      const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, pageHeight - buttonY + textYOffset, labels[i]);
+  // Bottom edge (Back, Select, Left, Right)
+  // Always at physical bottom, long side parallel to edge
+  for (int i = 0; i < buttonCount; ++i) {
+    if (!labels[i] || !labels[i][0]) continue;
+    int x = 0, y = 0;
+    int w = 0, h = 0;
+    int textX = 0, textY = 0;
+    bool rotateText = false, flipText = false;
+    switch (orientation) {
+      case GfxRenderer::Portrait:
+        w = buttonLong; h = buttonShort;
+        x = margin + i * (buttonLong + spacing);
+        y = screenH - margin - h;
+        rotateText = false;
+        flipText = false;
+        break;
+      case GfxRenderer::PortraitInverted:
+        w = buttonLong; h = buttonShort;
+        x = margin + (buttonCount - 1 - i) * (buttonLong + spacing);
+        y = margin;
+        rotateText = false;
+        flipText = true;
+        break;
+      case GfxRenderer::LandscapeClockwise:
+        w = buttonShort; h = buttonLong;
+        x = margin;
+        y = margin + i * (buttonLong + spacing);
+        rotateText = true;
+        flipText = false;
+        break;
+      case GfxRenderer::LandscapeCounterClockwise:
+        w = buttonShort; h = buttonLong;
+        x = screenW - margin - w;
+        y = margin + (buttonCount - 1 - i) * (buttonLong + spacing);
+        rotateText = true;
+        flipText = true;
+        break;
+    }
+    renderer.fillRect(x, y, w, h, false);
+    renderer.drawRect(x, y, w, h);
+    int textW = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
+    int textH = renderer.getTextHeight(UI_10_FONT_ID);
+    if (!rotateText) {
+      textX = x + (w - textW) / 2;
+      textY = y + (h + textH) / 2 - 2;
+      renderer.drawText(UI_10_FONT_ID, textX, textY, labels[i]);
+    } else {
+      textX = x + (w + textH) / 2 - 2;
+      textY = y + (h - textW) / 2;
+      renderer.drawTextRotated90CW(UI_10_FONT_ID, textX, textY, labels[i]);
     }
   }
-
-  renderer.setOrientation(orig_orientation);
 }
 
 void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const {
