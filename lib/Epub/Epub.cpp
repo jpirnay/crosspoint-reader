@@ -6,6 +6,8 @@
 #include <JpegToBmpConverter.h>
 #include <ZipFile.h>
 
+#include <algorithm>
+
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
@@ -469,13 +471,36 @@ bool Epub::generateCoverBmp(bool cropped) const {
   }
 
   const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
+    // Fallback: try common cover filenames
+    std::vector<std::string> coverCandidates = {"cover.jpg", "OEBPS/cover.jpg"};
+    for (const auto& candidate : coverCandidates) {
+      effectiveCoverImageHref = candidate;
+      Serial.printf("[%lu] [EBP] Trying fallback cover for sleep screen: %s\n", millis(), candidate.c_str());
+      // Try to read a small amount to check if exists
+      uint8_t* test = readItemContentsToBytes(candidate, nullptr, false);
+      if (test) {
+        free(test);
+        Serial.printf("[%lu] [EBP] Found fallback cover for sleep screen: %s\n", millis(), candidate.c_str());
+        break;
+      } else {
+        Serial.printf("[%lu] [EBP] Fallback cover not found for sleep screen: %s\n", millis(), candidate.c_str());
+        effectiveCoverImageHref.clear();
+      }
+    }
+  }
+  if (effectiveCoverImageHref.empty()) {
     Serial.printf("[%lu] [EBP] No known cover image\n", millis());
     return false;
   }
 
-  if (coverImageHref.substr(coverImageHref.length() - 4) == ".jpg" ||
-      coverImageHref.substr(coverImageHref.length() - 5) == ".jpeg") {
+  // Check for JPG/JPEG extensions (case insensitive)
+  std::string lowerHref = effectiveCoverImageHref;
+  std::transform(lowerHref.begin(), lowerHref.end(), lowerHref.begin(), ::tolower);
+  bool isJpg =
+      lowerHref.substr(lowerHref.length() - 4) == ".jpg" || lowerHref.substr(lowerHref.length() - 5) == ".jpeg";
+  if (isJpg) {
     Serial.printf("[%lu] [EBP] Generating BMP from JPG cover image (%s mode)\n", millis(), cropped ? "cropped" : "fit");
     const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
 
@@ -483,7 +508,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
     if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
       return false;
     }
-    readItemContentsToStream(coverImageHref, coverJpg, 1024);
+    readItemContentsToStream(effectiveCoverImageHref, coverJpg, 1024);
     coverJpg.close();
 
     if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
@@ -517,9 +542,20 @@ std::string Epub::getThumbBmpPath() const { return cachePath + "/thumb_[HEIGHT].
 std::string Epub::getThumbBmpPath(int height) const { return cachePath + "/thumb_" + std::to_string(height) + ".bmp"; }
 
 bool Epub::generateThumbBmp(int height) const {
+  bool invalid = false;
   // Already generated, return true
   if (Storage.exists(getThumbBmpPath(height).c_str())) {
-    return true;
+    // is this a valid thumbnail or just an empty file we created to mark generation attempts?
+    invalid = !isValidThumbnailBmp(getThumbBmpPath(height));
+    if (invalid) {
+      // Remove the old invalid thumbnail so we can attempt to generate a new one
+      Storage.remove(getThumbBmpPath(height).c_str());
+      Serial.printf("[%lu] [EBP] Previous thumbnail generation attempt failed for height %d, skipping\n", millis(),
+                    height);
+    } else {
+      // Serial.printf("[%lu] [EBP] Thumbnail BMP already exists for height %d\n", millis(), height);
+      return true;
+    }
   }
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -528,48 +564,74 @@ bool Epub::generateThumbBmp(int height) const {
   }
 
   const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  Serial.printf("[%lu] [EBP] coverImageHref: '%s'\n", millis(), coverImageHref.c_str());
+  std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
+    // Fallback: try common cover filenames
+    std::vector<std::string> coverCandidates = {"cover.jpg", "OEBPS/cover.jpg"};
+    for (const auto& candidate : coverCandidates) {
+      effectiveCoverImageHref = candidate;
+      Serial.printf("[%lu] [EBP] Trying fallback cover: %s\n", millis(), candidate.c_str());
+      // Try to read a small amount to check if exists
+      uint8_t* test = readItemContentsToBytes(candidate, nullptr, false);
+      if (test) {
+        free(test);
+        Serial.printf("[%lu] [EBP] Found fallback cover: %s\n", millis(), candidate.c_str());
+        break;
+      } else {
+        Serial.printf("[%lu] [EBP] Fallback cover not found: %s\n", millis(), candidate.c_str());
+        effectiveCoverImageHref.clear();
+      }
+    }
+  }
+  if (effectiveCoverImageHref.empty()) {
     Serial.printf("[%lu] [EBP] No known cover image for thumbnail\n", millis());
-  } else if (coverImageHref.substr(coverImageHref.length() - 4) == ".jpg" ||
-             coverImageHref.substr(coverImageHref.length() - 5) == ".jpeg") {
-    Serial.printf("[%lu] [EBP] Generating thumb BMP from JPG cover image\n", millis());
-    const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
-
-    FsFile coverJpg;
-    if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
-      return false;
-    }
-    readItemContentsToStream(coverImageHref, coverJpg, 1024);
-    coverJpg.close();
-
-    if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
-      return false;
-    }
-
-    FsFile thumbBmp;
-    if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
-      coverJpg.close();
-      return false;
-    }
-    // Use smaller target size for Continue Reading card (half of screen: 240x400)
-    // Generate 1-bit BMP for fast home screen rendering (no gray passes needed)
-    int THUMB_TARGET_WIDTH = height * 0.6;
-    int THUMB_TARGET_HEIGHT = height;
-    const bool success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverJpg, thumbBmp, THUMB_TARGET_WIDTH,
-                                                                             THUMB_TARGET_HEIGHT);
-    coverJpg.close();
-    thumbBmp.close();
-    Storage.remove(coverJpgTempPath.c_str());
-
-    if (!success) {
-      Serial.printf("[%lu] [EBP] Failed to generate thumb BMP from JPG cover image\n", millis());
-      Storage.remove(getThumbBmpPath(height).c_str());
-    }
-    Serial.printf("[%lu] [EBP] Generated thumb BMP from JPG cover image, success: %s\n", millis(),
-                  success ? "yes" : "no");
-    return success;
   } else {
-    Serial.printf("[%lu] [EBP] Cover image is not a JPG, skipping thumbnail\n", millis());
+    // Check for JPG/JPEG extensions (case insensitive)
+    std::string lowerHref = effectiveCoverImageHref;
+    std::transform(lowerHref.begin(), lowerHref.end(), lowerHref.begin(), ::tolower);
+    bool isJpg =
+        lowerHref.substr(lowerHref.length() - 4) == ".jpg" || lowerHref.substr(lowerHref.length() - 5) == ".jpeg";
+    if (isJpg) {
+      Serial.printf("[%lu] [EBP] Generating thumb BMP from JPG cover image\n", millis());
+      const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
+
+      FsFile coverJpg;
+      if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
+        return false;
+      }
+      readItemContentsToStream(effectiveCoverImageHref, coverJpg, 1024);
+      coverJpg.close();
+
+      if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
+        return false;
+      }
+
+      FsFile thumbBmp;
+      if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
+        coverJpg.close();
+        return false;
+      }
+      // Use smaller target size for Continue Reading card (half of screen: 240x400)
+      // Generate 1-bit BMP for fast home screen rendering (no gray passes needed)
+      int THUMB_TARGET_WIDTH = height * 0.6;
+      int THUMB_TARGET_HEIGHT = height;
+      const bool success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverJpg, thumbBmp, THUMB_TARGET_WIDTH,
+                                                                               THUMB_TARGET_HEIGHT);
+      coverJpg.close();
+      thumbBmp.close();
+      Storage.remove(coverJpgTempPath.c_str());
+
+      if (!success) {
+        Serial.printf("[%lu] [EBP] Failed to generate thumb BMP from JPG cover image\n", millis());
+        Storage.remove(getThumbBmpPath(height).c_str());
+      }
+      Serial.printf("[%lu] [EBP] Generated thumb BMP from JPG cover image, success: %s\n", millis(),
+                    success ? "yes" : "no");
+      return success;
+    } else {
+      Serial.printf("[%lu] [EBP] Cover image is not a JPG, skipping thumbnail\n", millis());
+    }
   }
 
   // Write an empty bmp file to avoid generation attempts in the future
@@ -726,4 +788,34 @@ float Epub::calculateProgress(const int currentSpineIndex, const float currentSp
   const float sectionProgSize = currentSpineRead * static_cast<float>(curChapterSize);
   const float totalProgress = static_cast<float>(prevChapterSize) + sectionProgSize;
   return totalProgress / static_cast<float>(bookSize);
+}
+
+bool Epub::isValidThumbnailBmp(const std::string& bmpPath) {
+  if (!Storage.exists(bmpPath.c_str())) {
+    // Serial.printf("[%lu] [EBP] Thumbnail BMP does not exist at path: %s\n", millis(), bmpPath.c_str());
+    return false;
+  }
+  FsFile file = Storage.open(bmpPath.c_str());
+  if (!file) {
+    Serial.printf("[%lu] [EBP] Failed to open Thumbnail BMP at path: %s\n", millis(), bmpPath.c_str());
+    return false;
+  }
+  size_t fileSize = file.size();
+  if (fileSize == 0) {
+    // Empty file is a marker for "no cover available"
+    Serial.printf("[%lu] [EBP] Thumbnail BMP is empty (no cover marker) at path: %s\n", millis(), bmpPath.c_str());
+    file.close();
+    return false;
+  }
+  // BMP header starts with 'B' 'M'
+  uint8_t header[2];
+  size_t bytesRead = file.read(header, 2);
+  if (bytesRead != 2) {
+    Serial.printf("[%lu] [EBP] Failed to read Thumbnail BMP header at path: %s\n", millis(), bmpPath.c_str());
+    file.close();
+    return false;
+  }
+  Serial.printf("[%lu] [EBP] Thumbnail BMP header: %c%c\n", millis(), header[0], header[1]);
+  file.close();
+  return header[0] == 'B' && header[1] == 'M';
 }
