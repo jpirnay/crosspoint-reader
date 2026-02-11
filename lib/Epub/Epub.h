@@ -91,4 +91,5 @@ class Epub {
   static bool isValidThumbnailBmp(const std::string& bmpPath);
 
  private:
+  std::vector<std::string> getCoverCandidates() const;
 };

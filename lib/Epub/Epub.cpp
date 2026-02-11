@@ -485,15 +485,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
   std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
     // Fallback: try common cover filenames
-    std::vector<std::string> coverDirectories = {".", "images", "OEBPS", "OEBPS/Images"};
-    std::vector<std::string> coverExtensions = {".jpg", ".jpeg", ".png"};
-    std::vector<std::string> coverCandidates;
-    for (const auto& dir : coverDirectories) {
-      for (const auto& ext : coverExtensions) {
-        std::string candidate = (dir == ".") ? "cover" + ext : dir + "/cover" + ext;
-        coverCandidates.push_back(candidate);
-      }
-    }
+    std::vector<std::string> coverCandidates = getCoverCandidates();
     for (const auto& candidate : coverCandidates) {
       effectiveCoverImageHref = candidate;
       // Try to read a small amount to check if exists
@@ -588,16 +580,7 @@ bool Epub::generateThumbBmp(int height) const {
   std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
     // Fallback: try common cover filenames
-    std::vector<std::string> coverDirectories = {".", "images", "Images", "OEBPS", "OEBPS/images", "OEBPS/Images"};
-    std::vector<std::string> coverExtensions = {".jpg",
-                                                ".jpeg"};  // add  ".png" when PNG thumbnail support is implemented
-    std::vector<std::string> coverCandidates;
-    for (const auto& ext : coverExtensions) {
-      for (const auto& dir : coverDirectories) {
-        std::string candidate = (dir == ".") ? "cover" + ext : dir + "/cover" + ext;
-        coverCandidates.push_back(candidate);
-      }
-    }
+    std::vector<std::string> coverCandidates = getCoverCandidates();
     for (const auto& candidate : coverCandidates) {
       effectiveCoverImageHref = candidate;
       // Try to read a small amount to check if exists
@@ -842,6 +825,19 @@ bool Epub::generateInvalidFormatCoverBmp(bool cropped) const {
   coverBmp.close();
   Serial.printf("[%lu] [EBP] Generated invalid format cover BMP\n", millis());
   return true;
+}
+
+std::vector<std::string> Epub::getCoverCandidates() const {
+  std::vector<std::string> coverDirectories = {".", "images", "Images", "OEBPS", "OEBPS/images", "OEBPS/Images"};
+  std::vector<std::string> coverExtensions = {".jpg", ".jpeg"};  // add ".png" when PNG cover support is implemented
+  std::vector<std::string> coverCandidates;
+  for (const auto& ext : coverExtensions) {
+    for (const auto& dir : coverDirectories) {
+      std::string candidate = (dir == ".") ? "cover" + ext : dir + "/cover" + ext;
+      coverCandidates.push_back(candidate);
+    }
+  }
+  return coverCandidates;
 }
 
 uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size, const bool trailingNullByte) const {
