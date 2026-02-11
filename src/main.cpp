@@ -4,6 +4,7 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
+#include <Logging.h>
 #include <SPI.h>
 #include <builtinFonts/all.h>
 
@@ -201,8 +202,8 @@ void enterDeepSleep() {
   enterNewActivity(new SleepActivity(renderer, mappedInputManager));
 
   display.deepSleep();
-  Serial.printf("[%lu] [   ] Power button press calibration value: %lu ms\n", millis(), t2 - t1);
-  Serial.printf("[%lu] [   ] Entering deep sleep.\n", millis());
+  LOG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
+  LOG("MAIN", "Entering deep sleep");
 
   gpio.startDeepSleep();
 }
@@ -255,7 +256,7 @@ void onGoHome() {
 void setupDisplayAndFonts() {
   display.begin();
   renderer.begin();
-  Serial.printf("[%lu] [   ] Display initialized\n", millis());
+  LOG("MAIN", "Display initialized");
   renderer.insertFont(BOOKERLY_14_FONT_ID, bookerly14FontFamily);
 #ifndef OMIT_FONTS
   renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);
@@ -274,7 +275,7 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
-  Serial.printf("[%lu] [   ] Fonts setup\n", millis());
+  LOG("MAIN", "Fonts setup");
 }
 
 void setup() {
@@ -295,7 +296,7 @@ void setup() {
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
-    Serial.printf("[%lu] [   ] SD card initialization failed\n", millis());
+    LOG("MAIN", "SD card initialization failed");
     setupDisplayAndFonts();
     exitActivity();
     enterNewActivity(new FullScreenMessageActivity(renderer, mappedInputManager, "SD card error", EpdFontFamily::BOLD));
@@ -310,12 +311,12 @@ void setup() {
   switch (gpio.getWakeupReason()) {
     case HalGPIO::WakeupReason::PowerButton:
       // For normal wakeups, verify power button press duration
-      Serial.printf("[%lu] [   ] Verifying power button press duration\n", millis());
+      LOG("MAIN", "Verifying power button press duration");
       verifyPowerButtonDuration();
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
-      Serial.printf("[%lu] [   ] Wakeup reason: After USB Power\n", millis());
+      LOG("MAIN", "Wakeup reason: After USB Power");
       gpio.startDeepSleep();
       break;
     case HalGPIO::WakeupReason::AfterFlash:
@@ -326,7 +327,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  Serial.printf("[%lu] [   ] Starting CrossPoint version " CROSSPOINT_VERSION "\n", millis());
+  LOG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
 
   setupDisplayAndFonts();
 
@@ -364,8 +365,8 @@ void loop() {
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   if (Serial && millis() - lastMemPrint >= 10000) {
-    Serial.printf("[%lu] [MEM] Free: %d bytes, Total: %d bytes, Min Free: %d bytes\n", millis(), ESP.getFreeHeap(),
-                  ESP.getHeapSize(), ESP.getMinFreeHeap());
+    LOG("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes", ESP.getFreeHeap(), ESP.getHeapSize(),
+        ESP.getMinFreeHeap());
     lastMemPrint = millis();
   }
 
@@ -377,7 +378,7 @@ void loop() {
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (millis() - lastActivityTime >= sleepTimeoutMs) {
-    Serial.printf("[%lu] [SLP] Auto-sleep triggered after %lu ms of inactivity\n", millis(), sleepTimeoutMs);
+    LOG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep();
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
     return;
@@ -399,8 +400,7 @@ void loop() {
   if (loopDuration > maxLoopDuration) {
     maxLoopDuration = loopDuration;
     if (maxLoopDuration > 50) {
-      Serial.printf("[%lu] [LOOP] New max loop duration: %lu ms (activity: %lu ms)\n", millis(), maxLoopDuration,
-                    activityDuration);
+      LOG("LOOP", "New max loop duration: %lu ms (activity: %lu ms)", maxLoopDuration, activityDuration);
     }
   }
 

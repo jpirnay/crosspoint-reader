@@ -62,7 +62,7 @@ void WifiSelectionActivity::onEnter() {
     if (!lastSsid.empty()) {
       const auto* cred = WIFI_STORE.findCredential(lastSsid);
       if (cred) {
-        Serial.printf("[%lu] [WIFI] Attempting to auto-connect to %s\n", millis(), lastSsid.c_str());
+        LOG("WIFI", "Attempting to auto-connect to %s", lastSsid.c_str());
         selectedSSID = cred->ssid;
         enteredPassword = cred->password;
         selectedRequiresPassword = !cred->password.empty();
@@ -82,12 +82,12 @@ void WifiSelectionActivity::onEnter() {
 void WifiSelectionActivity::onExit() {
   Activity::onExit();
 
-  Serial.printf("[%lu] [WIFI] [MEM] Free heap at onExit start: %d bytes\n", millis(), ESP.getFreeHeap());
+  LOG("WIFI] [MEM", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
   // Stop any ongoing WiFi scan
-  Serial.printf("[%lu] [WIFI] Deleting WiFi scan...\n", millis());
+  LOG("WIFI", "Deleting WiFi scan...");
   WiFi.scanDelete();
-  Serial.printf("[%lu] [WIFI] [MEM] Free heap after scanDelete: %d bytes\n", millis(), ESP.getFreeHeap());
+  LOG("WIFI] [MEM", "Free heap after scanDelete: %d bytes", ESP.getFreeHeap());
 
   // Note: We do NOT disconnect WiFi here - the parent activity
   // (CrossPointWebServerActivity) manages WiFi connection state. We just clean
@@ -95,25 +95,25 @@ void WifiSelectionActivity::onExit() {
 
   // Acquire mutex before deleting task to ensure task isn't using it
   // This prevents hangs/crashes if the task holds the mutex when deleted
-  Serial.printf("[%lu] [WIFI] Acquiring rendering mutex before task deletion...\n", millis());
+  LOG("WIFI", "Acquiring rendering mutex before task deletion...");
   xSemaphoreTake(renderingMutex, portMAX_DELAY);
 
   // Delete the display task (we now hold the mutex, so task is blocked if it
   // needs it)
-  Serial.printf("[%lu] [WIFI] Deleting display task...\n", millis());
+  LOG("WIFI", "Deleting display task...");
   if (displayTaskHandle) {
     vTaskDelete(displayTaskHandle);
     displayTaskHandle = nullptr;
-    Serial.printf("[%lu] [WIFI] Display task deleted\n", millis());
+    LOG("WIFI", "Display task deleted");
   }
 
   // Now safe to delete the mutex since we own it
-  Serial.printf("[%lu] [WIFI] Deleting mutex...\n", millis());
+  LOG("WIFI", "Deleting mutex...");
   vSemaphoreDelete(renderingMutex);
   renderingMutex = nullptr;
-  Serial.printf("[%lu] [WIFI] Mutex deleted\n", millis());
+  LOG("WIFI", "Mutex deleted");
 
-  Serial.printf("[%lu] [WIFI] [MEM] Free heap at onExit end: %d bytes\n", millis(), ESP.getFreeHeap());
+  LOG("WIFI] [MEM", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }
 
 void WifiSelectionActivity::startWifiScan() {
@@ -211,8 +211,7 @@ void WifiSelectionActivity::selectNetwork(const int index) {
     // Use saved password - connect directly
     enteredPassword = savedCred->password;
     usedSavedPassword = true;
-    Serial.printf("[%lu] [WiFi] Using saved password for %s, length: %zu\n", millis(), selectedSSID.c_str(),
-                  enteredPassword.size());
+    LOG("WiFi", "Using saved password for %s, length: %zu", selectedSSID.c_str(), enteredPassword.size());
     attemptConnection();
     return;
   }
