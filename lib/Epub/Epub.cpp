@@ -485,7 +485,15 @@ bool Epub::generateCoverBmp(bool cropped) const {
   std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
     // Fallback: try common cover filenames
-    std::vector<std::string> coverCandidates = {"cover.jpg", "OEBPS/cover.jpg"};
+    std::vector<std::string> coverDirectories = {".", "images", "OEBPS", "OEBPS/Images"};
+    std::vector<std::string> coverExtensions = {".jpg", ".jpeg", ".png"};
+    std::vector<std::string> coverCandidates;
+    for (const auto& dir : coverDirectories) {
+      for (const auto& ext : coverExtensions) {
+        std::string candidate = (dir == ".") ? "cover" + ext : dir + "/cover" + ext;
+        coverCandidates.push_back(candidate);
+      }
+    }
     for (const auto& candidate : coverCandidates) {
       effectiveCoverImageHref = candidate;
       // Try to read a small amount to check if exists
@@ -580,7 +588,16 @@ bool Epub::generateThumbBmp(int height) const {
   std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
     // Fallback: try common cover filenames
-    std::vector<std::string> coverCandidates = {"cover.jpg", "OEBPS/cover.jpg"};
+    std::vector<std::string> coverDirectories = {".", "images", "Images", "OEBPS", "OEBPS/images", "OEBPS/Images"};
+    std::vector<std::string> coverExtensions = {".jpg",
+                                                ".jpeg"};  // add  ".png" when PNG thumbnail support is implemented
+    std::vector<std::string> coverCandidates;
+    for (const auto& ext : coverExtensions) {
+      for (const auto& dir : coverDirectories) {
+        std::string candidate = (dir == ".") ? "cover" + ext : dir + "/cover" + ext;
+        coverCandidates.push_back(candidate);
+      }
+    }
     for (const auto& candidate : coverCandidates) {
       effectiveCoverImageHref = candidate;
       // Try to read a small amount to check if exists
