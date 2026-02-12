@@ -24,6 +24,19 @@ class MyLibraryActivity final : public Activity {
   std::string basepath = "/";
   std::vector<std::string> files;
 
+  // Current selection metadata
+  std::string currentTitle;
+  std::string currentAuthor;
+
+  // Metadata cache (limited size to conserve memory on ESP32)
+  struct CachedMetadata {
+    std::string filename;
+    std::string title;
+    std::string author;
+  };
+  std::vector<CachedMetadata> metadataCache;  // FIFO cache (simple vector)
+  static constexpr size_t MAX_CACHE_ENTRIES = 20;
+
   // Callbacks
   const std::function<void(const std::string& path)> onSelectBook;
   const std::function<void()> onGoHome;
@@ -35,6 +48,7 @@ class MyLibraryActivity final : public Activity {
   // Data loading
   void loadFiles();
   size_t findEntry(const std::string& name) const;
+  void loadCurrentMetadata();
 
  public:
   explicit MyLibraryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

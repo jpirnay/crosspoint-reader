@@ -1,7 +1,10 @@
 #include "MyLibraryActivity.h"
 
+#include <Epub.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <Txt.h>
+#include <Xtc.h>
 
 #include <algorithm>
 
@@ -73,6 +76,7 @@ void MyLibraryActivity::taskTrampoline(void* param) {
 
 void MyLibraryActivity::loadFiles() {
   files.clear();
+  metadataCache.clear();  // Clear cache when changing directories
 
   auto root = Storage.open(basepath.c_str());
   if (!root || !root.isDirectory()) {
@@ -114,6 +118,7 @@ void MyLibraryActivity::onEnter() {
   loadFiles();
 
   selectorIndex = 0;
+  loadCurrentMetadata();
   updateRequired = true;
 
   xTaskCreate(&MyLibraryActivity::taskTrampoline, "MyLibraryActivityTask",
@@ -146,6 +151,7 @@ void MyLibraryActivity::loop() {
     basepath = "/";
     loadFiles();
     selectorIndex = 0;
+    loadCurrentMetadata();
     updateRequired = true;
     return;
   }
@@ -162,6 +168,7 @@ void MyLibraryActivity::loop() {
       basepath += files[selectorIndex].substr(0, files[selectorIndex].length() - 1);
       loadFiles();
       selectorIndex = 0;
+      loadCurrentMetadata();
       updateRequired = true;
     } else {
       onSelectBook(basepath + files[selectorIndex]);
@@ -183,6 +190,7 @@ void MyLibraryActivity::loop() {
         const std::string dirName = oldPath.substr(pos + 1) + "/";
         selectorIndex = findEntry(dirName);
 
+        loadCurrentMetadata();
         updateRequired = true;
       } else {
         onGoHome();
@@ -194,21 +202,25 @@ void MyLibraryActivity::loop() {
 
   buttonNavigator.onNextRelease([this, listSize] {
     selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
+    loadCurrentMetadata();
     updateRequired = true;
   });
 
   buttonNavigator.onPreviousRelease([this, listSize] {
     selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
+    loadCurrentMetadata();
     updateRequired = true;
   });
 
   buttonNavigator.onNextContinuous([this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
+    loadCurrentMetadata();
     updateRequired = true;
   });
 
   buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
+    loadCurrentMetadata();
     updateRequired = true;
   });
 }
@@ -235,7 +247,31 @@ void MyLibraryActivity::render() const {
   auto folderName = basepath == "/" ? "SD card" : basepath.substr(basepath.rfind('/') + 1).c_str();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName);
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  // Status bar showing metadata for selected book
+  int statusBarTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int lineHeight = 20;
+  int statusBarHeight = 0;
+
+  if (!currentTitle.empty() || !currentAuthor.empty()) {
+    int currentY = statusBarTop;
+
+    if (!currentTitle.empty()) {
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, currentY, currentTitle.c_str());
+      currentY += lineHeight;
+      statusBarHeight += lineHeight;
+    }
+
+    if (!currentAuthor.empty()) {
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, currentY, currentAuthor.c_str());
+      currentY += lineHeight;
+      statusBarHeight += lineHeight;
+    }
+
+    // Add some spacing after metadata
+    statusBarHeight += 5;
+  }
+
+  const int contentTop = statusBarTop + statusBarHeight;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
   if (files.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, "No books found");
@@ -256,4 +292,66 @@ size_t MyLibraryActivity::findEntry(const std::string& name) const {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
   return 0;
+}
+
+void MyLibraryActivity::loadCurrentMetadata() {
+  currentTitle.clear();
+  currentAuthor.clear();
+
+  if (files.empty() || selectorIndex >= files.size()) {
+    return;
+  }
+
+  const auto& filename = files[selectorIndex];
+
+  // Skip directories
+  if (filename.back() == '/') {
+    return;
+  }
+
+  // Check cache first (linear search is fine for max 20 entries)
+  for (const auto& cached : metadataCache) {
+    if (cached.filename == filename) {
+      currentTitle = cached.title;
+      currentAuthor = cached.author;
+      return;
+    }
+  }
+
+  // Not in cache - load from file
+  std::string fullPath = basepath;
+  if (fullPath.back() != '/') fullPath += "/";
+  fullPath += filename;
+
+  // Load metadata based on file type
+  if (StringUtils::checkFileExtension(filename, ".epub")) {
+    Epub epub(fullPath, "/.crosspoint");
+    if (epub.load(true, true)) {  // buildIfMissing=true, skipLoadingCss=true
+      currentTitle = epub.getTitle();
+      currentAuthor = epub.getAuthor();
+    }
+  } else if (StringUtils::checkFileExtension(filename, ".xtch") || StringUtils::checkFileExtension(filename, ".xtc")) {
+    Xtc xtc(fullPath, "/.crosspoint");
+    if (xtc.load()) {
+      currentTitle = xtc.getTitle();
+      currentAuthor = xtc.getAuthor();
+    }
+  } else if (StringUtils::checkFileExtension(filename, ".txt") || StringUtils::checkFileExtension(filename, ".md")) {
+    Txt txt(fullPath, "/.crosspoint");
+    if (txt.load()) {
+      currentTitle = txt.getTitle();
+      // TXT files don't have author metadata
+    }
+  }
+
+  // Add to cache if we have metadata
+  if (!currentTitle.empty() || !currentAuthor.empty()) {
+    // If cache is full, evict oldest entry (FIFO - remove first element)
+    if (metadataCache.size() >= MAX_CACHE_ENTRIES) {
+      metadataCache.erase(metadataCache.begin());
+    }
+
+    // Add new entry to end
+    metadataCache.push_back({filename, currentTitle, currentAuthor});
+  }
 }
