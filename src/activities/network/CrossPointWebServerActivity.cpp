@@ -329,8 +329,7 @@ void CrossPointWebServerActivity::loop() {
 
       // Log if there's a significant gap between handleClient calls (>100ms)
       if (lastHandleClientTime > 0 && timeSinceLastHandleClient > 100) {
-        Serial.printf("[%lu] [WEBACT] WARNING: %lu ms gap since last handleClient\n", millis(),
-                      timeSinceLastHandleClient);
+        LOG_DBG("WEBACT", "WARNING: %lu ms gap since last handleClient", timeSinceLastHandleClient);
       }
 
       // Reset watchdog BEFORE processing - HTTP header parsing can be slow

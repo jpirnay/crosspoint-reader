@@ -564,8 +564,7 @@ bool Epub::generateThumbBmp(int height) const {
       LOG_ERR("EBP", "Failed to generate thumb BMP from JPG cover image");
       Storage.remove(getThumbBmpPath(height).c_str());
     }
-    Serial.printf("[%lu] [EBP] Generated thumb BMP from JPG cover image, success: %s\n", millis(),
-                  success ? "yes" : "no");
+    LOG_DBG("EBP", "Generated thumb BMP from JPG cover image, success: %s", success ? "yes" : "no");
     return success;
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
@@ -690,11 +689,10 @@ int Epub::getSpineIndexForTextReference() const {
     LOG_ERR("EBP", "getSpineIndexForTextReference called but cache not loaded");
     return 0;
   }
-  Serial.printf("[%lu] [ERS] Core Metadata: cover(%d)=%s, textReference(%d)=%s\n", millis(),
-                bookMetadataCache->coreMetadata.coverItemHref.size(),
-                bookMetadataCache->coreMetadata.coverItemHref.c_str(),
-                bookMetadataCache->coreMetadata.textReferenceHref.size(),
-                bookMetadataCache->coreMetadata.textReferenceHref.c_str());
+  LOG_DBG("EBP", "Core Metadata: cover(%d)=%s, textReference(%d)=%s",
+          bookMetadataCache->coreMetadata.coverItemHref.size(), bookMetadataCache->coreMetadata.coverItemHref.c_str(),
+          bookMetadataCache->coreMetadata.textReferenceHref.size(),
+          bookMetadataCache->coreMetadata.textReferenceHref.c_str());
 
   if (bookMetadataCache->coreMetadata.textReferenceHref.empty()) {
     // there was no textReference in epub, so we return 0 (the first chapter)
@@ -704,8 +702,8 @@ int Epub::getSpineIndexForTextReference() const {
   // loop through spine items to get the correct index matching the text href
   for (size_t i = 0; i < getSpineItemsCount(); i++) {
     if (getSpineItem(i).href == bookMetadataCache->coreMetadata.textReferenceHref) {
-      Serial.printf("[%lu] [ERS] Text reference %s found at index %d\n", millis(),
-                    bookMetadataCache->coreMetadata.textReferenceHref.c_str(), i);
+      LOG_DBG("EBP", "Text reference %s found at index %d", bookMetadataCache->coreMetadata.textReferenceHref.c_str(),
+              i);
       return i;
     }
   }

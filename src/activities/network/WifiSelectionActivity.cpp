@@ -1,6 +1,7 @@
 #include "WifiSelectionActivity.h"
 
 #include <GfxRenderer.h>
+#include <Logging.h>
 #include <WiFi.h>
 
 #include <map>
@@ -289,10 +290,9 @@ void WifiSelectionActivity::checkConnectionStatus() {
       updateRequired = true;
     } else {
       // Using saved password or open network - complete immediately
-      Serial.printf(
-          "[%lu] [WIFI] Connected with saved/open credentials, "
-          "completing immediately\n",
-          millis());
+      LOG_DBG("WIFI",
+              "Connected with saved/open credentials, "
+              "completing immediately");
       onComplete(true);
     }
     return;

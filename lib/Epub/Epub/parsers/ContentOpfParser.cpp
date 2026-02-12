@@ -119,9 +119,7 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
   if (self->state == IN_PACKAGE && (strcmp(name, "manifest") == 0 || strcmp(name, "opf:manifest") == 0)) {
     self->state = IN_MANIFEST;
     if (!Storage.openFileForWrite("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
-      Serial.printf(
-          "[%lu] [COF] Couldn't open temp items file for writing. This is probably going to be a fatal error.\n",
-          millis());
+      LOG_ERR("COF", "Couldn't open temp items file for writing. This is probably going to be a fatal error.");
     }
     return;
   }
@@ -129,9 +127,7 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
   if (self->state == IN_PACKAGE && (strcmp(name, "spine") == 0 || strcmp(name, "opf:spine") == 0)) {
     self->state = IN_SPINE;
     if (!Storage.openFileForRead("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
-      Serial.printf(
-          "[%lu] [COF] Couldn't open temp items file for reading. This is probably going to be a fatal error.\n",
-          millis());
+      LOG_ERR("COF", "Couldn't open temp items file for reading. This is probably going to be a fatal error.");
     }
 
     // Sort item index for binary search if we have enough items
@@ -150,9 +146,7 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
     // TODO Remove print
     LOG_DBG("COF", "Entering guide state.");
     if (!Storage.openFileForRead("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
-      Serial.printf(
-          "[%lu] [COF] Couldn't open temp items file for reading. This is probably going to be a fatal error.\n",
-          millis());
+      LOG_ERR("COF", "Couldn't open temp items file for reading. This is probably going to be a fatal error.");
     }
     return;
   }
@@ -214,8 +208,7 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       if (self->tocNcxPath.empty()) {
         self->tocNcxPath = href;
       } else {
-        Serial.printf("[%lu] [COF] Warning: Multiple NCX files found in manifest. Ignoring duplicate: %s\n", millis(),
-                      href.c_str());
+        LOG_DBG("COF", "Warning: Multiple NCX files found in manifest. Ignoring duplicate: %s", href.c_str());
       }
     }
 

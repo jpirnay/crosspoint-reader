@@ -265,8 +265,8 @@ void XtcReaderActivity::renderPage() {
         pixelCounts[getPixelValue(x, y)]++;
       }
     }
-    Serial.printf("[%lu] [XTR] Pixel distribution: White=%lu, DarkGrey=%lu, LightGrey=%lu, Black=%lu\n", millis(),
-                  pixelCounts[0], pixelCounts[1], pixelCounts[2], pixelCounts[3]);
+    LOG_DBG("XTR", "Pixel distribution: White=%lu, DarkGrey=%lu, LightGrey=%lu, Black=%lu", pixelCounts[0],
+            pixelCounts[1], pixelCounts[2], pixelCounts[3]);
 
     // Pass 1: BW buffer - draw all non-white pixels as black
     for (uint16_t y = 0; y < pageHeight; y++) {
@@ -329,8 +329,7 @@ void XtcReaderActivity::renderPage() {
 
     free(pageBuffer);
 
-    Serial.printf("[%lu] [XTR] Rendered page %lu/%lu (2-bit grayscale)\n", millis(), currentPage + 1,
-                  xtc->getPageCount());
+    LOG_DBG("XTR", "Rendered page %lu/%lu (2-bit grayscale)", currentPage + 1, xtc->getPageCount());
     return;
   } else {
     // 1-bit mode: 8 pixels per byte, MSB first

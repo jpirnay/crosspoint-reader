@@ -191,8 +191,7 @@ void TxtReaderActivity::initializeReader() {
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
-  Serial.printf("[%lu] [TRS] Viewport: %dx%d, lines per page: %d\n", millis(), viewportWidth, viewportHeight,
-                linesPerPage);
+  LOG_DBG("TRS", "Viewport: %dx%d, lines per page: %d", viewportWidth, viewportHeight, linesPerPage);
 
   // Try to load cached page index first
   if (!loadPageIndexCache()) {
