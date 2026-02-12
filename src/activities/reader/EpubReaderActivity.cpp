@@ -85,7 +85,7 @@ void EpubReaderActivity::onEnter() {
       currentSpineIndex = data[0] + (data[1] << 8);
       nextPageNumber = data[2] + (data[3] << 8);
       cachedSpineIndex = currentSpineIndex;
-      LOG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
+      LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
     }
     if (dataSize == 6) {
       cachedChapterTotalPageCount = data[4] + (data[5] << 8);
@@ -98,7 +98,7 @@ void EpubReaderActivity::onEnter() {
     int textSpineIndex = epub->getSpineIndexForTextReference();
     if (textSpineIndex != 0) {
       currentSpineIndex = textSpineIndex;
-      LOG("ERS", "Opened for first time, navigating to text reference at index %d", textSpineIndex);
+      LOG_DBG("ERS", "Opened for first time, navigating to text reference at index %d", textSpineIndex);
     }
   }
 
@@ -567,7 +567,7 @@ void EpubReaderActivity::renderScreen() {
 
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
-    LOG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
+    LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
     section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
 
     const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
@@ -576,19 +576,19 @@ void EpubReaderActivity::renderScreen() {
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle)) {
-      LOG("ERS", "Cache not found, building...");
+      LOG_DBG("ERS", "Cache not found, building...");
 
       const auto popupFn = [this]() { GUI.drawPopup(renderer, "Indexing..."); };
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, popupFn)) {
-        LOG("ERS", "Failed to persist page data to SD");
+        LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
         return;
       }
     } else {
-      LOG("ERS", "Cache found, skipping build...");
+      LOG_DBG("ERS", "Cache found, skipping build...");
     }
 
     if (nextPageNumber == UINT16_MAX) {
@@ -622,7 +622,7 @@ void EpubReaderActivity::renderScreen() {
   renderer.clearScreen();
 
   if (section->pageCount == 0) {
-    LOG("ERS", "No pages to render");
+    LOG_DBG("ERS", "No pages to render");
     renderer.drawCenteredText(UI_12_FONT_ID, 300, "Empty chapter", true, EpdFontFamily::BOLD);
     renderStatusBar(orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     renderer.displayBuffer();
@@ -630,7 +630,7 @@ void EpubReaderActivity::renderScreen() {
   }
 
   if (section->currentPage < 0 || section->currentPage >= section->pageCount) {
-    LOG("ERS", "Page out of bounds: %d (max %d)", section->currentPage, section->pageCount);
+    LOG_DBG("ERS", "Page out of bounds: %d (max %d)", section->currentPage, section->pageCount);
     renderer.drawCenteredText(UI_12_FONT_ID, 300, "Out of bounds", true, EpdFontFamily::BOLD);
     renderStatusBar(orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     renderer.displayBuffer();
@@ -640,14 +640,14 @@ void EpubReaderActivity::renderScreen() {
   {
     auto p = section->loadPageFromSectionFile();
     if (!p) {
-      LOG("ERS", "Failed to load page from SD - clearing section cache");
+      LOG_DBG("ERS", "Failed to load page from SD - clearing section cache");
       section->clearCache();
       section.reset();
       return renderScreen();
     }
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
-    LOG("ERS", "Rendered page in %dms", millis() - start);
+    LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
 }
@@ -664,9 +664,9 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     data[5] = (pageCount >> 8) & 0xFF;
     f.write(data, 6);
     f.close();
-    LOG("ERS", "Progress saved: Chapter %d, Page %d", spineIndex, currentPage);
+    LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d", spineIndex, currentPage);
   } else {
-    LOG("ERS", "Could not save progress!");
+    LOG_DBG("ERS", "Could not save progress!");
   }
 }
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,

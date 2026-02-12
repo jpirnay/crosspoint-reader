@@ -7,7 +7,7 @@
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
   // Validate iterator bounds before rendering
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
-    LOG("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
+    LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
         (uint32_t)wordXpos.size(), (uint32_t)wordStyles.size());
     return;
   }
@@ -50,7 +50,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
 
 bool TextBlock::serialize(FsFile& file) const {
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
-    LOG("TXB", "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u)\n", words.size(), wordXpos.size(),
+    LOG_ERR("TXB", "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u)\n", words.size(), wordXpos.size(),
         wordStyles.size());
     return false;
   }
@@ -90,7 +90,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
 
   // Sanity check: prevent allocation of unreasonably large lists (max 10000 words per block)
   if (wc > 10000) {
-    LOG("TXB", "Deserialization failed: word count %u exceeds maximum", wc);
+    LOG_ERR("TXB", "Deserialization failed: word count %u exceeds maximum", wc);
     return nullptr;
   }
 

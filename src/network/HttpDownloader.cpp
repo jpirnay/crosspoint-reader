@@ -25,7 +25,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent) {
   }
   HTTPClient http;
 
-  LOG("HTTP", "Fetching: %s", url.c_str());
+  LOG_DBG("HTTP", "Fetching: %s", url.c_str());
 
   http.begin(*client, url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -40,7 +40,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent) {
 
   const int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    LOG("HTTP", "Fetch failed: %d", httpCode);
+    LOG_ERR("HTTP", "Fetch failed: %d", httpCode);
     http.end();
     return false;
   }
@@ -49,7 +49,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent) {
 
   http.end();
 
-  LOG("HTTP", "Fetch success");
+  LOG_DBG("HTTP", "Fetch success");
   return true;
 }
 
@@ -75,8 +75,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
   HTTPClient http;
 
-  LOG("HTTP", "Downloading: %s", url.c_str());
-  LOG("HTTP", "Destination: %s", destPath.c_str());
+  LOG_DBG("HTTP", "Downloading: %s", url.c_str());
+  LOG_DBG("HTTP", "Destination: %s", destPath.c_str());
 
   http.begin(*client, url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -91,13 +91,13 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   const int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    LOG("HTTP", "Download failed: %d", httpCode);
+    LOG_ERR("HTTP", "Download failed: %d", httpCode);
     http.end();
     return HTTP_ERROR;
   }
 
   const size_t contentLength = http.getSize();
-  LOG("HTTP", "Content-Length: %zu", contentLength);
+  LOG_DBG("HTTP", "Content-Length: %zu", contentLength);
 
   // Remove existing file if present
   if (Storage.exists(destPath.c_str())) {
@@ -107,7 +107,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   // Open file for writing
   FsFile file;
   if (!Storage.openFileForWrite("HTTP", destPath.c_str(), file)) {
-    LOG("HTTP", "Failed to open file for writing");
+    LOG_ERR("HTTP", "Failed to open file for writing");
     http.end();
     return FILE_ERROR;
   }
@@ -115,7 +115,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   // Get the stream for chunked reading
   WiFiClient* stream = http.getStreamPtr();
   if (!stream) {
-    LOG("HTTP", "Failed to get stream");
+    LOG_ERR("HTTP", "Failed to get stream");
     file.close();
     Storage.remove(destPath.c_str());
     http.end();
@@ -143,7 +143,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
     const size_t written = file.write(buffer, bytesRead);
     if (written != bytesRead) {
-      LOG("HTTP", "Write failed: wrote %zu of %zu bytes", written, bytesRead);
+      LOG_ERR("HTTP", "Write failed: wrote %zu of %zu bytes", written, bytesRead);
       file.close();
       Storage.remove(destPath.c_str());
       http.end();
@@ -160,11 +160,11 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   file.close();
   http.end();
 
-  LOG("HTTP", "Downloaded %zu bytes", downloaded);
+  LOG_DBG("HTTP", "Downloaded %zu bytes", downloaded);
 
   // Verify download size if known
   if (contentLength > 0 && downloaded != contentLength) {
-    LOG("HTTP", "Size mismatch: got %zu, expected %zu", downloaded, contentLength);
+    LOG_ERR("HTTP", "Size mismatch: got %zu, expected %zu", downloaded, contentLength);
     Storage.remove(destPath.c_str());
     return HTTP_ERROR;
   }

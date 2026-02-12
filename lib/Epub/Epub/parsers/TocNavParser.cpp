@@ -8,7 +8,7 @@
 bool TocNavParser::setup() {
   parser = XML_ParserCreate(nullptr);
   if (!parser) {
-    LOG("NAV", "Couldn't allocate memory for parser");
+    LOG_DBG("NAV", "Couldn't allocate memory for parser");
     return false;
   }
 
@@ -39,7 +39,7 @@ size_t TocNavParser::write(const uint8_t* buffer, const size_t size) {
   while (remainingInBuffer > 0) {
     void* const buf = XML_GetBuffer(parser, 1024);
     if (!buf) {
-      LOG("NAV", "Couldn't allocate memory for buffer");
+      LOG_DBG("NAV", "Couldn't allocate memory for buffer");
       XML_StopParser(parser, XML_FALSE);
       XML_SetElementHandler(parser, nullptr, nullptr);
       XML_SetCharacterDataHandler(parser, nullptr);
@@ -52,7 +52,7 @@ size_t TocNavParser::write(const uint8_t* buffer, const size_t size) {
     memcpy(buf, currentBufferPos, toRead);
 
     if (XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize == toRead) == XML_STATUS_ERROR) {
-      LOG("NAV", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
+      LOG_DBG("NAV", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
           XML_ErrorString(XML_GetErrorCode(parser)));
       XML_StopParser(parser, XML_FALSE);
       XML_SetElementHandler(parser, nullptr, nullptr);
@@ -88,7 +88,7 @@ void XMLCALL TocNavParser::startElement(void* userData, const XML_Char* name, co
     for (int i = 0; atts[i]; i += 2) {
       if ((strcmp(atts[i], "epub:type") == 0 || strcmp(atts[i], "type") == 0) && strcmp(atts[i + 1], "toc") == 0) {
         self->state = IN_NAV_TOC;
-        LOG("NAV", "Found nav toc element");
+        LOG_DBG("NAV", "Found nav toc element");
         return;
       }
     }
@@ -179,7 +179,7 @@ void XMLCALL TocNavParser::endElement(void* userData, const XML_Char* name) {
 
   if (strcmp(name, "nav") == 0 && self->state >= IN_NAV_TOC) {
     self->state = IN_BODY;
-    LOG("NAV", "Finished parsing nav toc");
+    LOG_DBG("NAV", "Finished parsing nav toc");
     return;
   }
 }

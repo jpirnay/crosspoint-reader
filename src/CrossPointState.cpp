@@ -35,7 +35,7 @@ bool CrossPointState::loadFromFile() {
   uint8_t version;
   serialization::readPod(inputFile, version);
   if (version > STATE_FILE_VERSION) {
-    LOG("CPS", "Deserialization failed: Unknown version %u", version);
+    LOG_ERR("CPS", "Deserialization failed: Unknown version %u", version);
     inputFile.close();
     return false;
   }

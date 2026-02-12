@@ -202,8 +202,8 @@ void enterDeepSleep() {
   enterNewActivity(new SleepActivity(renderer, mappedInputManager));
 
   display.deepSleep();
-  LOG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
-  LOG("MAIN", "Entering deep sleep");
+  LOG_DBG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
+  LOG_DBG("MAIN", "Entering deep sleep");
 
   gpio.startDeepSleep();
 }
@@ -256,7 +256,7 @@ void onGoHome() {
 void setupDisplayAndFonts() {
   display.begin();
   renderer.begin();
-  LOG("MAIN", "Display initialized");
+  LOG_DBG("MAIN", "Display initialized");
   renderer.insertFont(BOOKERLY_14_FONT_ID, bookerly14FontFamily);
 #ifndef OMIT_FONTS
   renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);
@@ -275,7 +275,7 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
-  LOG("MAIN", "Fonts setup");
+  LOG_DBG("MAIN", "Fonts setup");
 }
 
 void setup() {
@@ -296,7 +296,7 @@ void setup() {
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
-    LOG("MAIN", "SD card initialization failed");
+    LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts();
     exitActivity();
     enterNewActivity(new FullScreenMessageActivity(renderer, mappedInputManager, "SD card error", EpdFontFamily::BOLD));
@@ -311,12 +311,12 @@ void setup() {
   switch (gpio.getWakeupReason()) {
     case HalGPIO::WakeupReason::PowerButton:
       // For normal wakeups, verify power button press duration
-      LOG("MAIN", "Verifying power button press duration");
+      LOG_DBG("MAIN", "Verifying power button press duration");
       verifyPowerButtonDuration();
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
-      LOG("MAIN", "Wakeup reason: After USB Power");
+      LOG_DBG("MAIN", "Wakeup reason: After USB Power");
       gpio.startDeepSleep();
       break;
     case HalGPIO::WakeupReason::AfterFlash:
@@ -327,7 +327,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
+  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
 
   setupDisplayAndFonts();
 
@@ -365,7 +365,7 @@ void loop() {
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   if (Serial && millis() - lastMemPrint >= 10000) {
-    LOG("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes", ESP.getFreeHeap(), ESP.getHeapSize(),
+    LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes", ESP.getFreeHeap(), ESP.getHeapSize(),
         ESP.getMinFreeHeap());
     lastMemPrint = millis();
   }
@@ -378,7 +378,7 @@ void loop() {
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (millis() - lastActivityTime >= sleepTimeoutMs) {
-    LOG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
+    LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep();
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
     return;
@@ -400,7 +400,7 @@ void loop() {
   if (loopDuration > maxLoopDuration) {
     maxLoopDuration = loopDuration;
     if (maxLoopDuration > 50) {
-      LOG("LOOP", "New max loop duration: %lu ms (activity: %lu ms)", maxLoopDuration, activityDuration);
+      LOG_DBG("LOOP", "New max loop duration: %lu ms (activity: %lu ms)", maxLoopDuration, activityDuration);
     }
   }
 

@@ -37,7 +37,7 @@ void CrossPointWebServerActivity::taskTrampoline(void* param) {
 void CrossPointWebServerActivity::onEnter() {
   ActivityWithSubactivity::onEnter();
 
-  LOG("WEBACT] [MEM", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT] [MEM", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
 
   renderingMutex = xSemaphoreCreateMutex();
 
@@ -58,7 +58,7 @@ void CrossPointWebServerActivity::onEnter() {
   );
 
   // Launch network mode selection subactivity
-  LOG("WEBACT", "Launching NetworkModeSelectionActivity...");
+  LOG_DBG("WEBACT", "Launching NetworkModeSelectionActivity...");
   enterNewActivity(new NetworkModeSelectionActivity(
       renderer, mappedInput, [this](const NetworkMode mode) { onNetworkModeSelected(mode); },
       [this]() { onGoBack(); }  // Cancel goes back to home
@@ -68,7 +68,7 @@ void CrossPointWebServerActivity::onEnter() {
 void CrossPointWebServerActivity::onExit() {
   ActivityWithSubactivity::onExit();
 
-  LOG("WEBACT] [MEM", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT] [MEM", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
   state = WebServerActivityState::SHUTTING_DOWN;
 
@@ -80,7 +80,7 @@ void CrossPointWebServerActivity::onExit() {
 
   // Stop DNS server if running (AP mode)
   if (dnsServer) {
-    LOG("WEBACT", "Stopping DNS server...");
+    LOG_DBG("WEBACT", "Stopping DNS server...");
     dnsServer->stop();
     delete dnsServer;
     dnsServer = nullptr;
@@ -91,39 +91,39 @@ void CrossPointWebServerActivity::onExit() {
 
   // Disconnect WiFi gracefully
   if (isApMode) {
-    LOG("WEBACT", "Stopping WiFi AP...");
+    LOG_DBG("WEBACT", "Stopping WiFi AP...");
     WiFi.softAPdisconnect(true);
   } else {
-    LOG("WEBACT", "Disconnecting WiFi (graceful)...");
+    LOG_DBG("WEBACT", "Disconnecting WiFi (graceful)...");
     WiFi.disconnect(false);  // false = don't erase credentials, send disconnect frame
   }
   delay(30);  // Allow disconnect frame to be sent
 
-  LOG("WEBACT", "Setting WiFi mode OFF...");
+  LOG_DBG("WEBACT", "Setting WiFi mode OFF...");
   WiFi.mode(WIFI_OFF);
   delay(30);  // Allow WiFi hardware to power down
 
-  LOG("WEBACT] [MEM", "Free heap after WiFi disconnect: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT] [MEM", "Free heap after WiFi disconnect: %d bytes", ESP.getFreeHeap());
 
   // Acquire mutex before deleting task
-  LOG("WEBACT", "Acquiring rendering mutex before task deletion...");
+  LOG_DBG("WEBACT", "Acquiring rendering mutex before task deletion...");
   xSemaphoreTake(renderingMutex, portMAX_DELAY);
 
   // Delete the display task
-  LOG("WEBACT", "Deleting display task...");
+  LOG_DBG("WEBACT", "Deleting display task...");
   if (displayTaskHandle) {
     vTaskDelete(displayTaskHandle);
     displayTaskHandle = nullptr;
-    LOG("WEBACT", "Display task deleted");
+    LOG_DBG("WEBACT", "Display task deleted");
   }
 
   // Delete the mutex
-  LOG("WEBACT", "Deleting mutex...");
+  LOG_DBG("WEBACT", "Deleting mutex...");
   vSemaphoreDelete(renderingMutex);
   renderingMutex = nullptr;
-  LOG("WEBACT", "Mutex deleted");
+  LOG_DBG("WEBACT", "Mutex deleted");
 
-  LOG("WEBACT] [MEM", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT] [MEM", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
@@ -133,7 +133,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   } else if (mode == NetworkMode::CREATE_HOTSPOT) {
     modeName = "Create Hotspot";
   }
-  LOG("WEBACT", "Network mode selected: %s", modeName);
+  LOG_DBG("WEBACT", "Network mode selected: %s", modeName);
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
@@ -155,11 +155,11 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 
   if (mode == NetworkMode::JOIN_NETWORK) {
     // STA mode - launch WiFi selection
-    LOG("WEBACT", "Turning on WiFi (STA mode)...");
+    LOG_DBG("WEBACT", "Turning on WiFi (STA mode)...");
     WiFi.mode(WIFI_STA);
 
     state = WebServerActivityState::WIFI_SELECTION;
-    LOG("WEBACT", "Launching WifiSelectionActivity...");
+    LOG_DBG("WEBACT", "Launching WifiSelectionActivity...");
     enterNewActivity(new WifiSelectionActivity(renderer, mappedInput,
                                                [this](const bool connected) { onWifiSelectionComplete(connected); }));
   } else {
@@ -171,7 +171,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 }
 
 void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) {
-  LOG("WEBACT", "WifiSelectionActivity completed, connected=%d", connected);
+  LOG_DBG("WEBACT", "WifiSelectionActivity completed, connected=%d", connected);
 
   if (connected) {
     // Get connection info before exiting subactivity
@@ -183,7 +183,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
 
     // Start mDNS for hostname resolution
     if (MDNS.begin(AP_HOSTNAME)) {
-      LOG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
+      LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
     }
 
     // Start the web server
@@ -199,8 +199,8 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
 }
 
 void CrossPointWebServerActivity::startAccessPoint() {
-  LOG("WEBACT", "Starting Access Point mode...");
-  LOG("WEBACT] [MEM", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Starting Access Point mode...");
+  LOG_DBG("WEBACT] [MEM", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
 
   // Configure and start the AP
   WiFi.mode(WIFI_AP);
@@ -216,7 +216,7 @@ void CrossPointWebServerActivity::startAccessPoint() {
   }
 
   if (!apStarted) {
-    LOG("WEBACT", "ERROR: Failed to start Access Point!");
+    LOG_ERR("WEBACT", "ERROR: Failed to start Access Point!");
     onGoBack();
     return;
   }
@@ -230,15 +230,15 @@ void CrossPointWebServerActivity::startAccessPoint() {
   connectedIP = ipStr;
   connectedSSID = AP_SSID;
 
-  LOG("WEBACT", "Access Point started!");
-  LOG("WEBACT", "SSID: %s", AP_SSID);
-  LOG("WEBACT", "IP: %s", connectedIP.c_str());
+  LOG_DBG("WEBACT", "Access Point started!");
+  LOG_DBG("WEBACT", "SSID: %s", AP_SSID);
+  LOG_DBG("WEBACT", "IP: %s", connectedIP.c_str());
 
   // Start mDNS for hostname resolution
   if (MDNS.begin(AP_HOSTNAME)) {
-    LOG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
+    LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
   } else {
-    LOG("WEBACT", "WARNING: mDNS failed to start");
+    LOG_DBG("WEBACT", "WARNING: mDNS failed to start");
   }
 
   // Start DNS server for captive portal behavior
@@ -246,16 +246,16 @@ void CrossPointWebServerActivity::startAccessPoint() {
   dnsServer = new DNSServer();
   dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer->start(DNS_PORT, "*", apIP);
-  LOG("WEBACT", "DNS server started for captive portal");
+  LOG_DBG("WEBACT", "DNS server started for captive portal");
 
-  LOG("WEBACT] [MEM", "Free heap after AP start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT] [MEM", "Free heap after AP start: %d bytes", ESP.getFreeHeap());
 
   // Start the web server
   startWebServer();
 }
 
 void CrossPointWebServerActivity::startWebServer() {
-  LOG("WEBACT", "Starting web server...");
+  LOG_DBG("WEBACT", "Starting web server...");
 
   // Create the web server instance
   webServer.reset(new CrossPointWebServer());
@@ -263,16 +263,16 @@ void CrossPointWebServerActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
-    LOG("WEBACT", "Web server started successfully");
+    LOG_DBG("WEBACT", "Web server started successfully");
 
     // Force an immediate render since we're transitioning from a subactivity
     // that had its own rendering task. We need to make sure our display is shown.
     xSemaphoreTake(renderingMutex, portMAX_DELAY);
     render();
     xSemaphoreGive(renderingMutex);
-    LOG("WEBACT", "Rendered File Transfer screen");
+    LOG_DBG("WEBACT", "Rendered File Transfer screen");
   } else {
-    LOG("WEBACT", "ERROR: Failed to start web server!");
+    LOG_ERR("WEBACT", "ERROR: Failed to start web server!");
     webServer.reset();
     // Go back on error
     onGoBack();
@@ -281,9 +281,9 @@ void CrossPointWebServerActivity::startWebServer() {
 
 void CrossPointWebServerActivity::stopWebServer() {
   if (webServer && webServer->isRunning()) {
-    LOG("WEBACT", "Stopping web server...");
+    LOG_DBG("WEBACT", "Stopping web server...");
     webServer->stop();
-    LOG("WEBACT", "Web server stopped");
+    LOG_DBG("WEBACT", "Web server stopped");
   }
   webServer.reset();
 }
@@ -309,7 +309,7 @@ void CrossPointWebServerActivity::loop() {
         lastWifiCheck = millis();
         const wl_status_t wifiStatus = WiFi.status();
         if (wifiStatus != WL_CONNECTED) {
-          LOG("WEBACT", "WiFi disconnected! Status: %d", wifiStatus);
+          LOG_DBG("WEBACT", "WiFi disconnected! Status: %d", wifiStatus);
           // Show error and exit gracefully
           state = WebServerActivityState::SHUTTING_DOWN;
           updateRequired = true;
@@ -318,7 +318,7 @@ void CrossPointWebServerActivity::loop() {
         // Log weak signal warnings
         const int rssi = WiFi.RSSI();
         if (rssi < -75) {
-          LOG("WEBACT", "Warning: Weak WiFi signal: %d dBm", rssi);
+          LOG_DBG("WEBACT", "Warning: Weak WiFi signal: %d dBm", rssi);
         }
       }
     }
@@ -401,7 +401,7 @@ void drawQRCode(const GfxRenderer& renderer, const int x, const int y, const std
   // The structure to manage the QR code
   QRCode qrcode;
   uint8_t qrcodeBytes[qrcode_getBufferSize(4)];
-  LOG("WEBACT", "QR Code (%lu): %s", data.length(), data.c_str());
+  LOG_DBG("WEBACT", "QR Code (%lu): %s", data.length(), data.c_str());
 
   qrcode_initText(&qrcode, qrcodeBytes, 4, ECC_LOW, data.c_str());
   const uint8_t px = 6;  // pixels per module

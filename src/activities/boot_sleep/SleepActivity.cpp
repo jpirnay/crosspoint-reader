@@ -50,13 +50,13 @@ void SleepActivity::renderCustomSleepScreen() const {
       }
 
       if (filename.substr(filename.length() - 4) != ".bmp") {
-        LOG("SLP", "Skipping non-.bmp file name: %s", name);
+        LOG_DBG("SLP", "Skipping non-.bmp file name: %s", name);
         file.close();
         continue;
       }
       Bitmap bitmap(file);
       if (bitmap.parseHeaders() != BmpReaderError::Ok) {
-        LOG("SLP", "Skipping invalid BMP file: %s", name);
+        LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
         file.close();
         continue;
       }
@@ -76,7 +76,7 @@ void SleepActivity::renderCustomSleepScreen() const {
       const auto filename = "/sleep/" + files[randomFileIndex];
       FsFile file;
       if (Storage.openFileForRead("SLP", filename, file)) {
-        LOG("SLP", "Randomly loading: /sleep/%s", files[randomFileIndex].c_str());
+        LOG_DBG("SLP", "Randomly loading: /sleep/%s", files[randomFileIndex].c_str());
         delay(100);
         Bitmap bitmap(file, true);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
@@ -95,7 +95,7 @@ void SleepActivity::renderCustomSleepScreen() const {
   if (Storage.openFileForRead("SLP", "/sleep.bmp", file)) {
     Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      LOG("SLP", "Loading: /sleep.bmp");
+      LOG_DBG("SLP", "Loading: /sleep.bmp");
       renderBitmapSleepScreen(bitmap);
       return;
     }
@@ -127,33 +127,33 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   const auto pageHeight = renderer.getScreenHeight();
   float cropX = 0, cropY = 0;
 
-  LOG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+  LOG_DBG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
     // image will scale, make sure placement is right
     float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
     const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(pageHeight);
 
-    LOG("SLP", "bitmap ratio: %f, screen ratio: %f", ratio, screenRatio);
+    LOG_DBG("SLP", "bitmap ratio: %f, screen ratio: %f", ratio, screenRatio);
     if (ratio > screenRatio) {
       // image wider than viewport ratio, scaled down image needs to be centered vertically
       if (SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP) {
         cropX = 1.0f - (screenRatio / ratio);
-        LOG("SLP", "Cropping bitmap x: %f", cropX);
+        LOG_DBG("SLP", "Cropping bitmap x: %f", cropX);
         ratio = (1.0f - cropX) * static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
       }
       x = 0;
       y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
-      LOG("SLP", "Centering with ratio %f to y=%d", ratio, y);
+      LOG_DBG("SLP", "Centering with ratio %f to y=%d", ratio, y);
     } else {
       // image taller than viewport ratio, scaled down image needs to be centered horizontally
       if (SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP) {
         cropY = 1.0f - (ratio / screenRatio);
-        LOG("SLP", "Cropping bitmap y: %f", cropY);
+        LOG_DBG("SLP", "Cropping bitmap y: %f", cropY);
         ratio = static_cast<float>(bitmap.getWidth()) / ((1.0f - cropY) * static_cast<float>(bitmap.getHeight()));
       }
       x = std::round((static_cast<float>(pageWidth) - static_cast<float>(pageHeight) * ratio) / 2);
       y = 0;
-      LOG("SLP", "Centering with ratio %f to x=%d", ratio, x);
+      LOG_DBG("SLP", "Centering with ratio %f to x=%d", ratio, x);
     }
   } else {
     // center the image
@@ -161,7 +161,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     y = (pageHeight - bitmap.getHeight()) / 2;
   }
 
-  LOG("SLP", "drawing to %d x %d", x, y);
+  LOG_DBG("SLP", "drawing to %d x %d", x, y);
   renderer.clearScreen();
 
   const bool hasGreyscale = bitmap.hasGreyscale() &&
@@ -217,12 +217,12 @@ void SleepActivity::renderCoverSleepScreen() const {
     // Handle XTC file
     Xtc lastXtc(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastXtc.load()) {
-      LOG("SLP", "Failed to load last XTC");
+      LOG_ERR("SLP", "Failed to load last XTC");
       return (this->*renderNoCoverSleepScreen)();
     }
 
     if (!lastXtc.generateCoverBmp()) {
-      LOG("SLP", "Failed to generate XTC cover bmp");
+      LOG_ERR("SLP", "Failed to generate XTC cover bmp");
       return (this->*renderNoCoverSleepScreen)();
     }
 
@@ -231,12 +231,12 @@ void SleepActivity::renderCoverSleepScreen() const {
     // Handle TXT file - looks for cover image in the same folder
     Txt lastTxt(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastTxt.load()) {
-      LOG("SLP", "Failed to load last TXT");
+      LOG_ERR("SLP", "Failed to load last TXT");
       return (this->*renderNoCoverSleepScreen)();
     }
 
     if (!lastTxt.generateCoverBmp()) {
-      LOG("SLP", "No cover image found for TXT file");
+      LOG_ERR("SLP", "No cover image found for TXT file");
       return (this->*renderNoCoverSleepScreen)();
     }
 
@@ -246,12 +246,12 @@ void SleepActivity::renderCoverSleepScreen() const {
     Epub lastEpub(APP_STATE.openEpubPath, "/.crosspoint");
     // Skip loading css since we only need metadata here
     if (!lastEpub.load(true, true)) {
-      LOG("SLP", "Failed to load last epub");
+      LOG_ERR("SLP", "Failed to load last epub");
       return (this->*renderNoCoverSleepScreen)();
     }
 
     if (!lastEpub.generateCoverBmp(cropped)) {
-      LOG("SLP", "Failed to generate cover bmp");
+      LOG_ERR("SLP", "Failed to generate cover bmp");
       return (this->*renderNoCoverSleepScreen)();
     }
 
@@ -264,7 +264,7 @@ void SleepActivity::renderCoverSleepScreen() const {
   if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
     Bitmap bitmap(file);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      LOG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
+      LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
       renderBitmapSleepScreen(bitmap);
       return;
     }

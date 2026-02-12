@@ -168,7 +168,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       }
     }
 
-    LOG("EHP", "Image alt: %s", alt.c_str());
+    LOG_DBG("EHP", "Image alt: %s", alt.c_str());
 
     self->startNewTextBlock(centeredBlockStyle);
     self->italicUntilDepth = min(self->italicUntilDepth, self->depth);
@@ -386,7 +386,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // memory.
   // Spotted when reading Intermezzo, there are some really long text blocks in there.
   if (self->currentTextBlock->size() > 750) {
-    LOG("EHP", "Text block too long, splitting into multiple pages");
+    LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
     self->currentTextBlock->layoutAndExtractLines(
         self->renderer, self->fontId, self->viewportWidth,
         [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); }, false);
@@ -477,7 +477,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   int done;
 
   if (!parser) {
-    LOG("EHP", "Couldn't allocate memory for parser");
+    LOG_ERR("EHP", "Couldn't allocate memory for parser");
     return false;
   }
 
@@ -499,7 +499,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   do {
     void* const buf = XML_GetBuffer(parser, 1024);
     if (!buf) {
-      LOG("EHP", "Couldn't allocate memory for buffer");
+      LOG_ERR("EHP", "Couldn't allocate memory for buffer");
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
       XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
       XML_SetCharacterDataHandler(parser, nullptr);
@@ -511,7 +511,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     const size_t len = file.read(buf, 1024);
 
     if (len == 0 && file.available() > 0) {
-      LOG("EHP", "File read error");
+      LOG_ERR("EHP", "File read error");
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
       XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
       XML_SetCharacterDataHandler(parser, nullptr);
@@ -523,7 +523,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     done = file.available() == 0;
 
     if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
-      LOG("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
+      LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
           XML_ErrorString(XML_GetErrorCode(parser)));
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
       XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
@@ -568,7 +568,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
 
 void ChapterHtmlSlimParser::makePages() {
   if (!currentTextBlock) {
-    LOG("EHP", "!! No text block to make pages for !!");
+    LOG_ERR("EHP", "!! No text block to make pages for !!");
     return;
   }
 

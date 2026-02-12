@@ -60,7 +60,7 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
       auto pl = PageLine::deserialize(file);
       page->elements.push_back(std::move(pl));
     } else {
-      LOG("PGE", "Deserialization failed: Unknown tag %u", tag);
+      LOG_ERR("PGE", "Deserialization failed: Unknown tag %u", tag);
       return nullptr;
     }
   }

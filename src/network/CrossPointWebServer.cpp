@@ -45,7 +45,7 @@ void clearEpubCacheIfNeeded(const String& filePath) {
   // Only clear cache for .epub files
   if (StringUtils::checkFileExtension(filePath, ".epub")) {
     Epub(filePath.c_str(), "/.crosspoint").clearCache();
-    LOG("WEB", "Cleared epub cache for: %s", filePath.c_str());
+    LOG_DBG("WEB", "Cleared epub cache for: %s", filePath.c_str());
   }
 }
 
@@ -90,7 +90,7 @@ CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
 void CrossPointWebServer::begin() {
   if (running) {
-    LOG("WEB", "Web server already running");
+    LOG_DBG("WEB", "Web server already running");
     return;
   }
 
@@ -100,17 +100,17 @@ void CrossPointWebServer::begin() {
   const bool isInApMode = (wifiMode & WIFI_MODE_AP) && (WiFi.softAPgetStationNum() >= 0);  // AP is running
 
   if (!isStaConnected && !isInApMode) {
-    LOG("WEB", "Cannot start webserver - no valid network (mode=%d, status=%d)", wifiMode, WiFi.status());
+    LOG_DBG("WEB", "Cannot start webserver - no valid network (mode=%d, status=%d)", wifiMode, WiFi.status());
     return;
   }
 
   // Store AP mode flag for later use (e.g., in handleStatus)
   apMode = isInApMode;
 
-  LOG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
-  LOG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
+  LOG_DBG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
-  LOG("WEB", "Creating web server on port %d...", port);
+  LOG_DBG("WEB", "Creating web server on port %d...", port);
   server.reset(new WebServer(port));
 
   // Disable WiFi sleep to improve responsiveness and prevent 'unreachable' errors.
@@ -120,15 +120,15 @@ void CrossPointWebServer::begin() {
   // Note: WebServer class doesn't have setNoDelay() in the standard ESP32 library.
   // We rely on disabling WiFi sleep for responsiveness.
 
-  LOG("WEB", "[MEM] Free heap after WebServer allocation: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap after WebServer allocation: %d bytes", ESP.getFreeHeap());
 
   if (!server) {
-    LOG("WEB", "Failed to create WebServer!");
+    LOG_DBG("WEB", "Failed to create WebServer!");
     return;
   }
 
   // Setup routes
-  LOG("WEB", "Setting up routes...");
+  LOG_DBG("WEB", "Setting up routes...");
   server->on("/", HTTP_GET, [this] { handleRoot(); });
   server->on("/files", HTTP_GET, [this] { handleFileList(); });
 
@@ -157,41 +157,41 @@ void CrossPointWebServer::begin() {
   server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
 
   server->onNotFound([this] { handleNotFound(); });
-  LOG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
 
   server->begin();
 
   // Start WebSocket server for fast binary uploads
-  LOG("WEB", "Starting WebSocket server on port %d...", wsPort);
+  LOG_DBG("WEB", "Starting WebSocket server on port %d...", wsPort);
   wsServer.reset(new WebSocketsServer(wsPort));
   wsInstance = const_cast<CrossPointWebServer*>(this);
   wsServer->begin();
   wsServer->onEvent(wsEventCallback);
-  LOG("WEB", "WebSocket server started");
+  LOG_DBG("WEB", "WebSocket server started");
 
   udpActive = udp.begin(LOCAL_UDP_PORT);
-  LOG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+  LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
 
   running = true;
 
-  LOG("WEB", "Web server started on port %d", port);
+  LOG_DBG("WEB", "Web server started on port %d", port);
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
-  LOG("WEB", "Access at http://%s/", ipAddr.c_str());
-  LOG("WEB", "WebSocket at ws://%s:%d/", ipAddr.c_str(), wsPort);
-  LOG("WEB", "[MEM] Free heap after server.begin(): %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "Access at http://%s/", ipAddr.c_str());
+  LOG_DBG("WEB", "WebSocket at ws://%s:%d/", ipAddr.c_str(), wsPort);
+  LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %d bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServer::stop() {
   if (!running || !server) {
-    LOG("WEB", "stop() called but already stopped (running=%d, server=%p)", running, server.get());
+    LOG_DBG("WEB", "stop() called but already stopped (running=%d, server=%p)", running, server.get());
     return;
   }
 
-  LOG("WEB", "STOP INITIATED - setting running=false first");
+  LOG_DBG("WEB", "STOP INITIATED - setting running=false first");
   running = false;  // Set this FIRST to prevent handleClient from using server
 
-  LOG("WEB", "[MEM] Free heap before stop: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap before stop: %d bytes", ESP.getFreeHeap());
 
   // Close any in-progress WebSocket upload
   if (wsUploadInProgress && wsUploadFile) {
@@ -201,11 +201,11 @@ void CrossPointWebServer::stop() {
 
   // Stop WebSocket server
   if (wsServer) {
-    LOG("WEB", "Stopping WebSocket server...");
+    LOG_DBG("WEB", "Stopping WebSocket server...");
     wsServer->close();
     wsServer.reset();
     wsInstance = nullptr;
-    LOG("WEB", "WebSocket server stopped");
+    LOG_DBG("WEB", "WebSocket server stopped");
   }
 
   if (udpActive) {
@@ -217,18 +217,18 @@ void CrossPointWebServer::stop() {
   delay(20);
 
   server->stop();
-  LOG("WEB", "[MEM] Free heap after server->stop(): %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap after server->stop(): %d bytes", ESP.getFreeHeap());
 
   // Brief delay before deletion
   delay(10);
 
   server.reset();
-  LOG("WEB", "Web server stopped and deleted");
-  LOG("WEB", "[MEM] Free heap after delete server: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "Web server stopped and deleted");
+  LOG_DBG("WEB", "[MEM] Free heap after delete server: %d bytes", ESP.getFreeHeap());
 
   // Note: Static upload variables (uploadFileName, uploadPath, uploadError) are declared
   // later in the file and will be cleared when they go out of scope or on next upload
-  LOG("WEB", "[MEM] Free heap final: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap final: %d bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServer::handleClient() {
@@ -241,13 +241,13 @@ void CrossPointWebServer::handleClient() {
 
   // Double-check server pointer is valid
   if (!server) {
-    LOG("WEB", "WARNING: handleClient called with null server!");
+    LOG_DBG("WEB", "WARNING: handleClient called with null server!");
     return;
   }
 
   // Print debug every 10 seconds to confirm handleClient is being called
   if (millis() - lastDebugPrint > 10000) {
-    LOG("WEB", "handleClient active, server running on port %d", port);
+    LOG_DBG("WEB", "handleClient active, server running on port %d", port);
     lastDebugPrint = millis();
   }
 
@@ -295,7 +295,7 @@ CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() con
 
 void CrossPointWebServer::handleRoot() const {
   server->send(200, "text/html", HomePageHtml);
-  LOG("WEB", "Served root page");
+  LOG_DBG("WEB", "Served root page");
 }
 
 void CrossPointWebServer::handleNotFound() const {
@@ -324,17 +324,17 @@ void CrossPointWebServer::handleStatus() const {
 void CrossPointWebServer::scanFiles(const char* path, const std::function<void(FileInfo)>& callback) const {
   FsFile root = Storage.open(path);
   if (!root) {
-    LOG("WEB", "Failed to open directory: %s", path);
+    LOG_DBG("WEB", "Failed to open directory: %s", path);
     return;
   }
 
   if (!root.isDirectory()) {
-    LOG("WEB", "Not a directory: %s", path);
+    LOG_DBG("WEB", "Not a directory: %s", path);
     root.close();
     return;
   }
 
-  LOG("WEB", "Scanning files in: %s", path);
+  LOG_DBG("WEB", "Scanning files in: %s", path);
 
   FsFile file = root.openNextFile();
   char name[500];
@@ -420,7 +420,7 @@ void CrossPointWebServer::handleFileListData() const {
     const size_t written = serializeJson(doc, output, outputSize);
     if (written >= outputSize) {
       // JSON output truncated; skip this entry to avoid sending malformed JSON
-      LOG("WEB", "Skipping file entry with oversized JSON for name: %s", info.name.c_str());
+      LOG_DBG("WEB", "Skipping file entry with oversized JSON for name: %s", info.name.c_str());
       return;
     }
 
@@ -434,7 +434,7 @@ void CrossPointWebServer::handleFileListData() const {
   server->sendContent("]");
   // End of streamed response, empty chunk to signal client
   server->sendContent("");
-  LOG("WEB", "Served file listing page for path: %s", currentPath.c_str());
+  LOG_DBG("WEB", "Served file listing page for path: %s", currentPath.c_str());
 }
 
 void CrossPointWebServer::handleDownload() const {
@@ -515,7 +515,7 @@ static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
     esp_task_wdt_reset();  // Reset watchdog after SD write
 
     if (written != state.bufferPos) {
-      LOG("WEB", "[UPLOAD] Buffer flush failed: expected %d, wrote %d", state.bufferPos, written);
+      LOG_DBG("WEB", "[UPLOAD] Buffer flush failed: expected %d, wrote %d", state.bufferPos, written);
       state.bufferPos = 0;
       return false;
     }
@@ -532,7 +532,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 
   // Safety check: ensure server is still valid
   if (!running || !server) {
-    LOG("WEB", "[UPLOAD] ERROR: handleUpload called but server not running!");
+    LOG_DBG("WEB", "[UPLOAD] ERROR: handleUpload called but server not running!");
     return;
   }
 
@@ -569,8 +569,8 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       state.path = "/";
     }
 
-    LOG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
-    LOG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
+    LOG_DBG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
+    LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
 
     // Create file path
     String filePath = state.path;
@@ -580,7 +580,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     // Check if file already exists - SD operations can be slow
     esp_task_wdt_reset();
     if (Storage.exists(filePath.c_str())) {
-      LOG("WEB", "[UPLOAD] Overwriting existing file: %s", filePath.c_str());
+      LOG_DBG("WEB", "[UPLOAD] Overwriting existing file: %s", filePath.c_str());
       esp_task_wdt_reset();
       Storage.remove(filePath.c_str());
     }
@@ -589,12 +589,12 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     esp_task_wdt_reset();
     if (!Storage.openFileForWrite("WEB", filePath, state.file)) {
       state.error = "Failed to create file on SD card";
-      LOG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
+      LOG_DBG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
       return;
     }
     esp_task_wdt_reset();
 
-    LOG("WEB", "[UPLOAD] File created successfully: %s", filePath.c_str());
+    LOG_DBG("WEB", "[UPLOAD] File created successfully: %s", filePath.c_str());
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     if (state.file && state.error.isEmpty()) {
       // Buffer incoming data and flush when buffer is full
@@ -627,7 +627,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       if (state.size - lastLoggedSize >= 102400) {
         const unsigned long elapsed = millis() - uploadStartTime;
         const float kbps = (elapsed > 0) ? (state.size / 1024.0) / (elapsed / 1000.0) : 0;
-        LOG("WEB", "[UPLOAD] %d bytes (%.1f KB), %.1f KB/s, %d writes", state.size, state.size / 1024.0, kbps,
+        LOG_DBG("WEB", "[UPLOAD] %d bytes (%.1f KB), %.1f KB/s, %d writes", state.size, state.size / 1024.0, kbps,
             writeCount);
         lastLoggedSize = state.size;
       }
@@ -645,9 +645,9 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         const unsigned long elapsed = millis() - uploadStartTime;
         const float avgKbps = (elapsed > 0) ? (state.size / 1024.0) / (elapsed / 1000.0) : 0;
         const float writePercent = (elapsed > 0) ? (totalWriteTime * 100.0 / elapsed) : 0;
-        LOG("WEB", "[UPLOAD] Complete: %s (%d bytes in %lu ms, avg %.1f KB/s)", state.fileName.c_str(), state.size,
+        LOG_DBG("WEB", "[UPLOAD] Complete: %s (%d bytes in %lu ms, avg %.1f KB/s)", state.fileName.c_str(), state.size,
             elapsed, avgKbps);
-        LOG("WEB", "[UPLOAD] Diagnostics: %d writes, total write time: %lu ms (%.1f%%)", writeCount, totalWriteTime,
+        LOG_DBG("WEB", "[UPLOAD] Diagnostics: %d writes, total write time: %lu ms (%.1f%%)", writeCount, totalWriteTime,
             writePercent);
 
         // Clear epub cache to prevent stale metadata issues when overwriting files
@@ -668,7 +668,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       Storage.remove(filePath.c_str());
     }
     state.error = "Upload aborted";
-    LOG("WEB", "Upload aborted");
+    LOG_DBG("WEB", "Upload aborted");
   }
 }
 
@@ -713,7 +713,7 @@ void CrossPointWebServer::handleCreateFolder() const {
   if (!folderPath.endsWith("/")) folderPath += "/";
   folderPath += folderName;
 
-  LOG("WEB", "Creating folder: %s", folderPath.c_str());
+  LOG_DBG("WEB", "Creating folder: %s", folderPath.c_str());
 
   // Check if already exists
   if (Storage.exists(folderPath.c_str())) {
@@ -723,10 +723,10 @@ void CrossPointWebServer::handleCreateFolder() const {
 
   // Create the folder
   if (Storage.mkdir(folderPath.c_str())) {
-    LOG("WEB", "Folder created successfully: %s", folderPath.c_str());
+    LOG_DBG("WEB", "Folder created successfully: %s", folderPath.c_str());
     server->send(200, "text/plain", "Folder created: " + folderName);
   } else {
-    LOG("WEB", "Failed to create folder: %s", folderPath.c_str());
+    LOG_DBG("WEB", "Failed to create folder: %s", folderPath.c_str());
     server->send(500, "text/plain", "Failed to create folder");
   }
 }
@@ -805,10 +805,10 @@ void CrossPointWebServer::handleRename() const {
   file.close();
 
   if (success) {
-    LOG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
     server->send(200, "text/plain", "Renamed successfully");
   } else {
-    LOG("WEB", "Failed to rename file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    LOG_DBG("WEB", "Failed to rename file: %s -> %s", itemPath.c_str(), newPath.c_str());
     server->send(500, "text/plain", "Failed to rename file");
   }
 }
@@ -898,10 +898,10 @@ void CrossPointWebServer::handleMove() const {
   file.close();
 
   if (success) {
-    LOG("WEB", "Moved file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    LOG_DBG("WEB", "Moved file: %s -> %s", itemPath.c_str(), newPath.c_str());
     server->send(200, "text/plain", "Moved successfully");
   } else {
-    LOG("WEB", "Failed to move file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    LOG_DBG("WEB", "Failed to move file: %s -> %s", itemPath.c_str(), newPath.c_str());
     server->send(500, "text/plain", "Failed to move file");
   }
 }
@@ -932,7 +932,7 @@ void CrossPointWebServer::handleDelete() const {
 
   // Check if item starts with a dot (hidden/system file)
   if (itemName.startsWith(".")) {
-    LOG("WEB", "Delete rejected - hidden/system item: %s", itemPath.c_str());
+    LOG_DBG("WEB", "Delete rejected - hidden/system item: %s", itemPath.c_str());
     server->send(403, "text/plain", "Cannot delete system files");
     return;
   }
@@ -940,7 +940,7 @@ void CrossPointWebServer::handleDelete() const {
   // Check against explicitly protected items
   for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
     if (itemName.equals(HIDDEN_ITEMS[i])) {
-      LOG("WEB", "Delete rejected - protected item: %s", itemPath.c_str());
+      LOG_DBG("WEB", "Delete rejected - protected item: %s", itemPath.c_str());
       server->send(403, "text/plain", "Cannot delete protected items");
       return;
     }
@@ -948,12 +948,12 @@ void CrossPointWebServer::handleDelete() const {
 
   // Check if item exists
   if (!Storage.exists(itemPath.c_str())) {
-    LOG("WEB", "Delete failed - item not found: %s", itemPath.c_str());
+    LOG_DBG("WEB", "Delete failed - item not found: %s", itemPath.c_str());
     server->send(404, "text/plain", "Item not found");
     return;
   }
 
-  LOG("WEB", "Attempting to delete %s: %s", itemType.c_str(), itemPath.c_str());
+  LOG_DBG("WEB", "Attempting to delete %s: %s", itemType.c_str(), itemPath.c_str());
 
   bool success = false;
 
@@ -967,7 +967,7 @@ void CrossPointWebServer::handleDelete() const {
         // Folder is not empty
         entry.close();
         dir.close();
-        LOG("WEB", "Delete failed - folder not empty: %s", itemPath.c_str());
+        LOG_DBG("WEB", "Delete failed - folder not empty: %s", itemPath.c_str());
         server->send(400, "text/plain", "Folder is not empty. Delete contents first.");
         return;
       }
@@ -980,17 +980,17 @@ void CrossPointWebServer::handleDelete() const {
   }
 
   if (success) {
-    LOG("WEB", "Successfully deleted: %s", itemPath.c_str());
+    LOG_DBG("WEB", "Successfully deleted: %s", itemPath.c_str());
     server->send(200, "text/plain", "Deleted successfully");
   } else {
-    LOG("WEB", "Failed to delete: %s", itemPath.c_str());
+    LOG_DBG("WEB", "Failed to delete: %s", itemPath.c_str());
     server->send(500, "text/plain", "Failed to delete item");
   }
 }
 
 void CrossPointWebServer::handleSettingsPage() const {
   server->send(200, "text/html", SettingsPageHtml);
-  LOG("WEB", "Served settings page");
+  LOG_DBG("WEB", "Served settings page");
 }
 
 void CrossPointWebServer::handleGetSettings() const {
@@ -1059,7 +1059,7 @@ void CrossPointWebServer::handleGetSettings() const {
 
     const size_t written = serializeJson(doc, output, outputSize);
     if (written >= outputSize) {
-      LOG("WEB", "Skipping oversized setting JSON for: %s", s.key);
+      LOG_DBG("WEB", "Skipping oversized setting JSON for: %s", s.key);
       continue;
     }
 
@@ -1073,7 +1073,7 @@ void CrossPointWebServer::handleGetSettings() const {
 
   server->sendContent("]");
   server->sendContent("");
-  LOG("WEB", "Served settings API");
+  LOG_DBG("WEB", "Served settings API");
 }
 
 void CrossPointWebServer::handlePostSettings() {
@@ -1146,7 +1146,7 @@ void CrossPointWebServer::handlePostSettings() {
 
   SETTINGS.saveToFile();
 
-  LOG("WEB", "Applied %d setting(s)", applied);
+  LOG_DBG("WEB", "Applied %d setting(s)", applied);
   server->send(200, "text/plain", String("Applied ") + String(applied) + " setting(s)");
 }
 
@@ -1166,7 +1166,7 @@ void CrossPointWebServer::wsEventCallback(uint8_t num, WStype_t type, uint8_t* p
 void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
-      LOG("WS", "Client %u disconnected", num);
+      LOG_DBG("WS", "Client %u disconnected", num);
       // Clean up any in-progress upload
       if (wsUploadInProgress && wsUploadFile) {
         wsUploadFile.close();
@@ -1175,20 +1175,20 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         if (!filePath.endsWith("/")) filePath += "/";
         filePath += wsUploadFileName;
         Storage.remove(filePath.c_str());
-        LOG("WS", "Deleted incomplete upload: %s", filePath.c_str());
+        LOG_DBG("WS", "Deleted incomplete upload: %s", filePath.c_str());
       }
       wsUploadInProgress = false;
       break;
 
     case WStype_CONNECTED: {
-      LOG("WS", "Client %u connected", num);
+      LOG_DBG("WS", "Client %u connected", num);
       break;
     }
 
     case WStype_TEXT: {
       // Parse control messages
       String msg = String((char*)payload);
-      LOG("WS", "Text from client %u: %s", num, msg.c_str());
+      LOG_DBG("WS", "Text from client %u: %s", num, msg.c_str());
 
       if (msg.startsWith("START:")) {
         // Parse: START:<filename>:<size>:<path>
@@ -1213,7 +1213,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
           if (!filePath.endsWith("/")) filePath += "/";
           filePath += wsUploadFileName;
 
-          LOG("WS", "Starting upload: %s (%d bytes) to %s", wsUploadFileName.c_str(), wsUploadSize, filePath.c_str());
+          LOG_DBG("WS", "Starting upload: %s (%d bytes) to %s", wsUploadFileName.c_str(), wsUploadSize, filePath.c_str());
 
           // Check if file exists and remove it
           esp_task_wdt_reset();
@@ -1279,7 +1279,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         unsigned long elapsed = millis() - wsUploadStartTime;
         float kbps = (elapsed > 0) ? (wsUploadSize / 1024.0) / (elapsed / 1000.0) : 0;
 
-        LOG("WS", "Upload complete: %s (%d bytes in %lu ms, %.1f KB/s)", wsUploadFileName.c_str(), wsUploadSize,
+        LOG_DBG("WS", "Upload complete: %s (%d bytes in %lu ms, %.1f KB/s)", wsUploadFileName.c_str(), wsUploadSize,
             elapsed, kbps);
 
         // Clear epub cache to prevent stale metadata issues when overwriting files

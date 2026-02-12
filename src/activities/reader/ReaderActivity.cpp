@@ -30,7 +30,7 @@ bool ReaderActivity::isTxtFile(const std::string& path) {
 
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG("   ", "File does not exist: %s", path.c_str());
+    LOG_ERR("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
@@ -39,13 +39,13 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
     return epub;
   }
 
-  LOG("   ", "Failed to load epub");
+  LOG_ERR("READER", "Failed to load epub");
   return nullptr;
 }
 
 std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG("   ", "File does not exist: %s", path.c_str());
+    LOG_ERR("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
@@ -54,13 +54,13 @@ std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
     return xtc;
   }
 
-  LOG("   ", "Failed to load XTC");
+  LOG_ERR("READER", "Failed to load XTC");
   return nullptr;
 }
 
 std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG("   ", "File does not exist: %s", path.c_str());
+    LOG_ERR("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
@@ -69,7 +69,7 @@ std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
     return txt;
   }
 
-  LOG("   ", "Failed to load TXT");
+  LOG_ERR("READER", "Failed to load TXT");
   return nullptr;
 }
 

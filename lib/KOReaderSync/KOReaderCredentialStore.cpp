@@ -44,7 +44,7 @@ bool KOReaderCredentialStore::saveToFile() const {
 
   // Write username (plaintext - not particularly sensitive)
   serialization::writeString(file, username);
-  LOG("KRS", "Saving username: %s", username.c_str());
+  LOG_DBG("KRS", "Saving username: %s", username.c_str());
 
   // Write password (obfuscated)
   std::string obfuscatedPwd = password;
@@ -58,14 +58,14 @@ bool KOReaderCredentialStore::saveToFile() const {
   serialization::writePod(file, static_cast<uint8_t>(matchMethod));
 
   file.close();
-  LOG("KRS", "Saved KOReader credentials to file");
+  LOG_DBG("KRS", "Saved KOReader credentials to file");
   return true;
 }
 
 bool KOReaderCredentialStore::loadFromFile() {
   FsFile file;
   if (!Storage.openFileForRead("KRS", KOREADER_FILE, file)) {
-    LOG("KRS", "No credentials file found");
+    LOG_DBG("KRS", "No credentials file found");
     return false;
   }
 
@@ -73,7 +73,7 @@ bool KOReaderCredentialStore::loadFromFile() {
   uint8_t version;
   serialization::readPod(file, version);
   if (version != KOREADER_FILE_VERSION) {
-    LOG("KRS", "Unknown file version: %u", version);
+    LOG_DBG("KRS", "Unknown file version: %u", version);
     file.close();
     return false;
   }
@@ -110,14 +110,14 @@ bool KOReaderCredentialStore::loadFromFile() {
   }
 
   file.close();
-  LOG("KRS", "Loaded KOReader credentials for user: %s", username.c_str());
+  LOG_DBG("KRS", "Loaded KOReader credentials for user: %s", username.c_str());
   return true;
 }
 
 void KOReaderCredentialStore::setCredentials(const std::string& user, const std::string& pass) {
   username = user;
   password = pass;
-  LOG("KRS", "Set credentials for user: %s", user.c_str());
+  LOG_DBG("KRS", "Set credentials for user: %s", user.c_str());
 }
 
 std::string KOReaderCredentialStore::getMd5Password() const {
@@ -140,12 +140,12 @@ void KOReaderCredentialStore::clearCredentials() {
   username.clear();
   password.clear();
   saveToFile();
-  LOG("KRS", "Cleared KOReader credentials");
+  LOG_DBG("KRS", "Cleared KOReader credentials");
 }
 
 void KOReaderCredentialStore::setServerUrl(const std::string& url) {
   serverUrl = url;
-  LOG("KRS", "Set server URL: %s", url.empty() ? "(default)" : url.c_str());
+  LOG_DBG("KRS", "Set server URL: %s", url.empty() ? "(default)" : url.c_str());
 }
 
 std::string KOReaderCredentialStore::getBaseUrl() const {
@@ -163,5 +163,5 @@ std::string KOReaderCredentialStore::getBaseUrl() const {
 
 void KOReaderCredentialStore::setMatchMethod(DocumentMatchMethod method) {
   matchMethod = method;
-  LOG("KRS", "Set match method: %s", method == DocumentMatchMethod::FILENAME ? "Filename" : "Binary");
+  LOG_DBG("KRS", "Set match method: %s", method == DocumentMatchMethod::FILENAME ? "Filename" : "Binary");
 }

@@ -11,7 +11,7 @@
 #include <Logging.h>
 
 bool Xtc::load() {
-  LOG("XTC", "Loading XTC: %s", filepath.c_str());
+  LOG_DBG("XTC", "Loading XTC: %s", filepath.c_str());
 
   // Initialize parser
   parser.reset(new xtc::XtcParser());
@@ -19,28 +19,28 @@ bool Xtc::load() {
   // Open XTC file
   xtc::XtcError err = parser->open(filepath.c_str());
   if (err != xtc::XtcError::OK) {
-    LOG("XTC", "Failed to load: %s", xtc::errorToString(err));
+    LOG_ERR("XTC", "Failed to load: %s", xtc::errorToString(err));
     parser.reset();
     return false;
   }
 
   loaded = true;
-  LOG("XTC", "Loaded XTC: %s (%lu pages)", filepath.c_str(), parser->getPageCount());
+  LOG_DBG("XTC", "Loaded XTC: %s (%lu pages)", filepath.c_str(), parser->getPageCount());
   return true;
 }
 
 bool Xtc::clearCache() const {
   if (!Storage.exists(cachePath.c_str())) {
-    LOG("XTC", "Cache does not exist, no action needed");
+    LOG_DBG("XTC", "Cache does not exist, no action needed");
     return true;
   }
 
   if (!Storage.removeDir(cachePath.c_str())) {
-    LOG("XTC", "Failed to clear cache");
+    LOG_ERR("XTC", "Failed to clear cache");
     return false;
   }
 
-  LOG("XTC", "Cache cleared successfully");
+  LOG_DBG("XTC", "Cache cleared successfully");
   return true;
 }
 
@@ -119,12 +119,12 @@ bool Xtc::generateCoverBmp() const {
   }
 
   if (!loaded || !parser) {
-    LOG("XTC", "Cannot generate cover BMP, file not loaded");
+    LOG_DBG("XTC", "Cannot generate cover BMP, file not loaded");
     return false;
   }
 
   if (parser->getPageCount() == 0) {
-    LOG("XTC", "No pages in XTC file");
+    LOG_DBG("XTC", "No pages in XTC file");
     return false;
   }
 
@@ -134,7 +134,7 @@ bool Xtc::generateCoverBmp() const {
   // Get first page info for cover
   xtc::PageInfo pageInfo;
   if (!parser->getPageInfo(0, pageInfo)) {
-    LOG("XTC", "Failed to get first page info");
+    LOG_DBG("XTC", "Failed to get first page info");
     return false;
   }
 
@@ -152,14 +152,14 @@ bool Xtc::generateCoverBmp() const {
   }
   uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(bitmapSize));
   if (!pageBuffer) {
-    LOG("XTC", "Failed to allocate page buffer (%lu bytes)", bitmapSize);
+    LOG_ERR("XTC", "Failed to allocate page buffer (%lu bytes)", bitmapSize);
     return false;
   }
 
   // Load first page (cover)
   size_t bytesRead = const_cast<xtc::XtcParser*>(parser.get())->loadPage(0, pageBuffer, bitmapSize);
   if (bytesRead == 0) {
-    LOG("XTC", "Failed to load cover page");
+    LOG_ERR("XTC", "Failed to load cover page");
     free(pageBuffer);
     return false;
   }
@@ -167,7 +167,7 @@ bool Xtc::generateCoverBmp() const {
   // Create BMP file
   FsFile coverBmp;
   if (!Storage.openFileForWrite("XTC", getCoverBmpPath(), coverBmp)) {
-    LOG("XTC", "Failed to create cover BMP file");
+    LOG_DBG("XTC", "Failed to create cover BMP file");
     free(pageBuffer);
     return false;
   }
@@ -297,7 +297,7 @@ bool Xtc::generateCoverBmp() const {
   coverBmp.close();
   free(pageBuffer);
 
-  LOG("XTC", "Generated cover BMP: %s", getCoverBmpPath().c_str());
+  LOG_DBG("XTC", "Generated cover BMP: %s", getCoverBmpPath().c_str());
   return true;
 }
 
@@ -311,12 +311,12 @@ bool Xtc::generateThumbBmp(int height) const {
   }
 
   if (!loaded || !parser) {
-    LOG("XTC", "Cannot generate thumb BMP, file not loaded");
+    LOG_DBG("XTC", "Cannot generate thumb BMP, file not loaded");
     return false;
   }
 
   if (parser->getPageCount() == 0) {
-    LOG("XTC", "No pages in XTC file");
+    LOG_DBG("XTC", "No pages in XTC file");
     return false;
   }
 
@@ -326,7 +326,7 @@ bool Xtc::generateThumbBmp(int height) const {
   // Get first page info for cover
   xtc::PageInfo pageInfo;
   if (!parser->getPageInfo(0, pageInfo)) {
-    LOG("XTC", "Failed to get first page info");
+    LOG_DBG("XTC", "Failed to get first page info");
     return false;
   }
 
@@ -359,7 +359,7 @@ bool Xtc::generateThumbBmp(int height) const {
         }
         src.close();
       }
-      LOG("XTC", "Copied cover to thumb (no scaling needed)");
+      LOG_DBG("XTC", "Copied cover to thumb (no scaling needed)");
       return Storage.exists(getThumbBmpPath(height).c_str());
     }
     return false;
@@ -368,7 +368,7 @@ bool Xtc::generateThumbBmp(int height) const {
   uint16_t thumbWidth = static_cast<uint16_t>(pageInfo.width * scale);
   uint16_t thumbHeight = static_cast<uint16_t>(pageInfo.height * scale);
 
-  LOG("XTC", "Generating thumb BMP: %dx%d -> %dx%d (scale: %.3f)", pageInfo.width, pageInfo.height, thumbWidth,
+  LOG_DBG("XTC", "Generating thumb BMP: %dx%d -> %dx%d (scale: %.3f)", pageInfo.width, pageInfo.height, thumbWidth,
       thumbHeight, scale);
 
   // Allocate buffer for page data
@@ -380,14 +380,14 @@ bool Xtc::generateThumbBmp(int height) const {
   }
   uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(bitmapSize));
   if (!pageBuffer) {
-    LOG("XTC", "Failed to allocate page buffer (%lu bytes)", bitmapSize);
+    LOG_ERR("XTC", "Failed to allocate page buffer (%lu bytes)", bitmapSize);
     return false;
   }
 
   // Load first page (cover)
   size_t bytesRead = const_cast<xtc::XtcParser*>(parser.get())->loadPage(0, pageBuffer, bitmapSize);
   if (bytesRead == 0) {
-    LOG("XTC", "Failed to load cover page for thumb");
+    LOG_ERR("XTC", "Failed to load cover page for thumb");
     free(pageBuffer);
     return false;
   }
@@ -395,7 +395,7 @@ bool Xtc::generateThumbBmp(int height) const {
   // Create thumbnail BMP file - use 1-bit format for fast home screen rendering (no gray passes)
   FsFile thumbBmp;
   if (!Storage.openFileForWrite("XTC", getThumbBmpPath(height), thumbBmp)) {
-    LOG("XTC", "Failed to create thumb BMP file");
+    LOG_DBG("XTC", "Failed to create thumb BMP file");
     free(pageBuffer);
     return false;
   }
@@ -558,7 +558,7 @@ bool Xtc::generateThumbBmp(int height) const {
   thumbBmp.close();
   free(pageBuffer);
 
-  LOG("XTC", "Generated thumb BMP (%dx%d): %s", thumbWidth, thumbHeight, getThumbBmpPath(height).c_str());
+  LOG_DBG("XTC", "Generated thumb BMP (%dx%d): %s", thumbWidth, thumbHeight, getThumbBmpPath(height).c_str());
   return true;
 }
 

@@ -121,7 +121,7 @@ bool CrossPointSettings::saveToFile() const {
   // New fields added at end for backward compatibility
   outputFile.close();
 
-  LOG("CPS", "Settings saved to file");
+  LOG_DBG("CPS", "Settings saved to file");
   return true;
 }
 
@@ -134,7 +134,7 @@ bool CrossPointSettings::loadFromFile() {
   uint8_t version;
   serialization::readPod(inputFile, version);
   if (version != SETTINGS_FILE_VERSION) {
-    LOG("CPS", "Deserialization failed: Unknown version %u", version);
+    LOG_ERR("CPS", "Deserialization failed: Unknown version %u", version);
     inputFile.close();
     return false;
   }
@@ -233,7 +233,7 @@ bool CrossPointSettings::loadFromFile() {
   }
 
   inputFile.close();
-  LOG("CPS", "Settings loaded from file");
+  LOG_DBG("CPS", "Settings loaded from file");
   return true;
 }
 

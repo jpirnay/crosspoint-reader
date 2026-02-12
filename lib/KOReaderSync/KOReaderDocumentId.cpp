@@ -27,7 +27,7 @@ std::string KOReaderDocumentId::calculateFromFilename(const std::string& filePat
   md5.calculate();
 
   std::string result = md5.toString().c_str();
-  LOG("KODoc", "Filename hash: %s (from '%s')", result.c_str(), filename.c_str());
+  LOG_DBG("KODoc", "Filename hash: %s (from '%s')", result.c_str(), filename.c_str());
   return result;
 }
 
@@ -44,12 +44,12 @@ size_t KOReaderDocumentId::getOffset(int i) {
 std::string KOReaderDocumentId::calculate(const std::string& filePath) {
   FsFile file;
   if (!Storage.openFileForRead("KODoc", filePath, file)) {
-    LOG("KODoc", "Failed to open file: %s", filePath.c_str());
+    LOG_DBG("KODoc", "Failed to open file: %s", filePath.c_str());
     return "";
   }
 
   const size_t fileSize = file.fileSize();
-  LOG("KODoc", "Calculating hash for file: %s (size: %zu)", filePath.c_str(), fileSize);
+  LOG_DBG("KODoc", "Calculating hash for file: %s (size: %zu)", filePath.c_str(), fileSize);
 
   // Initialize MD5 builder
   MD5Builder md5;
@@ -70,7 +70,7 @@ std::string KOReaderDocumentId::calculate(const std::string& filePath) {
 
     // Seek to offset
     if (!file.seekSet(offset)) {
-      LOG("KODoc", "Failed to seek to offset %zu", offset);
+      LOG_DBG("KODoc", "Failed to seek to offset %zu", offset);
       continue;
     }
 
@@ -90,7 +90,7 @@ std::string KOReaderDocumentId::calculate(const std::string& filePath) {
   md5.calculate();
   std::string result = md5.toString().c_str();
 
-  LOG("KODoc", "Hash calculated: %s (from %zu bytes)", result.c_str(), totalBytesRead);
+  LOG_DBG("KODoc", "Hash calculated: %s (from %zu bytes)", result.c_str(), totalBytesRead);
 
   return result;
 }

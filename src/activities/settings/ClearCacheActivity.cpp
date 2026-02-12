@@ -104,12 +104,12 @@ void ClearCacheActivity::render() {
 }
 
 void ClearCacheActivity::clearCache() {
-  LOG("CLEAR_CACHE", "Clearing cache...");
+  LOG_DBG("CLEAR_CACHE", "Clearing cache...");
 
   // Open .crosspoint directory
   auto root = Storage.open("/.crosspoint");
   if (!root || !root.isDirectory()) {
-    LOG("CLEAR_CACHE", "Failed to open cache directory");
+    LOG_DBG("CLEAR_CACHE", "Failed to open cache directory");
     if (root) root.close();
     state = FAILED;
     updateRequired = true;
@@ -128,14 +128,14 @@ void ClearCacheActivity::clearCache() {
     // Only delete directories starting with epub_ or xtc_
     if (file.isDirectory() && (itemName.startsWith("epub_") || itemName.startsWith("xtc_"))) {
       String fullPath = "/.crosspoint/" + itemName;
-      LOG("CLEAR_CACHE", "Removing cache: %s", fullPath.c_str());
+      LOG_DBG("CLEAR_CACHE", "Removing cache: %s", fullPath.c_str());
 
       file.close();  // Close before attempting to delete
 
       if (Storage.removeDir(fullPath.c_str())) {
         clearedCount++;
       } else {
-        LOG("CLEAR_CACHE", "Failed to remove: %s", fullPath.c_str());
+        LOG_ERR("CLEAR_CACHE", "Failed to remove: %s", fullPath.c_str());
         failedCount++;
       }
     } else {
@@ -144,7 +144,7 @@ void ClearCacheActivity::clearCache() {
   }
   root.close();
 
-  LOG("CLEAR_CACHE", "Cache cleared: %d removed, %d failed", clearedCount, failedCount);
+  LOG_DBG("CLEAR_CACHE", "Cache cleared: %d removed, %d failed", clearedCount, failedCount);
 
   state = SUCCESS;
   updateRequired = true;
@@ -153,7 +153,7 @@ void ClearCacheActivity::clearCache() {
 void ClearCacheActivity::loop() {
   if (state == WARNING) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      LOG("CLEAR_CACHE", "User confirmed, starting cache clear");
+      LOG_DBG("CLEAR_CACHE", "User confirmed, starting cache clear");
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       state = CLEARING;
       xSemaphoreGive(renderingMutex);
@@ -164,7 +164,7 @@ void ClearCacheActivity::loop() {
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      LOG("CLEAR_CACHE", "User cancelled");
+      LOG_DBG("CLEAR_CACHE", "User cancelled");
       goBack();
     }
     return;

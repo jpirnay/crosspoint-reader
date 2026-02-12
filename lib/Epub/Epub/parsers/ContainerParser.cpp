@@ -5,7 +5,7 @@
 bool ContainerParser::setup() {
   parser = XML_ParserCreate(nullptr);
   if (!parser) {
-    LOG("CTR", "Couldn't allocate memory for parser");
+    LOG_ERR("CTR", "Couldn't allocate memory for parser");
     return false;
   }
 
@@ -34,7 +34,7 @@ size_t ContainerParser::write(const uint8_t* buffer, const size_t size) {
   while (remainingInBuffer > 0) {
     void* const buf = XML_GetBuffer(parser, 1024);
     if (!buf) {
-      LOG("CTR", "Couldn't allocate buffer");
+      LOG_DBG("CTR", "Couldn't allocate buffer");
       return 0;
     }
 
@@ -42,7 +42,7 @@ size_t ContainerParser::write(const uint8_t* buffer, const size_t size) {
     memcpy(buf, currentBufferPos, toRead);
 
     if (XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize == toRead) == XML_STATUS_ERROR) {
-      LOG("CTR", "Parse error: %s", XML_ErrorString(XML_GetErrorCode(parser)));
+      LOG_ERR("CTR", "Parse error: %s", XML_ErrorString(XML_GetErrorCode(parser)));
       return 0;
     }
 

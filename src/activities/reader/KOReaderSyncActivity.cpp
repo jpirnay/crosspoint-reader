@@ -33,9 +33,9 @@ void syncTimeWithNTP() {
   }
 
   if (retry < maxRetries) {
-    LOG("KOSync", "NTP time synced");
+    LOG_DBG("KOSync", "NTP time synced");
   } else {
-    LOG("KOSync", "NTP sync timeout, using fallback");
+    LOG_DBG("KOSync", "NTP sync timeout, using fallback");
   }
 }
 }  // namespace
@@ -49,12 +49,12 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   exitActivity();
 
   if (!success) {
-    LOG("KOSync", "WiFi connection failed, exiting");
+    LOG_DBG("KOSync", "WiFi connection failed, exiting");
     onCancel();
     return;
   }
 
-  LOG("KOSync", "WiFi connected, starting sync");
+  LOG_DBG("KOSync", "WiFi connected, starting sync");
 
   xSemaphoreTake(renderingMutex, portMAX_DELAY);
   state = SYNCING;
@@ -89,7 +89,7 @@ void KOReaderSyncActivity::performSync() {
     return;
   }
 
-  LOG("KOSync", "Document hash: %s", documentHash.c_str());
+  LOG_DBG("KOSync", "Document hash: %s", documentHash.c_str());
 
   xSemaphoreTake(renderingMutex, portMAX_DELAY);
   statusMessage = "Fetching remote progress...";
@@ -189,12 +189,12 @@ void KOReaderSyncActivity::onEnter() {
   }
 
   // Turn on WiFi
-  LOG("KOSync", "Turning on WiFi...");
+  LOG_DBG("KOSync", "Turning on WiFi...");
   WiFi.mode(WIFI_STA);
 
   // Check if already connected
   if (WiFi.status() == WL_CONNECTED) {
-    LOG("KOSync", "Already connected to WiFi");
+    LOG_DBG("KOSync", "Already connected to WiFi");
     state = SYNCING;
     statusMessage = "Syncing time...";
     updateRequired = true;
@@ -217,7 +217,7 @@ void KOReaderSyncActivity::onEnter() {
   }
 
   // Launch WiFi selection subactivity
-  LOG("KOSync", "Launching WifiSelectionActivity...");
+  LOG_DBG("KOSync", "Launching WifiSelectionActivity...");
   enterNewActivity(new WifiSelectionActivity(renderer, mappedInput,
                                              [this](const bool connected) { onWifiSelectionComplete(connected); }));
 }

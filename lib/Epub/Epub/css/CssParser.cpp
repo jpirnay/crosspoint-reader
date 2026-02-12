@@ -449,7 +449,7 @@ void CssParser::processRuleBlock(const std::string& selectorGroup, const std::st
 
 bool CssParser::loadFromStream(FsFile& source) {
   if (!source) {
-    LOG("CSS", "Cannot read from invalid file");
+    LOG_ERR("CSS", "Cannot read from invalid file");
     return false;
   }
 
@@ -470,7 +470,7 @@ bool CssParser::loadFromStream(FsFile& source) {
     processRuleBlock(selector, body);
   }
 
-  LOG("CSS", "Parsed %zu rules", rulesBySelector_.size());
+  LOG_DBG("CSS", "Parsed %zu rules", rulesBySelector_.size());
   return true;
 }
 
@@ -582,7 +582,7 @@ bool CssParser::saveToCache(FsFile& file) const {
     file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
   }
 
-  LOG("CSS", "Saved %u rules to cache", ruleCount);
+  LOG_DBG("CSS", "Saved %u rules to cache", ruleCount);
   return true;
 }
 
@@ -597,7 +597,7 @@ bool CssParser::loadFromCache(FsFile& file) {
   // Read and verify version
   uint8_t version = 0;
   if (file.read(&version, 1) != 1 || version != CSS_CACHE_VERSION) {
-    LOG("CSS", "Cache version mismatch (got %u, expected %u)", version, CSS_CACHE_VERSION);
+    LOG_DBG("CSS", "Cache version mismatch (got %u, expected %u)", version, CSS_CACHE_VERSION);
     return false;
   }
 
@@ -694,6 +694,6 @@ bool CssParser::loadFromCache(FsFile& file) {
     rulesBySelector_[selector] = style;
   }
 
-  LOG("CSS", "Loaded %u rules from cache", ruleCount);
+  LOG_DBG("CSS", "Loaded %u rules from cache", ruleCount);
   return true;
 }

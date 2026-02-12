@@ -201,7 +201,7 @@ unsigned char JpegToBmpConverter::jpegReadCallback(unsigned char* pBuf, const un
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
                                                      bool oneBit, bool crop) {
-  LOG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
+  LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
 
   // Setup context for picojpeg callback
   JpegReadContext context = {.file = jpegFile, .bufferPos = 0, .bufferFilled = 0};
@@ -210,11 +210,11 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   pjpeg_image_info_t imageInfo;
   const unsigned char status = pjpeg_decode_init(&imageInfo, jpegReadCallback, &context, 0);
   if (status != 0) {
-    LOG("JPG", "JPEG decode init failed with error code: %d", status);
+    LOG_ERR("JPG", "JPEG decode init failed with error code: %d", status);
     return false;
   }
 
-  LOG("JPG", "JPEG dimensions: %dx%d, components: %d, MCUs: %dx%d", imageInfo.m_width, imageInfo.m_height,
+  LOG_DBG("JPG", "JPEG dimensions: %dx%d, components: %d, MCUs: %dx%d", imageInfo.m_width, imageInfo.m_height,
       imageInfo.m_comps, imageInfo.m_MCUSPerRow, imageInfo.m_MCUSPerCol);
 
   // Safety limits to prevent memory issues on ESP32
@@ -223,7 +223,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   constexpr int MAX_MCU_ROW_BYTES = 65536;
 
   if (imageInfo.m_width > MAX_IMAGE_WIDTH || imageInfo.m_height > MAX_IMAGE_HEIGHT) {
-    LOG("JPG", "Image too large (%dx%d), max supported: %dx%d", imageInfo.m_width, imageInfo.m_height, MAX_IMAGE_WIDTH,
+    LOG_DBG("JPG", "Image too large (%dx%d), max supported: %dx%d", imageInfo.m_width, imageInfo.m_height, MAX_IMAGE_WIDTH,
         MAX_IMAGE_HEIGHT);
     return false;
   }
@@ -261,7 +261,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
     scaleY_fp = (static_cast<uint32_t>(imageInfo.m_height) << 16) / outHeight;
     needsScaling = true;
 
-    LOG("JPG", "Pre-scaling %dx%d -> %dx%d (fit to %dx%d)", imageInfo.m_width, imageInfo.m_height, outWidth, outHeight,
+    LOG_DBG("JPG", "Pre-scaling %dx%d -> %dx%d (fit to %dx%d)", imageInfo.m_width, imageInfo.m_height, outWidth, outHeight,
         targetWidth, targetHeight);
   }
 
@@ -281,7 +281,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   // Allocate row buffer
   auto* rowBuffer = static_cast<uint8_t*>(malloc(bytesPerRow));
   if (!rowBuffer) {
-    LOG("JPG", "Failed to allocate row buffer");
+    LOG_ERR("JPG", "Failed to allocate row buffer");
     return false;
   }
 
@@ -292,14 +292,14 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
 
   // Validate MCU row buffer size before allocation
   if (mcuRowPixels > MAX_MCU_ROW_BYTES) {
-    LOG("JPG", "MCU row buffer too large (%d bytes), max: %d", mcuRowPixels, MAX_MCU_ROW_BYTES);
+    LOG_DBG("JPG", "MCU row buffer too large (%d bytes), max: %d", mcuRowPixels, MAX_MCU_ROW_BYTES);
     free(rowBuffer);
     return false;
   }
 
   auto* mcuRowBuffer = static_cast<uint8_t*>(malloc(mcuRowPixels));
   if (!mcuRowBuffer) {
-    LOG("JPG", "Failed to allocate MCU row buffer (%d bytes)", mcuRowPixels);
+    LOG_ERR("JPG", "Failed to allocate MCU row buffer (%d bytes)", mcuRowPixels);
     free(rowBuffer);
     return false;
   }
@@ -347,9 +347,9 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
       const unsigned char mcuStatus = pjpeg_decode_mcu();
       if (mcuStatus != 0) {
         if (mcuStatus == PJPG_NO_MORE_BLOCKS) {
-          LOG("JPG", "Unexpected end of blocks at MCU (%d, %d)", mcuX, mcuY);
+          LOG_ERR("JPG", "Unexpected end of blocks at MCU (%d, %d)", mcuX, mcuY);
         } else {
-          LOG("JPG", "JPEG decode MCU failed at (%d, %d) with error code: %d", mcuX, mcuY, mcuStatus);
+          LOG_ERR("JPG", "JPEG decode MCU failed at (%d, %d) with error code: %d", mcuX, mcuY, mcuStatus);
         }
         free(mcuRowBuffer);
         free(rowBuffer);
@@ -546,7 +546,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   free(mcuRowBuffer);
   free(rowBuffer);
 
-  LOG("JPG", "Successfully converted JPEG to BMP");
+  LOG_DBG("JPG", "Successfully converted JPEG to BMP");
   return true;
 }
 

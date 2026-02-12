@@ -18,12 +18,12 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   exitActivity();
 
   if (!success) {
-    LOG("OTA", "WiFi connection failed, exiting");
+    LOG_ERR("OTA", "WiFi connection failed, exiting");
     goBack();
     return;
   }
 
-  LOG("OTA", "WiFi connected, checking for update");
+  LOG_DBG("OTA", "WiFi connected, checking for update");
 
   xSemaphoreTake(renderingMutex, portMAX_DELAY);
   state = CHECKING_FOR_UPDATE;
@@ -32,7 +32,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   vTaskDelay(10 / portTICK_PERIOD_MS);
   const auto res = updater.checkForUpdate();
   if (res != OtaUpdater::OK) {
-    LOG("OTA", "Update check failed: %d", res);
+    LOG_DBG("OTA", "Update check failed: %d", res);
     xSemaphoreTake(renderingMutex, portMAX_DELAY);
     state = FAILED;
     xSemaphoreGive(renderingMutex);
@@ -41,7 +41,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   }
 
   if (!updater.isUpdateNewer()) {
-    LOG("OTA", "No new update available");
+    LOG_DBG("OTA", "No new update available");
     xSemaphoreTake(renderingMutex, portMAX_DELAY);
     state = NO_UPDATE;
     xSemaphoreGive(renderingMutex);
@@ -68,11 +68,11 @@ void OtaUpdateActivity::onEnter() {
   );
 
   // Turn on WiFi immediately
-  LOG("OTA", "Turning on WiFi...");
+  LOG_DBG("OTA", "Turning on WiFi...");
   WiFi.mode(WIFI_STA);
 
   // Launch WiFi selection subactivity
-  LOG("OTA", "Launching WifiSelectionActivity...");
+  LOG_DBG("OTA", "Launching WifiSelectionActivity...");
   enterNewActivity(new WifiSelectionActivity(renderer, mappedInput,
                                              [this](const bool connected) { onWifiSelectionComplete(connected); }));
 }
@@ -116,7 +116,7 @@ void OtaUpdateActivity::render() {
 
   float updaterProgress = 0;
   if (state == UPDATE_IN_PROGRESS) {
-    LOG("OTA", "Update progress: %d / %d", updater.getProcessedSize(), updater.getTotalSize());
+    LOG_DBG("OTA", "Update progress: %d / %d", updater.getProcessedSize(), updater.getTotalSize());
     updaterProgress = static_cast<float>(updater.getProcessedSize()) / static_cast<float>(updater.getTotalSize());
     // Only update every 2% at the most
     if (static_cast<int>(updaterProgress * 50) == lastUpdaterPercentage / 2) {
@@ -189,7 +189,7 @@ void OtaUpdateActivity::loop() {
 
   if (state == WAITING_CONFIRMATION) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      LOG("OTA", "New update available, starting download...");
+      LOG_DBG("OTA", "New update available, starting download...");
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       state = UPDATE_IN_PROGRESS;
       xSemaphoreGive(renderingMutex);
@@ -198,7 +198,7 @@ void OtaUpdateActivity::loop() {
       const auto res = updater.installUpdate();
 
       if (res != OtaUpdater::OK) {
-        LOG("OTA", "Update failed: %d", res);
+        LOG_DBG("OTA", "Update failed: %d", res);
         xSemaphoreTake(renderingMutex, portMAX_DELAY);
         state = FAILED;
         xSemaphoreGive(renderingMutex);

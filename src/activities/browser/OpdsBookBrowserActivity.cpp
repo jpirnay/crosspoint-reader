@@ -78,14 +78,14 @@ void OpdsBookBrowserActivity::loop() {
       // Check if WiFi is still connected
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
         // WiFi connected - just retry fetching the feed
-        LOG("OPDS", "Retry: WiFi connected, retrying fetch");
+        LOG_DBG("OPDS", "Retry: WiFi connected, retrying fetch");
         state = BrowserState::LOADING;
         statusMessage = "Loading...";
         updateRequired = true;
         fetchFeed(currentPath);
       } else {
         // WiFi not connected - launch WiFi selection
-        LOG("OPDS", "Retry: WiFi not connected, launching selection");
+        LOG_DBG("OPDS", "Retry: WiFi not connected, launching selection");
         launchWifiSelection();
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -265,7 +265,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   }
 
   std::string url = UrlUtils::buildUrl(serverUrl, path);
-  LOG("OPDS", "Fetching: %s", url.c_str());
+  LOG_DBG("OPDS", "Fetching: %s", url.c_str());
 
   OpdsParser parser;
 
@@ -287,7 +287,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   }
 
   entries = std::move(parser).getEntries();
-  LOG("OPDS", "Found %d entries", entries.size());
+  LOG_DBG("OPDS", "Found %d entries", entries.size());
   selectorIndex = 0;
 
   if (entries.empty()) {
@@ -351,7 +351,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   }
   std::string filename = "/" + StringUtils::sanitizeFilename(baseName) + ".epub";
 
-  LOG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
+  LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
   const auto result =
       HttpDownloader::downloadToFile(downloadUrl, filename, [this](const size_t downloaded, const size_t total) {
@@ -361,12 +361,12 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       });
 
   if (result == HttpDownloader::OK) {
-    LOG("OPDS", "Download complete: %s", filename.c_str());
+    LOG_DBG("OPDS", "Download complete: %s", filename.c_str());
 
     // Invalidate any existing cache for this file to prevent stale metadata issues
     Epub epub(filename, "/.crosspoint");
     epub.clearCache();
-    LOG("OPDS", "Cleared cache for: %s", filename.c_str());
+    LOG_DBG("OPDS", "Cleared cache for: %s", filename.c_str());
 
     state = BrowserState::BROWSING;
     updateRequired = true;
@@ -403,13 +403,13 @@ void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   exitActivity();
 
   if (connected) {
-    LOG("OPDS", "WiFi connected via selection, fetching feed");
+    LOG_DBG("OPDS", "WiFi connected via selection, fetching feed");
     state = BrowserState::LOADING;
     statusMessage = "Loading...";
     updateRequired = true;
     fetchFeed(currentPath);
   } else {
-    LOG("OPDS", "WiFi selection cancelled/failed");
+    LOG_DBG("OPDS", "WiFi selection cancelled/failed");
     // Force disconnect to ensure clean state for next retry
     // This prevents stale connection status from interfering
     WiFi.disconnect();
