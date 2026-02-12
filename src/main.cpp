@@ -15,6 +15,10 @@
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+
+#ifdef ENABLE_BLE_KEYBOARD
+#include "bluetooth/BluetoothManager.h"
+#endif
 #include "activities/boot_sleep/BootActivity.h"
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/browser/OpdsBookBrowserActivity.h"
@@ -200,6 +204,14 @@ void enterDeepSleep() {
   exitActivity();
   enterNewActivity(new SleepActivity(renderer, mappedInputManager));
 
+#ifdef ENABLE_BLE_KEYBOARD
+  // Disable BLE before sleep to save power
+  if (BT_MANAGER.isEnabled()) {
+    Serial.printf("[%lu] [BLE] Disabling Bluetooth before sleep\n", millis());
+    BT_MANAGER.disable();
+  }
+#endif
+
   display.deepSleep();
   Serial.printf("[%lu] [   ] Power button press calibration value: %lu ms\n", millis(), t2 - t1);
   Serial.printf("[%lu] [   ] Entering deep sleep.\n", millis());
@@ -307,6 +319,23 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
+#ifdef ENABLE_BLE_KEYBOARD
+  // Initialize BLE keyboard support
+  if (SETTINGS.bluetoothEnabled) {
+    Serial.printf("[%lu] [BLE] Bluetooth enabled in settings\n", millis());
+    BT_MANAGER.begin();
+    // Set up button injection callback
+    BT_MANAGER.setButtonCallback([](uint8_t buttonIndex, bool pressed) {
+      if (pressed) {
+        mappedInputManager.injectButtonPress(buttonIndex);
+      } else {
+        mappedInputManager.injectButtonRelease(buttonIndex);
+      }
+    });
+    BT_MANAGER.enable();
+  }
+#endif
+
   switch (gpio.getWakeupReason()) {
     case HalGPIO::WakeupReason::PowerButton:
       // For normal wakeups, verify power button press duration
@@ -359,7 +388,7 @@ void loop() {
   const unsigned long loopStartTime = millis();
   static unsigned long lastMemPrint = 0;
 
-  gpio.update();
+  mappedInputManager.update();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 

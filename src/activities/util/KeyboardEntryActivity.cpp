@@ -4,6 +4,10 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+#ifdef ENABLE_BLE_KEYBOARD
+#include "bluetooth/BluetoothManager.h"
+#endif
+
 // Keyboard layouts - lowercase
 const char* const KeyboardEntryActivity::keyboard[NUM_ROWS] = {
     "`1234567890-=", "qwertyuiop[]\\", "asdfghjkl;'", "zxcvbnm,./",
@@ -48,10 +52,45 @@ void KeyboardEntryActivity::onEnter() {
               1,                  // Priority
               &displayTaskHandle  // Task handle
   );
+
+#ifdef ENABLE_BLE_KEYBOARD
+  // Register BLE keyboard callbacks for direct text input
+  if (BT_MANAGER.isEnabled()) {
+    Serial.printf("[%lu] [KBD] Registering BLE keyboard callbacks\n", millis());
+    BT_MANAGER.setCharCallback([this](char c) { this->injectCharacter(c); });
+    BT_MANAGER.setSpecialKeyCallback([this](BluetoothManager::SpecialKey key) {
+      switch (key) {
+        case BluetoothManager::SpecialKey::Backspace:
+          this->injectBackspace();
+          break;
+        case BluetoothManager::SpecialKey::Enter:
+          this->injectEnter();
+          break;
+        case BluetoothManager::SpecialKey::Escape:
+          // Escape acts as cancel
+          if (this->onCancel) {
+            this->onCancel();
+          }
+          break;
+        default:
+          break;
+      }
+    });
+  }
+#endif
 }
 
 void KeyboardEntryActivity::onExit() {
   Activity::onExit();
+
+#ifdef ENABLE_BLE_KEYBOARD
+  // Unregister BLE keyboard callbacks
+  if (BT_MANAGER.isEnabled()) {
+    Serial.printf("[%lu] [KBD] Unregistering BLE keyboard callbacks\n", millis());
+    BT_MANAGER.setCharCallback(nullptr);
+    BT_MANAGER.setSpecialKeyCallback(nullptr);
+  }
+#endif
 
   // Wait until not rendering to delete task to avoid killing mid-instruction to EPD
   xSemaphoreTake(renderingMutex, portMAX_DELAY);
@@ -348,4 +387,38 @@ void KeyboardEntryActivity::renderItemWithSelector(const int x, const int y, con
     renderer.drawText(UI_10_FONT_ID, x + itemWidth, y, "]");
   }
   renderer.drawText(UI_10_FONT_ID, x, y, item);
+}
+
+// BLE Keyboard input methods
+void KeyboardEntryActivity::injectCharacter(char c) {
+  // Only add printable ASCII characters
+  if (c < 32 || c > 126) {
+    return;
+  }
+
+  // Check max length
+  if (maxLength > 0 && text.length() >= maxLength) {
+    return;
+  }
+
+  text += c;
+  updateRequired = true;
+  Serial.printf("[%lu] [KBD] Injected character: '%c' (text now: \"%s\")\n", millis(), c, text.c_str());
+}
+
+void KeyboardEntryActivity::injectBackspace() {
+  if (!text.empty()) {
+    text.pop_back();
+    updateRequired = true;
+    Serial.printf("[%lu] [KBD] Backspace (text now: \"%s\")\n", millis(), text.c_str());
+  }
+}
+
+void KeyboardEntryActivity::injectEnter() {
+  // Enter key completes the input
+  if (onComplete) {
+    Serial.printf("[%lu] [KBD] Enter pressed, completing with: \"%s\"\n", millis(), text.c_str());
+    onComplete(text);
+  }
+  updateRequired = true;
 }

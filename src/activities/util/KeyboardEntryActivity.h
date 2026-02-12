@@ -58,6 +58,11 @@ class KeyboardEntryActivity : public Activity {
   void onExit() override;
   void loop() override;
 
+  // BLE Keyboard input methods (public for external injection)
+  void injectCharacter(char c);
+  void injectBackspace();
+  void injectEnter();
+
  private:
   std::string title;
   int startY;

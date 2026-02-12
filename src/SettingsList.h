@@ -58,6 +58,9 @@ inline std::vector<SettingInfo> getSettingsList() {
       // --- System ---
       SettingInfo::Enum("Time to Sleep", &CrossPointSettings::sleepTimeout,
                         {"1 min", "5 min", "10 min", "15 min", "30 min"}, "sleepTimeout", "System"),
+#ifdef ENABLE_BLE_KEYBOARD
+      SettingInfo::Toggle("Bluetooth Keyboard", &CrossPointSettings::bluetoothEnabled, "bluetoothEnabled", "System"),
+#endif
 
       // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
       SettingInfo::DynamicString(
