@@ -108,6 +108,13 @@ void BluetoothManager::begin() {
   }
 
   Serial.printf("[%lu] [BLE] Initializing Bluetooth subsystem\n", millis());
+  Serial.printf("[%lu] [BLE] Free heap before init: %d bytes\n", millis(), ESP.getFreeHeap());
+
+  // Check if we have enough free memory (NimBLE needs ~30-40KB)
+  if (ESP.getFreeHeap() < 40000) {
+    Serial.printf("[%lu] [BLE] ERROR: Insufficient heap memory for BLE (%d bytes available)\n", millis(), ESP.getFreeHeap());
+    return;
+  }
 
   // Initialize NimBLE
   NimBLEDevice::init("CrossPoint");
@@ -115,12 +122,19 @@ void BluetoothManager::begin() {
   NimBLEDevice::setPower(ESP_PWR_LVL_N0);  // 0 dBm (moderate power)
 
   initialized = true;
-  Serial.printf("[%lu] [BLE] Bluetooth initialized\n", millis());
+  Serial.printf("[%lu] [BLE] Bluetooth initialized successfully\n", millis());
+  Serial.printf("[%lu] [BLE] Free heap after init: %d bytes\n", millis(), ESP.getFreeHeap());
 }
 
 void BluetoothManager::enable() {
   if (!initialized) {
     begin();
+  }
+
+  // Check if initialization succeeded
+  if (!initialized) {
+    Serial.printf("[%lu] [BLE] ERROR: Cannot enable BLE - initialization failed\n", millis());
+    return;
   }
 
   if (enabled) {
@@ -162,15 +176,28 @@ void BluetoothManager::disable() {
 }
 
 void BluetoothManager::initializeBLE() {
+  Serial.printf("[%lu] [BLE] Creating BLE server...\n", millis());
+
   // Create BLE Server
   pServer = NimBLEDevice::createServer();
+  if (!pServer) {
+    Serial.printf("[%lu] [BLE] ERROR: Failed to create BLE server\n", millis());
+    return;
+  }
+
   if (!serverCallbacks) {
     serverCallbacks = new ServerCallbacks();
   }
   pServer->setCallbacks(serverCallbacks);
 
+  Serial.printf("[%lu] [BLE] Creating HID device...\n", millis());
+
   // Create HID Device
   pHID = new NimBLEHIDDevice(pServer);
+  if (!pHID) {
+    Serial.printf("[%lu] [BLE] ERROR: Failed to create HID device\n", millis());
+    return;
+  }
 
   // Set HID info
   pHID->manufacturer()->setValue("CrossPoint");
@@ -182,12 +209,17 @@ void BluetoothManager::initializeBLE() {
 
   // Create input report characteristic
   pInputCharacteristic = pHID->inputReport(1);  // Report ID 1
+  if (!pInputCharacteristic) {
+    Serial.printf("[%lu] [BLE] ERROR: Failed to create input characteristic\n", millis());
+    return;
+  }
   pInputCharacteristic->setCallbacks(new InputCallbacks());
 
   // Start HID service
   pHID->startServices();
 
-  Serial.printf("[%lu] [BLE] HID keyboard service initialized\n", millis());
+  Serial.printf("[%lu] [BLE] HID keyboard service initialized successfully\n", millis());
+  Serial.printf("[%lu] [BLE] Free heap after HID init: %d bytes\n", millis(), ESP.getFreeHeap());
 }
 
 void BluetoothManager::startAdvertising() {

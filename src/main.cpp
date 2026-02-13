@@ -320,19 +320,30 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
 #ifdef ENABLE_BLE_KEYBOARD
-  // Initialize BLE keyboard support
+  // Initialize BLE keyboard support with memory check
   if (SETTINGS.bluetoothEnabled) {
     Serial.printf("[%lu] [BLE] Bluetooth enabled in settings\n", millis());
-    BT_MANAGER.begin();
-    // Set up button injection callback
-    BT_MANAGER.setButtonCallback([](uint8_t buttonIndex, bool pressed) {
-      if (pressed) {
-        mappedInputManager.injectButtonPress(buttonIndex);
-      } else {
-        mappedInputManager.injectButtonRelease(buttonIndex);
-      }
-    });
-    BT_MANAGER.enable();
+
+    // Check available heap before attempting BLE init
+    const uint32_t freeHeap = ESP.getFreeHeap();
+    Serial.printf("[%lu] [BLE] Free heap: %d bytes\n", millis(), freeHeap);
+
+    if (freeHeap < 50000) {
+      Serial.printf("[%lu] [BLE] ERROR: Insufficient memory for BLE (need 50KB, have %d bytes)\n", millis(), freeHeap);
+      SETTINGS.bluetoothEnabled = 0;  // Disable to prevent future boot loops
+      SETTINGS.saveToFile();
+    } else {
+      BT_MANAGER.begin();
+      // Set up button injection callback
+      BT_MANAGER.setButtonCallback([](uint8_t buttonIndex, bool pressed) {
+        if (pressed) {
+          mappedInputManager.injectButtonPress(buttonIndex);
+        } else {
+          mappedInputManager.injectButtonRelease(buttonIndex);
+        }
+      });
+      BT_MANAGER.enable();
+    }
   }
 #endif
 
