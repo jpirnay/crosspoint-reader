@@ -1,0 +1,58 @@
+{
+    "tool_name": "CrossPoint Reader Module Selector",
+    "pio_command": "platformio run",
+    "max_memory": 2048,
+    "base_size": 512,
+    "functionalities": [
+        {
+            "description": "WiFi connectivity and web server",
+            "params": ["-DENABLE_WIFI"],
+            "size": 150
+        },
+        {
+            "description": "KOReader synchronization support",
+            "params": ["-DENABLE_KOREADER_SYNC"],
+            "size": 80
+        },
+        {
+            "description": "Advanced graphics rendering (anti-aliasing, filters)",
+            "params": ["-DENABLE_ADVANCED_GFX"],
+            "size": 120
+        },
+        {
+            "description": "Additional font support (Unicode, CJK)",
+            "params": ["-DENABLE_EXTRA_FONTS"],
+            "size": 200
+        },
+        {
+            "description": "Battery monitoring and power management",
+            "params": ["-DENABLE_BATTERY_MONITOR"],
+            "size": 30
+        },
+        {
+            "description": "OPDS catalog support",
+            "params": ["-DENABLE_OPDS"],
+            "size": 100
+        },
+        {
+            "description": "JPEG image support",
+            "params": ["-DENABLE_JPEG"],
+            "size": 90
+        },
+        {
+            "description": "Hyphenation and text processing",
+            "params": ["-DENABLE_HYPHENATION"],
+            "size": 60
+        },
+        {
+            "description": "Debug logging and diagnostics",
+            "params": ["-DENABLE_DEBUG_LOG"],
+            "size": 40
+        },
+        {
+            "description": "USB mass storage support",
+            "params": ["-DENABLE_USB_STORAGE"],
+            "size": 70
+        }
+    ]
+}
