@@ -175,61 +175,6 @@ class CrossPointSettings {
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
 
-  // Serialization helpers
-  mutable bool is_counting = false;
-  mutable int item_count = 0;
-
-  template <typename T>
-  void writeItem(FsFile& file, const T& value) const {
-    if (is_counting) {
-      item_count++;
-    } else {
-      serialization::writePod(file, value);
-    }
-  }
-
-  void writeItemString(FsFile& file, const char* value) const {
-    if (is_counting) {
-      item_count++;
-    } else {
-      serialization::writeString(file, std::string(value));
-    }
-  }
-
-  void writeSettings(FsFile& file) const {
-    writeItem(file, sleepScreen);
-    writeItem(file, extraParagraphSpacing);
-    writeItem(file, shortPwrBtn);
-    writeItem(file, statusBar);
-    writeItem(file, orientation);
-    writeItem(file, frontButtonLayout);  // legacy
-    writeItem(file, sideButtonLayout);
-    writeItem(file, fontFamily);
-    writeItem(file, fontSize);
-    writeItem(file, lineSpacing);
-    writeItem(file, paragraphAlignment);
-    writeItem(file, sleepTimeout);
-    writeItem(file, refreshFrequency);
-    writeItem(file, screenMargin);
-    writeItem(file, sleepScreenCoverMode);
-    writeItemString(file, opdsServerUrl);
-    writeItem(file, textAntiAliasing);
-    writeItem(file, hideBatteryPercentage);
-    writeItem(file, longPressChapterSkip);
-    writeItem(file, hyphenationEnabled);
-    writeItemString(file, opdsUsername);
-    writeItemString(file, opdsPassword);
-    writeItem(file, sleepScreenCoverFilter);
-    writeItem(file, uiTheme);
-    writeItem(file, frontButtonBack);
-    writeItem(file, frontButtonConfirm);
-    writeItem(file, frontButtonLeft);
-    writeItem(file, frontButtonRight);
-    writeItem(file, fadingFix);
-    writeItem(file, embeddedStyle);
-    // New fields need to be added at end for backward compatibility
-  }
-
   ~CrossPointSettings() = default;
 
   // Get singleton instance
@@ -239,6 +184,9 @@ class CrossPointSettings {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 10 : 400;
   }
   int getReaderFontId() const;
+
+  // If count_only is true, returns the number of settings items that would be written.
+  uint8_t writeSettings(FsFile& file, bool count_only = false) const;
 
   bool saveToFile() const;
   bool loadFromFile();
