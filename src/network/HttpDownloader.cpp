@@ -171,3 +171,74 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   return OK;
 }
+
+bool HttpDownloader::ensureAssetsAvailable(AssetType assetType, const char* const* assetNames, const char* loggerPrefix) {
+  // Determine base paths based on asset type
+  const char* sdBasePath;
+  const char* githubBasePath;
+  
+  switch (assetType) {
+    case WEB_ASSETS:
+      sdBasePath = "/web/";
+      githubBasePath = "https://raw.githubusercontent.com/crosspoint-reader/crosspoint-reader/master/data/web/";
+      break;
+    // Future asset types can be added here:
+    // case HYPHEN_ASSETS:
+    //   sdBasePath = "/hyphen/";
+    //   githubBasePath = "https://raw.githubusercontent.com/crosspoint-reader/assets/main/hyphen/";
+    //   break;
+    default:
+      LOG_ERR(loggerPrefix, "Unknown asset type: %d", assetType);
+      return false;
+  }
+
+  bool allAssetsAvailable = true;
+
+  // Check if all assets exist
+  for (size_t i = 0; assetNames[i] != nullptr; ++i) {
+    const char* assetName = assetNames[i];
+    String fullSdPath = String(sdBasePath) + assetName;
+    
+    if (!Storage.exists(fullSdPath.c_str())) {
+      allAssetsAvailable = false;
+      LOG_DBG(loggerPrefix, "Missing asset: %s", fullSdPath.c_str());
+      break;
+    }
+  }
+
+  if (allAssetsAvailable) {
+    LOG_DBG(loggerPrefix, "All assets are available on SD card");
+    return true;
+  }
+
+  LOG_INF(loggerPrefix, "Downloading missing assets...");
+
+  // Download missing assets
+  for (size_t i = 0; assetNames[i] != nullptr; ++i) {
+    const char* assetName = assetNames[i];
+    String fullSdPath = String(sdBasePath) + assetName;
+    
+    if (Storage.exists(fullSdPath.c_str())) {
+      LOG_DBG(loggerPrefix, "Asset already exists: %s", fullSdPath.c_str());
+      continue;
+    }
+
+    // Construct download URL
+    String downloadUrl = String(githubBasePath) + assetName;
+
+    LOG_INF(loggerPrefix, "Downloading %s from %s", fullSdPath.c_str(), downloadUrl.c_str());
+
+    // Download directly to SD card
+    DownloadError error = downloadToFile(std::string(downloadUrl.c_str()), std::string(fullSdPath.c_str()));
+
+    if (error != OK) {
+      LOG_ERR(loggerPrefix, "Failed to download %s (error: %d)", downloadUrl.c_str(), error);
+      return false;
+    }
+
+    LOG_INF(loggerPrefix, "Successfully downloaded: %s", fullSdPath.c_str());
+  }
+
+  LOG_INF(loggerPrefix, "All assets downloaded successfully");
+  return true;
+}

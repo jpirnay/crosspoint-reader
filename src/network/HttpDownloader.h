@@ -19,6 +19,11 @@ class HttpDownloader {
     ABORTED,
   };
 
+  enum AssetType {
+    WEB_ASSETS,
+    // Future: FONT_ASSETS, IMAGE_ASSETS, etc.
+  };
+
   /**
    * Fetch text content from a URL.
    * @param url The URL to fetch
@@ -38,6 +43,25 @@ class HttpDownloader {
    */
   static DownloadError downloadToFile(const std::string& url, const std::string& destPath,
                                       ProgressCallback progress = nullptr);
+
+  /**
+   * Ensure a list of assets are available on SD card, downloading missing ones.
+   * Supports both text and binary files. Base paths are determined by asset type.
+   * 
+   * Example usage:
+   *   const char* webAssets[] = {"HomePage.html", "FilesPage.html", "SettingsPage.html", nullptr};
+   *   HttpDownloader::ensureAssetsAvailable(WEB_ASSETS, webAssets, "WEB");
+   *   
+   *   // Future usage for other asset types:
+   *   const char* fontAssets[] = {"font.ttf", "icons.woff2", nullptr};
+   *   HttpDownloader::ensureAssetsAvailable(FONT_ASSETS, fontAssets, "FONT");
+   * 
+   * @param assetType The type of assets (determines base paths)
+   * @param assetNames Array of asset filenames to check/download (null-terminated, relative to base paths)
+   * @param loggerPrefix Prefix for log messages (e.g., "WEB", "FONTS")
+   * @return true if all assets are available, false if any download failed
+   */
+  static bool ensureAssetsAvailable(AssetType assetType, const char* const* assetNames, const char* loggerPrefix);
 
  private:
   static constexpr size_t DOWNLOAD_CHUNK_SIZE = 1024;

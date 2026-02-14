@@ -2,6 +2,7 @@ import os
 import re
 
 SRC_DIR = "src"
+DATA_DIR = "data"
 
 def minify_html(html: str) -> str:
     # Tags where whitespace should be preserved
@@ -31,10 +32,22 @@ def minify_html(html: str) -> str:
 
     return html.strip()
 
+# Check if HTML file exists in data directory (served from SD card)
+def should_generate_header(html_path):
+    # Get relative path from src directory
+    rel_path = os.path.relpath(html_path, SRC_DIR)
+    data_path = os.path.join(DATA_DIR, rel_path)
+    return not os.path.exists(data_path)
+
 for root, _, files in os.walk(SRC_DIR):
     for file in files:
         if file.endswith(".html"):
             html_path = os.path.join(root, file)
+            
+            if not should_generate_header(html_path):
+                print(f"Skipping {html_path} (served from SD card)")
+                continue
+                
             with open(html_path, "r", encoding="utf-8") as f:
                 html_content = f.read()
 

@@ -79,6 +79,8 @@ See [Reading Mode](#4-reading-mode) below for more information.
 
 The File Upload screen allows you to upload new e-books to the device. When you enter the screen, you'll be prompted with a WiFi selection dialog and then your X4 will start hosting a web server.
 
+**Note:** The web interface files are stored on the SD card. The firmware will automatically download these files from GitHub on first boot if they're not present.
+
 See the [webserver docs](./docs/webserver.md) for more information on how to connect to the web server and upload files.
 
 > [!TIP]

@@ -49,6 +49,18 @@ For more details about the scope of the project, see the [SCOPE.md](SCOPE.md) do
 
 ## Installing
 
+### Development Build
+
+1. Build the firmware using PlatformIO: `pio run -e default`
+2. Flash the firmware to your device
+3. Insert an SD card (the web interface files will be downloaded automatically on first boot)
+
+### Release Build
+
+1. Download the release artifacts from GitHub releases
+2. Flash the `firmware.bin` file to your device using your preferred flashing method
+3. Insert an SD card (the web interface files will be downloaded automatically on first boot)
+
 ### Web (latest firmware)
 
 1. Connect your Xteink X4 to your computer via USB-C

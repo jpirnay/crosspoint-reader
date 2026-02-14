@@ -10,11 +10,21 @@
 
 #include <algorithm>
 
+#include "CrossPointWebServer.h"
+
+#include <ArduinoJson.h>
+#include <Epub.h>
+#include <FsHelpers.h>
+#include <HalStorage.h>
+#include <Logging.h>
+#include <WiFi.h>
+#include <esp_task_wdt.h>
+
+#include <algorithm>
+
 #include "CrossPointSettings.h"
+#include "HttpDownloader.h"
 #include "SettingsList.h"
-#include "html/FilesPageHtml.generated.h"
-#include "html/HomePageHtml.generated.h"
-#include "html/SettingsPageHtml.generated.h"
 #include "util/StringUtils.h"
 
 namespace {
@@ -108,7 +118,11 @@ void CrossPointWebServer::begin() {
   apMode = isInApMode;
 
   LOG_DBG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
-  LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
+  // Check if required HTML files exist on SD card, download if missing
+  if (!ensureWebAssetsAvailable()) {
+    LOG_ERR("WEB", "Failed to ensure web assets are available");
+    return;
+  }
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
   server.reset(new WebServer(port));
@@ -293,8 +307,42 @@ CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() con
   return status;
 }
 
+bool CrossPointWebServer::ensureWebAssetsAvailable() {
+  // List of required web assets with their expected filenames (relative to base paths)
+  // This can be easily extended for other asset types (fonts, images, etc.)
+  const char* requiredAssets[] = {
+    "HomePage.html",
+    "FilesPage.html", 
+    "SettingsPage.html",
+    nullptr  // Null terminator - required for the generic method
+  };
+  
+  return HttpDownloader::ensureAssetsAvailable(HttpDownloader::WEB_ASSETS, requiredAssets, "WEB");
+}
+
+void CrossPointWebServer::serveFileFromSD(const char* path, const char* contentType) const {
+  FsFile file = Storage.open(path, FILE_READ);
+  if (!file) {
+    LOG_ERR("WEB", "Failed to open file from SD: %s", path);
+    server->send(404, "text/plain", "File not found");
+    return;
+  }
+  
+  size_t fileSize = file.size();
+  server->setContentLength(fileSize);
+  server->send(200, contentType, "");
+  
+  uint8_t buffer[1024];
+  size_t bytesRead;
+  while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0) {
+    server->sendContent((const char*)buffer, bytesRead);
+  }
+  
+  file.close();
+}
+
 void CrossPointWebServer::handleRoot() const {
-  server->send(200, "text/html", HomePageHtml);
+  serveFileFromSD("/web/HomePage.html", "text/html");
   LOG_DBG("WEB", "Served root page");
 }
 
@@ -385,7 +433,9 @@ bool CrossPointWebServer::isEpubFile(const String& filename) const {
   return lower.endsWith(".epub");
 }
 
-void CrossPointWebServer::handleFileList() const { server->send(200, "text/html", FilesPageHtml); }
+void CrossPointWebServer::handleFileList() const { 
+  serveFileFromSD("/web/FilesPage.html", "text/html"); 
+}
 
 void CrossPointWebServer::handleFileListData() const {
   // Get current path from query string (default to root)
@@ -989,7 +1039,7 @@ void CrossPointWebServer::handleDelete() const {
 }
 
 void CrossPointWebServer::handleSettingsPage() const {
-  server->send(200, "text/html", SettingsPageHtml);
+  serveFileFromSD("/web/SettingsPage.html", "text/html");
   LOG_DBG("WEB", "Served settings page");
 }
 

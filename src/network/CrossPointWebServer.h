@@ -69,6 +69,9 @@ class CrossPointWebServer {
   uint16_t getPort() const { return port; }
 
  private:
+  // Ensure web assets are available (download if missing)
+  bool ensureWebAssetsAvailable();
+
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
@@ -88,6 +91,7 @@ class CrossPointWebServer {
   bool isEpubFile(const String& filename) const;
 
   // Request handlers
+  void serveFileFromSD(const char* path, const char* contentType) const;
   void handleRoot() const;
   void handleNotFound() const;
   void handleStatus() const;
