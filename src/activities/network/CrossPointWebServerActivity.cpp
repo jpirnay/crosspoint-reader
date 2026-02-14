@@ -257,6 +257,13 @@ void CrossPointWebServerActivity::startAccessPoint() {
 void CrossPointWebServerActivity::startWebServer() {
   LOG_DBG("WEBACT", "Starting web server...");
 
+  // Show popup while setting up
+  xSemaphoreTake(renderingMutex, portMAX_DELAY);
+  renderer.clearScreen();
+  GUI.drawPopup(renderer, "Setting up web server...");
+  renderer.displayBuffer();
+  xSemaphoreGive(renderingMutex);
+
   // Create the web server instance
   webServer.reset(new CrossPointWebServer());
   webServer->begin();
