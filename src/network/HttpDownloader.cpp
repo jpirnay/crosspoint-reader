@@ -13,11 +13,16 @@
 #include "CrossPointSettings.h"
 #include "util/UrlUtils.h"
 
+// Stringify macro for converting build flags to strings
 #define STRINGIFY(x) #x
 
 // Compile-time repository URL for asset downloads
-// To override for forks, modify this URL or use build flags
-const char* ASSET_REPO_URL = "https://raw.githubusercontent.com/crosspoint-reader/crosspoint-reader/master";
+// Can be overridden by defining CROSSPOINT_ASSET_REPO_URL in build flags
+#ifndef CROSSPOINT_ASSET_REPO_URL
+#define CROSSPOINT_ASSET_REPO_URL "https://raw.githubusercontent.com/crosspoint-reader/crosspoint-reader/master"
+#endif
+
+const char* ASSET_REPO_URL = STRINGIFY(CROSSPOINT_ASSET_REPO_URL);
 
 bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent,
                            const char* username, const char* password) {
@@ -201,8 +206,12 @@ bool HttpDownloader::ensureAssetsAvailable(AssetType assetType, const char* cons
       return false;
   }
 
+  // Debug: Log the asset repo URL
+  LOG_INF(loggerPrefix, "Asset repo URL: %s", ASSET_REPO_URL);
+
   // Construct GitHub base URL using compile-time repository URL
   String githubBaseUrl = String(ASSET_REPO_URL) + assetSubPath;
+  LOG_INF(loggerPrefix, "GitHub base URL: %s", githubBaseUrl.c_str());
 
   bool allAssetsAvailable = true;
 
