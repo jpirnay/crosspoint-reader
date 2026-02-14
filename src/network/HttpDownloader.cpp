@@ -210,7 +210,7 @@ bool HttpDownloader::ensureAssetsAvailable(AssetType assetType, const char* cons
 
   switch (assetType) {
     case WEB_ASSETS:
-      sdBasePath = "/data/web/";
+      sdBasePath = "/.crosspoint/data/web/";
       assetSubPath = "/data/web/";
       LOG_DBG(loggerPrefix, "Asset type: WEB_ASSETS, SD path: '%s', subpath: '%s'", sdBasePath, assetSubPath);
       break;
