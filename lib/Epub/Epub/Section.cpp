@@ -228,9 +228,18 @@ std::unique_ptr<Page> Section::loadPageFromSectionFile() {
     return nullptr;
   }
 
-  file.seek(HEADER_SIZE - sizeof(uint32_t));
+  // Read LUT offset from cache or disk (SD I/O optimization #1)
   uint32_t lutOffset;
-  serialization::readPod(file, lutOffset);
+  if (lutOffsetCached) {
+    lutOffset = cachedLutOffset;
+  } else {
+    file.seek(HEADER_SIZE - sizeof(uint32_t));
+    serialization::readPod(file, lutOffset);
+    cachedLutOffset = lutOffset;
+    lutOffsetCached = true;
+  }
+
+  // Now only 1 seek instead of 2 per page load
   file.seek(lutOffset + sizeof(uint32_t) * currentPage);
   uint32_t pagePos;
   serialization::readPod(file, pagePos);
