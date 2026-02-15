@@ -1,40 +1,18 @@
 #include "Epub.h"
 
 #include <FsHelpers.h>
+#include <HalDisplay.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
 #include <ZipFile.h>
 
+#include <algorithm>
+
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
 #include "Epub/parsers/TocNcxParser.h"
-
-// SD I/O Optimization: Stream adapter to eliminate temp file double I/O
-// Forwards ZIP decompression directly to parser without intermediate temp file
-template <typename Parser>
-class ParserStreamAdapter : public Print {
-  Parser& parser;
-  bool error = false;
-
- public:
-  explicit ParserStreamAdapter(Parser& p) : parser(p) {}
-
-  size_t write(uint8_t byte) override { return write(&byte, 1); }
-
-  size_t write(const uint8_t* buffer, size_t size) override {
-    if (error) return 0;
-    const size_t processed = parser.write(buffer, size);
-    if (processed != size) {
-      error = true;
-      return 0;
-    }
-    return processed;
-  }
-
-  bool hasError() const { return error; }
-};
 
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   const auto containerPath = "META-INF/container.xml";
@@ -128,46 +106,50 @@ bool Epub::parseTocNcxFile() const {
 
   LOG_DBG("EBP", "Parsing toc ncx file: %s", tocNcxItem.c_str());
 
-  // SD I/O Optimization #3: Stream directly from ZIP to parser (no temp file)
-  // Old: ZIP → temp file → close → reopen → read → parser
-  // New: ZIP → parser (eliminates 50% of I/O operations)
-
-  size_t ncxSize;
-  if (!getItemSize(tocNcxItem, &ncxSize)) {
-    LOG_ERR("EBP", "Could not get NCX file size");
+  const auto tmpNcxPath = getCachePath() + "/toc.ncx";
+  FsFile tempNcxFile;
+  if (!Storage.openFileForWrite("EBP", tmpNcxPath, tempNcxFile)) {
     return false;
   }
+  readItemContentsToStream(tocNcxItem, tempNcxFile, 1024);
+  tempNcxFile.close();
+  if (!Storage.openFileForRead("EBP", tmpNcxPath, tempNcxFile)) {
+    return false;
+  }
+  const auto ncxSize = tempNcxFile.size();
 
   TocNcxParser ncxParser(contentBasePath, ncxSize, bookMetadataCache.get());
 
   if (!ncxParser.setup()) {
     LOG_ERR("EBP", "Could not setup toc ncx parser");
+    tempNcxFile.close();
     return false;
   }
 
-  // Stream directly from ZIP decompression to parser
-  ParserStreamAdapter<TocNcxParser> adapter(ncxParser);
-
-  // Timing instrumentation for ZIP read performance
-  unsigned long zipReadStart = micros();
-  long heapBefore = static_cast<long>(ESP.getFreeHeap());
-
-  if (!readItemContentsToStream(tocNcxItem, adapter, 1024)) {
-    LOG_ERR("EBP", "Could not stream NCX contents to parser");
+  const auto ncxBuffer = static_cast<uint8_t*>(malloc(1024));
+  if (!ncxBuffer) {
+    LOG_ERR("EBP", "Could not allocate memory for toc ncx parser");
+    tempNcxFile.close();
     return false;
   }
 
-  unsigned long zipReadTime = micros() - zipReadStart;
-  long heapAfter = static_cast<long>(ESP.getFreeHeap());
-  long heapDelta = heapBefore - heapAfter;
+  while (tempNcxFile.available()) {
+    const auto readSize = tempNcxFile.read(ncxBuffer, 1024);
+    if (readSize == 0) break;
+    const auto processedSize = ncxParser.write(ncxBuffer, readSize);
 
-  if (adapter.hasError()) {
-    LOG_ERR("EBP", "Parser reported error during NCX streaming");
-    return false;
+    if (processedSize != readSize) {
+      LOG_ERR("EBP", "Could not process all toc ncx data");
+      free(ncxBuffer);
+      tempNcxFile.close();
+      return false;
+    }
   }
 
-  LOG_DBG("ZIP_IO", "NCX: %zu bytes in %lu ms (%.2f us/byte), heap: %+ld bytes", ncxSize, zipReadTime / 1000,
-          (float)zipReadTime / ncxSize, heapDelta);
+  free(ncxBuffer);
+  tempNcxFile.close();
+  Storage.remove(tmpNcxPath.c_str());
+
   LOG_DBG("EBP", "Parsed TOC items");
   return true;
 }
@@ -181,12 +163,17 @@ bool Epub::parseTocNavFile() const {
 
   LOG_DBG("EBP", "Parsing toc nav file: %s", tocNavItem.c_str());
 
-  // SD I/O Optimization #3: Stream directly from ZIP to parser (no temp file)
-  size_t navSize;
-  if (!getItemSize(tocNavItem, &navSize)) {
-    LOG_ERR("EBP", "Could not get NAV file size");
+  const auto tmpNavPath = getCachePath() + "/toc.nav";
+  FsFile tempNavFile;
+  if (!Storage.openFileForWrite("EBP", tmpNavPath, tempNavFile)) {
     return false;
   }
+  readItemContentsToStream(tocNavItem, tempNavFile, 1024);
+  tempNavFile.close();
+  if (!Storage.openFileForRead("EBP", tmpNavPath, tempNavFile)) {
+    return false;
+  }
+  const auto navSize = tempNavFile.size();
 
   // Note: We can't use `contentBasePath` here as the nav file may be in a different folder to the content.opf
   // and the HTMLX nav file will have hrefs relative to itself
@@ -198,29 +185,28 @@ bool Epub::parseTocNavFile() const {
     return false;
   }
 
-  // Stream directly from ZIP decompression to parser
-  ParserStreamAdapter<TocNavParser> adapter(navParser);
-
-  // Timing instrumentation for ZIP read performance
-  unsigned long zipReadStart = micros();
-  long heapBefore = static_cast<long>(ESP.getFreeHeap());
-
-  if (!readItemContentsToStream(tocNavItem, adapter, 1024)) {
-    LOG_ERR("EBP", "Could not stream NAV contents to parser");
+  const auto navBuffer = static_cast<uint8_t*>(malloc(1024));
+  if (!navBuffer) {
+    LOG_ERR("EBP", "Could not allocate memory for toc nav parser");
     return false;
   }
 
-  unsigned long zipReadTime = micros() - zipReadStart;
-  long heapAfter = static_cast<long>(ESP.getFreeHeap());
-  long heapDelta = heapBefore - heapAfter;
+  while (tempNavFile.available()) {
+    const auto readSize = tempNavFile.read(navBuffer, 1024);
+    const auto processedSize = navParser.write(navBuffer, readSize);
 
-  if (adapter.hasError()) {
-    LOG_ERR("EBP", "Parser reported error during NAV streaming");
-    return false;
+    if (processedSize != readSize) {
+      LOG_ERR("EBP", "Could not process all toc nav data");
+      free(navBuffer);
+      tempNavFile.close();
+      return false;
+    }
   }
 
-  LOG_DBG("ZIP_IO", "NAV: %zu bytes in %lu ms (%.2f us/byte), heap: %+ld bytes", navSize, zipReadTime / 1000,
-          (float)zipReadTime / navSize, heapDelta);
+  free(navBuffer);
+  tempNavFile.close();
+  Storage.remove(tmpNavPath.c_str());
+
   LOG_DBG("EBP", "Parsed TOC nav items");
   return true;
 }
@@ -457,9 +443,18 @@ std::string Epub::getCoverBmpPath(bool cropped) const {
 }
 
 bool Epub::generateCoverBmp(bool cropped) const {
+  bool invalid = false;
   // Already generated, return true
   if (Storage.exists(getCoverBmpPath(cropped).c_str())) {
-    return true;
+    // is this a valid cover or just an empty file we created to mark generation attempts?
+    invalid = !isValidThumbnailBmp(getCoverBmpPath(cropped));
+    if (invalid) {
+      // Remove the old invalid cover so we can attempt to generate a new one
+      Storage.remove(getCoverBmpPath(cropped).c_str());
+      LOG_ERR("EBP", "Previous cover generation attempt failed for %s mode, retrying", cropped ? "cropped" : "fit");
+    } else {
+      return true;
+    }
   }
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -468,13 +463,33 @@ bool Epub::generateCoverBmp(bool cropped) const {
   }
 
   const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
+    // Fallback: try common cover filenames
+    std::vector<std::string> coverCandidates = getCoverCandidates();
+    for (const auto& candidate : coverCandidates) {
+      effectiveCoverImageHref = candidate;
+      // Try to read a small amount to check if exists
+      uint8_t* test = readItemContentsToBytes(candidate, nullptr, false);
+      if (test) {
+        free(test);
+        break;
+      } else {
+        effectiveCoverImageHref.clear();
+      }
+    }
+  }
+  if (effectiveCoverImageHref.empty()) {
     LOG_ERR("EBP", "No known cover image");
     return false;
   }
 
-  if (coverImageHref.substr(coverImageHref.length() - 4) == ".jpg" ||
-      coverImageHref.substr(coverImageHref.length() - 5) == ".jpeg") {
+  // Check for JPG/JPEG extensions (case insensitive)
+  std::string lowerHref = effectiveCoverImageHref;
+  std::transform(lowerHref.begin(), lowerHref.end(), lowerHref.begin(), ::tolower);
+  bool isJpg =
+      lowerHref.substr(lowerHref.length() - 4) == ".jpg" || lowerHref.substr(lowerHref.length() - 5) == ".jpeg";
+  if (isJpg) {
     LOG_DBG("EBP", "Generating BMP from JPG cover image (%s mode)", cropped ? "cropped" : "fit");
     const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
 
@@ -482,7 +497,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
     if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
       return false;
     }
-    readItemContentsToStream(coverImageHref, coverJpg, 1024);
+    readItemContentsToStream(effectiveCoverImageHref, coverJpg, 1024);
     coverJpg.close();
 
     if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
@@ -500,13 +515,18 @@ bool Epub::generateCoverBmp(bool cropped) const {
     Storage.remove(coverJpgTempPath.c_str());
 
     if (!success) {
-      LOG_ERR("EBP", "Failed to generate BMP from cover image");
-      Storage.remove(getCoverBmpPath(cropped).c_str());
+      LOG_ERR("EBP", "Failed to generate BMP from JPG cover image");
+      // Instead of removing the file, create a dummy cover with X pattern
+      coverBmp.close();
+      Storage.remove(coverJpgTempPath.c_str());
+      return generateInvalidFormatCoverBmp(cropped);
     }
     LOG_DBG("EBP", "Generated BMP from cover image, success: %s", success ? "yes" : "no");
     return success;
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping");
+    // Create a dummy cover to indicate unsupported format
+    return generateInvalidFormatCoverBmp(cropped);
   }
 
   return false;
@@ -516,9 +536,19 @@ std::string Epub::getThumbBmpPath() const { return cachePath + "/thumb_[HEIGHT].
 std::string Epub::getThumbBmpPath(int height) const { return cachePath + "/thumb_" + std::to_string(height) + ".bmp"; }
 
 bool Epub::generateThumbBmp(int height) const {
+  bool invalid = false;
   // Already generated, return true
   if (Storage.exists(getThumbBmpPath(height).c_str())) {
-    return true;
+    // is this a valid thumbnail or just an empty file we created to mark generation attempts?
+    invalid = !isValidThumbnailBmp(getThumbBmpPath(height));
+    if (invalid) {
+      // Remove the old invalid thumbnail so we can attempt to generate a new one
+      Storage.remove(getThumbBmpPath(height).c_str());
+      LOG_DBG("EBP", "Previous thumbnail generation attempt failed for height %d, skipping", height);
+    } else {
+      // LOG_DBG("EBP", "Thumbnail BMP already exists for height %d", height);
+      return true;
+    }
   }
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -527,47 +557,74 @@ bool Epub::generateThumbBmp(int height) const {
   }
 
   const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  std::string effectiveCoverImageHref = coverImageHref;
   if (coverImageHref.empty()) {
+    // Fallback: try common cover filenames
+    std::vector<std::string> coverCandidates = getCoverCandidates();
+    for (const auto& candidate : coverCandidates) {
+      effectiveCoverImageHref = candidate;
+      // Try to read a small amount to check if exists
+      uint8_t* test = readItemContentsToBytes(candidate, nullptr, false);
+      if (test) {
+        free(test);
+        break;
+      } else {
+        effectiveCoverImageHref.clear();
+      }
+    }
+  }
+  if (effectiveCoverImageHref.empty()) {
     LOG_DBG("EBP", "No known cover image for thumbnail");
-  } else if (coverImageHref.substr(coverImageHref.length() - 4) == ".jpg" ||
-             coverImageHref.substr(coverImageHref.length() - 5) == ".jpeg") {
-    LOG_DBG("EBP", "Generating thumb BMP from JPG cover image");
-    const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
-
-    FsFile coverJpg;
-    if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
-      return false;
-    }
-    readItemContentsToStream(coverImageHref, coverJpg, 1024);
-    coverJpg.close();
-
-    if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
-      return false;
-    }
-
-    FsFile thumbBmp;
-    if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
-      coverJpg.close();
-      return false;
-    }
-    // Use smaller target size for Continue Reading card (half of screen: 240x400)
-    // Generate 1-bit BMP for fast home screen rendering (no gray passes needed)
-    int THUMB_TARGET_WIDTH = height * 0.6;
-    int THUMB_TARGET_HEIGHT = height;
-    const bool success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverJpg, thumbBmp, THUMB_TARGET_WIDTH,
-                                                                             THUMB_TARGET_HEIGHT);
-    coverJpg.close();
-    thumbBmp.close();
-    Storage.remove(coverJpgTempPath.c_str());
-
-    if (!success) {
-      LOG_ERR("EBP", "Failed to generate thumb BMP from JPG cover image");
-      Storage.remove(getThumbBmpPath(height).c_str());
-    }
-    LOG_DBG("EBP", "Generated thumb BMP from JPG cover image, success: %s", success ? "yes" : "no");
-    return success;
   } else {
-    LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
+    // Check for JPG/JPEG extensions (case insensitive)
+    std::string lowerHref = effectiveCoverImageHref;
+    std::transform(lowerHref.begin(), lowerHref.end(), lowerHref.begin(), ::tolower);
+    bool isJpg =
+        lowerHref.substr(lowerHref.length() - 4) == ".jpg" || lowerHref.substr(lowerHref.length() - 5) == ".jpeg";
+    if (isJpg) {
+      LOG_DBG("EBP", "Generating thumb BMP from JPG cover image");
+      const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
+
+      FsFile coverJpg;
+      if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
+        return false;
+      }
+      readItemContentsToStream(effectiveCoverImageHref, coverJpg, 1024);
+      coverJpg.close();
+
+      if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
+        return false;
+      }
+
+      FsFile thumbBmp;
+      if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
+        coverJpg.close();
+        return false;
+      }
+      // Use smaller target size for Continue Reading card (half of screen: 240x400)
+      // Generate 1-bit BMP for fast home screen rendering (no gray passes needed)
+      int THUMB_TARGET_WIDTH = height * 0.6;
+      int THUMB_TARGET_HEIGHT = height;
+      const bool success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverJpg, thumbBmp, THUMB_TARGET_WIDTH,
+                                                                               THUMB_TARGET_HEIGHT);
+      coverJpg.close();
+      thumbBmp.close();
+      Storage.remove(coverJpgTempPath.c_str());
+
+      if (!success) {
+        LOG_ERR("EBP", "Failed to generate thumb BMP from JPG cover image");
+        // Instead of removing the file, create a dummy thumbnail with X pattern
+        thumbBmp.close();
+        Storage.remove(coverJpgTempPath.c_str());
+        return generateInvalidFormatThumbBmp(height);
+      }
+      LOG_DBG("EBP", "Generated thumb BMP from JPG cover image, success: %s", success ? "yes" : "no");
+      return success;
+    } else {
+      LOG_ERR("EBP", "Cover image is not a JPG, creating invalid format thumbnail");
+      // Create a dummy thumbnail to indicate unsupported format
+      return generateInvalidFormatThumbBmp(height);
+    }
   }
 
   // Write an empty bmp file to avoid generation attempts in the future
@@ -575,6 +632,191 @@ bool Epub::generateThumbBmp(int height) const {
   Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp);
   thumbBmp.close();
   return false;
+}
+
+bool Epub::generateInvalidFormatThumbBmp(int height) const {
+  // Create a simple 1-bit BMP with an X pattern to indicate invalid format.
+  // This BMP is a valid 1-bit file used as a marker to prevent repeated
+  // generation attempts when conversion fails (e.g., progressive JPG).
+  const int width = height * 0.6;                // Same aspect ratio as normal thumbnails
+  const int rowBytes = ((width + 31) / 32) * 4;  // 1-bit rows padded to 4-byte boundary
+  const int imageSize = rowBytes * height;
+  const int fileSize = 14 + 40 + 8 + imageSize;  // Header + DIB + palette + data
+  const int dataOffset = 14 + 40 + 8;
+
+  FsFile thumbBmp;
+  if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
+    return false;
+  }
+
+  // BMP file header (14 bytes)
+  thumbBmp.write('B');
+  thumbBmp.write('M');
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&fileSize), 4);
+  uint32_t reserved = 0;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&reserved), 4);
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&dataOffset), 4);
+
+  // DIB header (BITMAPINFOHEADER - 40 bytes)
+  uint32_t dibHeaderSize = 40;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&dibHeaderSize), 4);
+  int32_t bmpWidth = width;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&bmpWidth), 4);
+  int32_t bmpHeight = -height;  // Negative for top-down
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&bmpHeight), 4);
+  uint16_t planes = 1;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&planes), 2);
+  uint16_t bitsPerPixel = 1;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&bitsPerPixel), 2);
+  uint32_t compression = 0;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&compression), 4);
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&imageSize), 4);
+  int32_t ppmX = 2835;  // 72 DPI
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&ppmX), 4);
+  int32_t ppmY = 2835;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&ppmY), 4);
+  uint32_t colorsUsed = 2;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&colorsUsed), 4);
+  uint32_t colorsImportant = 2;
+  thumbBmp.write(reinterpret_cast<const uint8_t*>(&colorsImportant), 4);
+
+  // Color palette (2 colors for 1-bit)
+  uint8_t black[4] = {0x00, 0x00, 0x00, 0x00};  // Color 0: Black
+  thumbBmp.write(black, 4);
+  uint8_t white[4] = {0xFF, 0xFF, 0xFF, 0x00};  // Color 1: White
+  thumbBmp.write(white, 4);
+
+  // Generate X pattern bitmap data
+  // In BMP, 0 = black (first color in palette), 1 = white
+  // We'll draw black pixels on white background
+  for (int y = 0; y < height; y++) {
+    std::vector<uint8_t> rowData(rowBytes, 0xFF);  // Initialize to all white (1s)
+
+    // Map this row to a horizontal position for diagonals
+    const int scaledY = (y * width) / height;
+    const int thickness = 2;  // thickness of diagonal lines in pixels
+
+    for (int x = 0; x < width; x++) {
+      bool drawPixel = false;
+      // Main diagonal (top-left to bottom-right)
+      if (std::abs(x - scaledY) <= thickness) drawPixel = true;
+      // Other diagonal (top-right to bottom-left)
+      if (std::abs(x - (width - 1 - scaledY)) <= thickness) drawPixel = true;
+
+      if (drawPixel) {
+        const int byteIndex = x / 8;
+        const int bitIndex = 7 - (x % 8);  // MSB first
+        rowData[byteIndex] &= static_cast<uint8_t>(~(1 << bitIndex));
+      }
+    }
+
+    // Write the row data
+    thumbBmp.write(rowData.data(), rowBytes);
+  }
+
+  thumbBmp.close();
+  LOG_DBG("EBP", "Generated invalid format thumbnail BMP");
+  return true;
+}
+
+bool Epub::generateInvalidFormatCoverBmp(bool cropped) const {
+  // Create a simple 1-bit BMP with an X pattern to indicate invalid format.
+  // This BMP is intentionally a valid image that visually indicates a
+  // malformed/unsupported cover image instead of leaving an empty marker
+  // file that would cause repeated generation attempts.
+  // Derive logical portrait dimensions from the display hardware constants
+  // EInkDisplay reports native panel orientation as 800x480; use min/max
+  const int hwW = HalDisplay::DISPLAY_WIDTH;
+  const int hwH = HalDisplay::DISPLAY_HEIGHT;
+  const int width = std::min(hwW, hwH);          // logical portrait width (480)
+  const int height = std::max(hwW, hwH);         // logical portrait height (800)
+  const int rowBytes = ((width + 31) / 32) * 4;  // 1-bit rows padded to 4-byte boundary
+  const int imageSize = rowBytes * height;
+  const int fileSize = 14 + 40 + 8 + imageSize;  // Header + DIB + palette + data
+  const int dataOffset = 14 + 40 + 8;
+
+  FsFile coverBmp;
+  if (!Storage.openFileForWrite("EBP", getCoverBmpPath(cropped), coverBmp)) {
+    return false;
+  }
+
+  // BMP file header (14 bytes)
+  coverBmp.write('B');
+  coverBmp.write('M');
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&fileSize), 4);
+  uint32_t reserved = 0;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&reserved), 4);
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&dataOffset), 4);
+
+  // DIB header (BITMAPINFOHEADER - 40 bytes)
+  uint32_t dibHeaderSize = 40;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&dibHeaderSize), 4);
+  int32_t bmpWidth = width;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&bmpWidth), 4);
+  int32_t bmpHeight = -height;  // Negative for top-down
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&bmpHeight), 4);
+  uint16_t planes = 1;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&planes), 2);
+  uint16_t bitsPerPixel = 1;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&bitsPerPixel), 2);
+  uint32_t compression = 0;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&compression), 4);
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&imageSize), 4);
+  int32_t ppmX = 2835;  // 72 DPI
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&ppmX), 4);
+  int32_t ppmY = 2835;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&ppmY), 4);
+  uint32_t colorsUsed = 2;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&colorsUsed), 4);
+  uint32_t colorsImportant = 2;
+  coverBmp.write(reinterpret_cast<const uint8_t*>(&colorsImportant), 4);
+
+  // Color palette (2 colors for 1-bit)
+  uint8_t black[4] = {0x00, 0x00, 0x00, 0x00};  // Color 0: Black
+  coverBmp.write(black, 4);
+  uint8_t white[4] = {0xFF, 0xFF, 0xFF, 0x00};  // Color 1: White
+  coverBmp.write(white, 4);
+
+  // Generate X pattern bitmap data
+  // In BMP, 0 = black (first color in palette), 1 = white
+  // We'll draw black pixels on white background
+  for (int y = 0; y < height; y++) {
+    std::vector<uint8_t> rowData(rowBytes, 0xFF);  // Initialize to all white (1s)
+
+    const int scaledY = (y * width) / height;
+    const int thickness = 6;  // thicker lines for full-cover visibility
+
+    for (int x = 0; x < width; x++) {
+      bool drawPixel = false;
+      if (std::abs(x - scaledY) <= thickness) drawPixel = true;
+      if (std::abs(x - (width - 1 - scaledY)) <= thickness) drawPixel = true;
+
+      if (drawPixel) {
+        const int byteIndex = x / 8;
+        const int bitIndex = 7 - (x % 8);
+        rowData[byteIndex] &= static_cast<uint8_t>(~(1 << bitIndex));
+      }
+    }
+
+    coverBmp.write(rowData.data(), rowBytes);
+  }
+
+  coverBmp.close();
+  LOG_DBG("EBP", "Generated invalid format cover BMP");
+  return true;
+}
+
+std::vector<std::string> Epub::getCoverCandidates() const {
+  std::vector<std::string> coverDirectories = {".", "images", "Images", "OEBPS", "OEBPS/images", "OEBPS/Images"};
+  std::vector<std::string> coverExtensions = {".jpg", ".jpeg"};  // add ".png" when PNG cover support is implemented
+  std::vector<std::string> coverCandidates;
+  for (const auto& ext : coverExtensions) {
+    for (const auto& dir : coverDirectories) {
+      std::string candidate = (dir == ".") ? "cover" + ext : dir + "/cover" + ext;
+      coverCandidates.push_back(candidate);
+    }
+  }
+  return coverCandidates;
 }
 
 uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size, const bool trailingNullByte) const {
@@ -723,4 +965,34 @@ float Epub::calculateProgress(const int currentSpineIndex, const float currentSp
   const float sectionProgSize = currentSpineRead * static_cast<float>(curChapterSize);
   const float totalProgress = static_cast<float>(prevChapterSize) + sectionProgSize;
   return totalProgress / static_cast<float>(bookSize);
+}
+
+bool Epub::isValidThumbnailBmp(const std::string& bmpPath) {
+  if (!Storage.exists(bmpPath.c_str())) {
+    LOG_DBG("EBP", "Thumbnail BMP does not exist at path: %s", bmpPath.c_str());
+    return false;
+  }
+  FsFile file = Storage.open(bmpPath.c_str());
+  if (!file) {
+    LOG_ERR("EBP", "Failed to open Thumbnail BMP at path: %s", bmpPath.c_str());
+    return false;
+  }
+  size_t fileSize = file.size();
+  if (fileSize == 0) {
+    // Empty file is a marker for "no cover available"
+    LOG_DBG("EBP", "Thumbnail BMP is empty (no cover marker) at path: %s", bmpPath.c_str());
+    file.close();
+    return false;
+  }
+  // BMP header starts with 'B' 'M'
+  uint8_t header[2];
+  size_t bytesRead = file.read(header, 2);
+  if (bytesRead != 2) {
+    LOG_ERR("EBP", "Failed to read Thumbnail BMP header at path: %s", bmpPath.c_str());
+    file.close();
+    return false;
+  }
+  LOG_DBG("EBP", "Thumbnail BMP header: %c%c", header[0], header[1]);
+  file.close();
+  return header[0] == 'B' && header[1] == 'M';
 }

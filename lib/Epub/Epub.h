@@ -53,9 +53,15 @@ class Epub {
   const std::string& getLanguage() const;
   std::string getCoverBmpPath(bool cropped = false) const;
   bool generateCoverBmp(bool cropped = false) const;
-  std::string getThumbBmpPath() const;
+  // Create a valid 1-bit BMP that visually indicates an invalid/unsupported
+  // cover format (an X pattern). This prevents repeated generation attempts
+  // by providing a valid BMP file that `isValidThumbnailBmp` accepts.
+  bool generateInvalidFormatCoverBmp(bool cropped = false) const;  std::string getThumbBmpPath() const;
   std::string getThumbBmpPath(int height) const;
   bool generateThumbBmp(int height) const;
+  // Create a valid 1-bit thumbnail BMP with an X marker indicating an
+  // invalid/unsupported cover image instead of leaving an empty marker file.
+  bool generateInvalidFormatThumbBmp(int height) const;
   uint8_t* readItemContentsToBytes(const std::string& itemHref, size_t* size = nullptr,
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
@@ -72,4 +78,8 @@ class Epub {
   size_t getBookSize() const;
   float calculateProgress(int currentSpineIndex, float currentSpineRead) const;
   CssParser* getCssParser() const { return cssParser.get(); }
+  static bool isValidThumbnailBmp(const std::string& bmpPath);
+
+ private:
+  std::vector<std::string> getCoverCandidates() const;
 };
