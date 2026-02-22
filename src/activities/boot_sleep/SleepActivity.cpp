@@ -306,7 +306,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   }
 
   // Draw overlay text if provided
-  const std::string overlayText = getBookOverlayText(APP_STATE.openEpubPath);
+  const std::string overlayText = SETTINGS.sleepCoverOverlay ? getBookOverlayText(APP_STATE.openEpubPath) : "";
   if (!overlayText.empty()) {
     // Split text into lines
     size_t newlinePos = overlayText.find('\n');

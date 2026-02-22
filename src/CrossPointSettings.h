@@ -174,6 +174,8 @@ class CrossPointSettings {
   uint8_t fadingFix = 0;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
+  // Apply information overlay with reading progress on sleep cover
+  uint8_t sleepCoverOverlay = 1;
 
   ~CrossPointSettings() = default;
 
