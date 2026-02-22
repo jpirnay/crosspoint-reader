@@ -159,10 +159,12 @@ void CrossPointWebServer::begin() {
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
 
-  // Collect WebDAV headers and register handler
+  // Collect WebDAV headers and register handler.
+  // Ownership of the heap-allocated handler is transferred to `server`, which
+  // will delete it in its destructor.
   const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout"};
   server->collectHeaders(davHeaders, 6);
-  server->addHandler(&davHandler);
+  server->addHandler(new WebDAVHandler());
   LOG_DBG("WEB", "WebDAV handler initialized");
 
   server->begin();
@@ -224,9 +226,6 @@ void CrossPointWebServer::stop() {
 
   server->stop();
   LOG_DBG("WEB", "[MEM] Free heap after server->stop(): %d bytes", ESP.getFreeHeap());
-
-  // Brief delay before deletion
-  delay(10);
 
   server.reset();
   LOG_DBG("WEB", "Web server stopped and deleted");

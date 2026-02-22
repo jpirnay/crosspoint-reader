@@ -10,6 +10,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
+#include "WiFiNetwork.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -191,9 +192,18 @@ void KOReaderSyncActivity::onEnter() {
     return;
   }
 
+  // Pre-allocate the inflate ring buffer before WiFi starts. If the buffer is
+  // already allocated (common case: user was reading), this is a no-op that
+  // keeps it at its current fixed address. If it is null (e.g. all EPUB
+  // sections so far were cached and inflate was never called), we claim the
+  // 32KB now while the heap is clean — before WiFi+TLS can fragment it.
+  if (!InflateReader::claimSharedBuffer()) {
+    LOG_ERR("KOSync", "Ring buffer pre-alloc failed — inflate may not work after sync");
+  }
+
   // Turn on WiFi
   LOG_DBG("KOSync", "Turning on WiFi...");
-  WiFi.mode(WIFI_STA);
+  WiFiNetwork::enableSTA();
 
   // Check if already connected
   if (WiFi.status() == WL_CONNECTED) {
@@ -237,11 +247,7 @@ void KOReaderSyncActivity::onExit() {
   // Turn off wifi
   WiFi.disconnect(false);
   delay(100);
-  WiFi.mode(WIFI_OFF);
-  delay(100);
-
-  // Reclaim inflate ring buffer immediately while heap is freshly defragmented
-  InflateReader::claimSharedBuffer();
+  WiFiNetwork::disable();
 }
 
 void KOReaderSyncActivity::render(Activity::RenderLock&&) {

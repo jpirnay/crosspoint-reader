@@ -4,6 +4,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <WiFi.h>
+
+#include "WiFiNetwork.h"
 #include <esp_task_wdt.h>
 
 #include "MappedInputManager.h"
@@ -49,7 +51,7 @@ void CalibreConnectActivity::onExit() {
   delay(50);
   WiFi.disconnect(false);
   delay(30);
-  WiFi.mode(WIFI_OFF);
+  WiFiNetwork::disable();
   delay(30);
 }
 

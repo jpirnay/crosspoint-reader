@@ -79,6 +79,15 @@ class InflateReader {
   // uzlib struct directly (e.g. updating source/source_limit).
   uzlib_uncomp* raw() { return &decomp; }
 
+  // Free the shared ring buffer so the heap is available for other large allocations
+  // (e.g. the WiFi driver). Call this before starting a network operation.
+  static void yieldSharedBuffer();
+
+  // Pre-allocate the shared ring buffer. Call this immediately after a network
+  // operation closes, while the heap is freshly defragmented. Returns true if
+  // the buffer is ready (already allocated or newly allocated), false on OOM.
+  static bool claimSharedBuffer();
+
  private:
   uzlib_uncomp decomp = {};
   uint8_t* ringBuffer = nullptr;

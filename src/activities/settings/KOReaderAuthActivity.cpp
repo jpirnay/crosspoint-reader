@@ -4,6 +4,8 @@
 #include <I18n.h>
 #include <WiFi.h>
 
+#include "WiFiNetwork.h"
+
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncClient.h"
 #include "MappedInputManager.h"
@@ -54,7 +56,7 @@ void KOReaderAuthActivity::onEnter() {
   ActivityWithSubactivity::onEnter();
 
   // Turn on WiFi
-  WiFi.mode(WIFI_STA);
+  WiFiNetwork::enableSTA();
 
   // Check if already connected
   if (WiFi.status() == WL_CONNECTED) {
@@ -84,7 +86,7 @@ void KOReaderAuthActivity::onExit() {
   // Turn off wifi
   WiFi.disconnect(false);
   delay(100);
-  WiFi.mode(WIFI_OFF);
+  WiFiNetwork::disable();
   delay(100);
 }
 

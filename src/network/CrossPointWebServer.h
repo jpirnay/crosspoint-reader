@@ -73,7 +73,12 @@ class CrossPointWebServer {
  private:
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
-  WebDAVHandler davHandler;
+  // Note: davHandler is NOT a member variable. It is allocated with `new` in
+  // begin() and ownership is transferred to `server` via addHandler(). The
+  // WebServer destructor calls delete on every registered handler, so the
+  // handler must be a standalone heap allocation — passing &memberVar would
+  // cause free() to receive an interior pointer into this object's block,
+  // triggering a multi_heap_free heap-poison assert on cleanup.
   bool running = false;
   bool apMode = false;  // true when running in AP mode, false for STA mode
   uint16_t port = 80;

@@ -5,6 +5,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <WiFi.h>
+
+#include "WiFiNetwork.h"
 #include <esp_task_wdt.h>
 #include <qrcode.h>
 
@@ -61,13 +63,8 @@ void CrossPointWebServerActivity::onExit() {
 
   state = WebServerActivityState::SHUTTING_DOWN;
 
-  // Stop the web server first (before disconnecting WiFi)
-  stopWebServer();
-
-  // Stop mDNS
+  // Stop mDNS and DNS before WiFi goes down.
   MDNS.end();
-
-  // Stop DNS server if running (AP mode)
   if (dnsServer) {
     LOG_DBG("WEBACT", "Stopping DNS server...");
     dnsServer->stop();
@@ -75,22 +72,27 @@ void CrossPointWebServerActivity::onExit() {
     dnsServer = nullptr;
   }
 
-  // Brief wait for LWIP stack to flush pending packets
-  delay(50);
-
-  // Disconnect WiFi gracefully
+  // Disable WiFi BEFORE freeing server heap objects.
+  //
+  // The WebSocket library's teardown interacts with LWIP background tasks that
+  // can still fire async recv/close callbacks after wsServer.reset(). Those
+  // callbacks write into already-freed buffers, corrupting the heap blocks
+  // adjacent to the WebServer route handlers. The corruption is detected as an
+  // assert in multi_heap_free when server.reset() deletes the handlers.
+  //
+  // Turning WiFi off first stops all LWIP FreeRTOS tasks, so no async callbacks
+  // can fire during the server object cleanup that follows.
+  LOG_DBG("WEBACT", "Disabling WiFi before server cleanup...");
   if (isApMode) {
-    LOG_DBG("WEBACT", "Stopping WiFi AP...");
     WiFi.softAPdisconnect(true);
   } else {
-    LOG_DBG("WEBACT", "Disconnecting WiFi (graceful)...");
-    WiFi.disconnect(false);  // false = don't erase credentials, send disconnect frame
+    WiFi.disconnect(false);
   }
-  delay(30);  // Allow disconnect frame to be sent
+  delay(50);
+  WiFiNetwork::disable();  // WiFi.mode(WIFI_OFF) + delay(100) + claimSharedBuffer
 
-  LOG_DBG("WEBACT", "Setting WiFi mode OFF...");
-  WiFi.mode(WIFI_OFF);
-  delay(30);  // Allow WiFi hardware to power down
+  // Safe to free server objects now — no LWIP tasks are running.
+  stopWebServer();
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }
@@ -125,7 +127,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   if (mode == NetworkMode::JOIN_NETWORK) {
     // STA mode - launch WiFi selection
     LOG_DBG("WEBACT", "Turning on WiFi (STA mode)...");
-    WiFi.mode(WIFI_STA);
+    WiFiNetwork::enableSTA();
 
     state = WebServerActivityState::WIFI_SELECTION;
     LOG_DBG("WEBACT", "Launching WifiSelectionActivity...");
@@ -172,7 +174,7 @@ void CrossPointWebServerActivity::startAccessPoint() {
   LOG_DBG("WEBACT", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
 
   // Configure and start the AP
-  WiFi.mode(WIFI_AP);
+  WiFiNetwork::enableAP();
   delay(100);
 
   // Start soft AP

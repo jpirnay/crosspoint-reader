@@ -5,6 +5,8 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include "WiFiNetwork.h"
+
 #include <map>
 
 #include "MappedInputManager.h"
@@ -94,7 +96,7 @@ void WifiSelectionActivity::startWifiScan() {
   requestUpdate();
 
   // Set WiFi mode to station
-  WiFi.mode(WIFI_STA);
+  WiFiNetwork::enableSTA();
   WiFi.disconnect();
   delay(100);
 
@@ -217,7 +219,7 @@ void WifiSelectionActivity::attemptConnection() {
   connectionError.clear();
   requestUpdate();
 
-  WiFi.mode(WIFI_STA);
+  WiFiNetwork::enableSTA();
 
   if (selectedRequiresPassword && !enteredPassword.empty()) {
     WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());

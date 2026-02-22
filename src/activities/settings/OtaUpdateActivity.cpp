@@ -4,6 +4,8 @@
 #include <I18n.h>
 #include <WiFi.h>
 
+#include "WiFiNetwork.h"
+
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -60,7 +62,7 @@ void OtaUpdateActivity::onEnter() {
 
   // Turn on WiFi immediately
   LOG_DBG("OTA", "Turning on WiFi...");
-  WiFi.mode(WIFI_STA);
+  WiFiNetwork::enableSTA();
 
   // Launch WiFi selection subactivity
   LOG_DBG("OTA", "Launching WifiSelectionActivity...");
@@ -74,7 +76,7 @@ void OtaUpdateActivity::onExit() {
   // Turn off wifi
   WiFi.disconnect(false);  // false = don't erase credentials, send disconnect frame
   delay(100);              // Allow disconnect frame to be sent
-  WiFi.mode(WIFI_OFF);
+  WiFiNetwork::disable();
   delay(100);  // Allow WiFi hardware to fully power down
 }
 
