@@ -40,6 +40,8 @@ Implemented in `ProgressMapper::toCrossPoint`.
 
 The module reparses **one spine XHTML** on demand using Expat and builds temporary anchors:
 
+Source-of-truth note: XPath anchors are built from the original EPUB spine XHTML bytes (zip item contents), not from CrossPoint's distilled section render cache. This is intentional to preserve KOReader XPath compatibility.
+
 - anchor: `<xpath, textOffset>`
 - `textOffset` counts non-whitespace bytes
 
@@ -63,6 +65,7 @@ The implementation intentionally avoids full DOM storage.
 ## Known Limitations
 
 - Page number on reverse mapping is still an estimate (renderer differences).
+- XPath mapping intentionally uses original spine XHTML while pagination comes from distilled renderer output, so minor roundtrip page drift is expected.
 - Image-only/low-text chapters may yield coarse anchors.
 - Extremely malformed XHTML can force fallback behavior.
 
@@ -74,10 +77,3 @@ The implementation intentionally avoids full DOM storage.
 - `percentage` when fallback path was used
 
 It also logs exactness (`exact=yes/no`) for XPath matches.
-
-## Validation
-
-Use test vectors in:
-
-- `test/koreader_sync/roundtrip_vectors.md`
-- `test/koreader_sync/memory_resource_qa.md`
