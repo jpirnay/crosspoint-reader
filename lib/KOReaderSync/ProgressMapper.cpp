@@ -2,6 +2,7 @@
 
 #include <Logging.h>
 
+#include <algorithm>
 #include <cmath>
 
 #include "ChapterXPathIndexer.h"
@@ -71,7 +72,12 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
       return result;
     }
 
-    const size_t targetBytes = static_cast<size_t>(bookSize * koPos.percentage);
+    if (!std::isfinite(koPos.percentage)) {
+      return result;
+    }
+
+    const float sanitizedPercentage = std::clamp(koPos.percentage, 0.0f, 1.0f);
+    const size_t targetBytes = static_cast<size_t>(bookSize * sanitizedPercentage);
 
     bool spineFound = false;
     for (int i = 0; i < spineCount; i++) {

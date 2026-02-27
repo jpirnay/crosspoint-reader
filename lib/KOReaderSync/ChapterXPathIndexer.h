@@ -55,9 +55,13 @@ class ChapterXPathIndexer {
    * Parse DocFragment index from KOReader-style path segment:
    * /body/DocFragment[N]/body/...
    *
+   * KOReader uses 1-based DocFragment indices; N is converted to the 0-based
+   * spine index stored in outSpineIndex (i.e. outSpineIndex = N - 1).
+   *
    * @param xpath KOReader XPath
-   * @param outSpineIndex Parsed DocFragment index (0-based)
-   * @return true when DocFragment[N] exists and N is valid integer >= 0
+   * @param outSpineIndex 0-based spine index derived from DocFragment[N]
+   * @return true when DocFragment[N] exists and N is a valid integer >= 1
+   *         (converted to 0-based outSpineIndex); false otherwise
    */
   static bool tryExtractSpineIndexFromXPath(const std::string& xpath, int& outSpineIndex);
 };
