@@ -820,9 +820,83 @@ void GfxRenderer::invertScreen() const {
 }
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
+  grayscaleActive = false;
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   display.displayBuffer(refreshMode, fadingFix);
+}
+
+void GfxRenderer::displayWindow(const int x, const int y, const int width, const int height) const {
+  // If the display controller's RAMs still hold grayscale data (LSB/RED), a windowed
+  // update would compare the popup pixels against incoherent RED RAM content and produce
+  // a garbled result.  Fall back to a full fast refresh, which causes EInkDisplay to
+  // revert grayscale state and re-establish coherent BW RAM before the update.
+  if (grayscaleActive) {
+    grayscaleActive = false;
+    display.displayBuffer(HalDisplay::FAST_REFRESH, fadingFix);
+    return;
+  }
+
+  // Transform logical rectangle to physical panel coordinates for each orientation.
+  // rotateCoordinates maps a point; for a rect we derive min-corner and dimensions after rotation.
+  int physX, physY, physW, physH;
+  switch (orientation) {
+    case Portrait:
+      // 90° CW: phyX=logY, phyY=H-1-logX  →  rect min=(ly, H-lx-lw), size=(lh, lw)
+      physX = y;
+      physY = HalDisplay::DISPLAY_HEIGHT - x - width;
+      physW = height;
+      physH = width;
+      break;
+    case PortraitInverted:
+      // 90° CCW: phyX=W-1-logY, phyY=logX  →  rect min=(W-ly-lh, lx), size=(lh, lw)
+      physX = HalDisplay::DISPLAY_WIDTH - y - height;
+      physY = x;
+      physW = height;
+      physH = width;
+      break;
+    case LandscapeClockwise:
+      // 180°: phyX=W-1-logX, phyY=H-1-logY  →  rect min=(W-lx-lw, H-ly-lh), size=(lw, lh)
+      physX = HalDisplay::DISPLAY_WIDTH - x - width;
+      physY = HalDisplay::DISPLAY_HEIGHT - y - height;
+      physW = width;
+      physH = height;
+      break;
+    case LandscapeCounterClockwise:
+    default:
+      // Identity
+      physX = x;
+      physY = y;
+      physW = width;
+      physH = height;
+      break;
+  }
+
+  // Byte-align physX downward and expand physW to cover the same logical pixels.
+  // The SSD1677 requires x and w to be multiples of 8.
+  const int alignedX = (physX / 8) * 8;
+  physW = ((physX - alignedX + physW + 7) / 8) * 8;
+  physX = alignedX;
+
+  // If the aligned window covers the full display, a windowed update offers no
+  // benefit; fall back to a regular fast refresh.
+  if (physW >= static_cast<int>(HalDisplay::DISPLAY_WIDTH) && physH >= static_cast<int>(HalDisplay::DISPLAY_HEIGHT)) {
+    display.displayBuffer(HalDisplay::FAST_REFRESH, fadingFix);
+    return;
+  }
+
+  // Clamp to display bounds after alignment.
+  if (physX < 0) physX = 0;
+  if (physY < 0) physY = 0;
+  if (physX + physW > static_cast<int>(HalDisplay::DISPLAY_WIDTH))
+    physW = static_cast<int>(HalDisplay::DISPLAY_WIDTH) - physX;
+  if (physY + physH > static_cast<int>(HalDisplay::DISPLAY_HEIGHT))
+    physH = static_cast<int>(HalDisplay::DISPLAY_HEIGHT) - physY;
+
+  LOG_DBG("GFX", "displayWindow logical=(%d,%d,%d,%d) physical=(%d,%d,%d,%d)", x, y, width, height, physX, physY, physW,
+          physH);
+  display.displayWindow(static_cast<uint16_t>(physX), static_cast<uint16_t>(physY), static_cast<uint16_t>(physW),
+                        static_cast<uint16_t>(physH));
 }
 
 std::string GfxRenderer::truncatedText(const int fontId, const char* text, const int maxWidth,
@@ -1089,7 +1163,10 @@ void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuff
 
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
-void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
+void GfxRenderer::displayGrayBuffer() const {
+  display.displayGrayBuffer(fadingFix);
+  grayscaleActive = true;
+}
 
 void GfxRenderer::freeBwBufferChunks() {
   for (auto& bwBufferChunk : bwBufferChunks) {
