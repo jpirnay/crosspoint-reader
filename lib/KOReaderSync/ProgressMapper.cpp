@@ -146,6 +146,6 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
 
 std::string ProgressMapper::generateXPath(int spineIndex, int pageNumber, int totalPages) {
   // Fallback path when element-level XPath extraction is unavailable.
-  // Uses 0-based DocFragment indices for KOReader compatibility.
-  return "/body/DocFragment[" + std::to_string(spineIndex) + "]/body";
+  // KOReader uses 1-based XPath predicates; spineIndex is 0-based internally.
+  return "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body";
 }

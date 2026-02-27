@@ -42,7 +42,7 @@ struct ParserState {
   std::vector<std::unordered_map<std::string, int>> siblingCounters;
   std::vector<XPathAnchor> anchors;
 
-  std::string baseXPath() const { return "/body/DocFragment[" + std::to_string(spineIndex) + "]/body"; }
+  std::string baseXPath() const { return "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body"; }
 
   // Canonicalize incoming KOReader XPath before matching:
   // - remove all whitespace
@@ -65,8 +65,8 @@ struct ParserState {
     }
 
     const std::string textSuffix = "/text()";
-    size_t textPos = out.find(textSuffix);
-    if (textPos != std::string::npos) {
+    const size_t textPos = out.rfind(textSuffix);
+    if (textPos != std::string::npos && textPos + textSuffix.size() == out.size()) {
       out.erase(textPos);
     }
 
@@ -132,7 +132,7 @@ struct ParserState {
         const std::string anchorPath = ignoreIndices ? removeIndices(anchor.xpath) : anchor.xpath;
         if (anchorPath == probe) {
           const int depth = pathDepth(anchorPath);
-          if (!found || depth > bestDepth || (depth == bestDepth && anchor.textOffset > bestOffset)) {
+          if (!found || depth > bestDepth || (depth == bestDepth && anchor.textOffset < bestOffset)) {
             found = true;
             bestDepth = depth;
             bestOffset = anchor.textOffset;
@@ -282,11 +282,12 @@ struct ParserState {
     const float clampedProgress = std::max(0.0f, std::min(1.0f, intraSpineProgress));
     const size_t target = static_cast<size_t>(clampedProgress * static_cast<float>(totalTextBytes));
 
-    auto it = std::lower_bound(anchors.begin(), anchors.end(), target,
-                               [](const XPathAnchor& anchor, const size_t value) { return anchor.textOffset < value; });
-
-    if (it == anchors.end()) {
-      return anchors.back().xpath;
+    // upper_bound returns the first anchor strictly after target; step back to get
+    // the last anchor at-or-before target (the element the user is currently inside).
+    auto it = std::upper_bound(anchors.begin(), anchors.end(), target,
+                               [](const size_t value, const XPathAnchor& anchor) { return value < anchor.textOffset; });
+    if (it != anchors.begin()) {
+      --it;
     }
     return it->xpath;
   }
@@ -308,6 +309,7 @@ struct ParserState {
 
     if (!matched) {
       matched = pickBestAnchorByPath(normalized, true, matchedOffset, exact);
+      if (matched) exact = false;
     }
 
     if (!matched) {
@@ -476,10 +478,11 @@ bool ChapterXPathIndexer::tryExtractSpineIndexFromXPath(const std::string& xpath
 
   const std::string value = normalized.substr(start, end - start);
   const long parsed = std::strtol(value.c_str(), nullptr, 10);
-  if (parsed < 0 || parsed > std::numeric_limits<int>::max()) {
+  // KOReader uses 1-based DocFragment indices; convert to 0-based spine index.
+  if (parsed < 1 || parsed > std::numeric_limits<int>::max()) {
     return false;
   }
 
-  outSpineIndex = static_cast<int>(parsed);
+  outSpineIndex = static_cast<int>(parsed) - 1;
   return true;
 }
