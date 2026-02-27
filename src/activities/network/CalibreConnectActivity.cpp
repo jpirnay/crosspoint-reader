@@ -2,6 +2,7 @@
 
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
+#include <HalNetwork.h>
 #include <I18n.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
@@ -10,7 +11,6 @@
 #include "WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/WifiHelpers.h"
 
 namespace {
 constexpr const char* HOSTNAME = "crosspoint";
@@ -31,7 +31,7 @@ void CalibreConnectActivity::onEnter() {
   lastCompleteAt = 0;
   exitRequested = false;
 
-  if (WiFi.status() != WL_CONNECTED) {
+  if (!network.isConnected()) {
     enterNewActivity(new WifiSelectionActivity(renderer, mappedInput,
                                                [this](const bool connected) { onWifiSelectionComplete(connected); }));
   } else {
@@ -48,7 +48,7 @@ void CalibreConnectActivity::onExit() {
   MDNS.end();
 
   delay(50);
-  WifiHelpers::wifiOff();
+  network.disable();
 }
 
 void CalibreConnectActivity::onWifiSelectionComplete(const bool connected) {

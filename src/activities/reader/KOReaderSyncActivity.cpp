@@ -1,9 +1,9 @@
 #include "KOReaderSyncActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalNetwork.h>
 #include <I18n.h>
 #include <Logging.h>
-#include <WiFi.h>
 #include <esp_sntp.h>
 
 #include "KOReaderCredentialStore.h"
@@ -12,7 +12,6 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/WifiHelpers.h"
 
 namespace {
 void syncTimeWithNTP() {
@@ -44,7 +43,7 @@ void turnWifiOff() {
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
-  WifiHelpers::wifiOff();
+  network.disable();
 }
 }  // namespace
 
@@ -181,7 +180,7 @@ void KOReaderSyncActivity::performUpload() {
     return;
   }
 
-  wifiOff();
+  turnWifiOff();
   {
     RenderLock lock(*this);
     state = UPLOAD_COMPLETE;
@@ -200,7 +199,7 @@ void KOReaderSyncActivity::onEnter() {
   }
 
   // Check if already connected (e.g. from settings page auth)
-  if (WiFi.status() == WL_CONNECTED) {
+  if (network.isConnected()) {
     LOG_DBG("KOSync", "Already connected to WiFi");
     state = SYNCING;
     statusMessage = tr(STR_SYNCING_TIME);

@@ -1,6 +1,7 @@
 #include "OtaUpdateActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalNetwork.h>
 #include <I18n.h>
 
 #include "MappedInputManager.h"
@@ -8,7 +9,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
-#include "network/WifiHelpers.h"
 
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   exitActivity();
@@ -60,7 +60,7 @@ void OtaUpdateActivity::onEnter() {
 
   // Turn on WiFi immediately
   LOG_DBG("OTA", "Turning on WiFi...");
-  WifiHelpers::wifiOn();
+  network.enable();
 
   // Launch WiFi selection subactivity
   LOG_DBG("OTA", "Launching WifiSelectionActivity...");
@@ -72,7 +72,7 @@ void OtaUpdateActivity::onExit() {
   ActivityWithSubactivity::onExit();
 
   // Turn off wifi
-  WifiHelpers::wifiOff();
+  network.disable();
 }
 
 void OtaUpdateActivity::render(Activity::RenderLock&&) {

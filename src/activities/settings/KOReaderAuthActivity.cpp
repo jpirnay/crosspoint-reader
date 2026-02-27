@@ -1,8 +1,8 @@
 #include "KOReaderAuthActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalNetwork.h>
 #include <I18n.h>
-#include <WiFi.h>
 
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncClient.h"
@@ -10,7 +10,6 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/WifiHelpers.h"
 
 void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
   exitActivity();
@@ -55,10 +54,10 @@ void KOReaderAuthActivity::onEnter() {
   ActivityWithSubactivity::onEnter();
 
   // Turn on WiFi
-  WifiHelpers::wifiOn();
+  network.enable();
 
   // Check if already connected
-  if (WiFi.status() == WL_CONNECTED) {
+  if (network.isConnected()) {
     state = AUTHENTICATING;
     statusMessage = tr(STR_AUTHENTICATING);
     requestUpdate();
@@ -83,7 +82,7 @@ void KOReaderAuthActivity::onExit() {
   ActivityWithSubactivity::onExit();
 
   // Turn off wifi
-  WifiHelpers::wifiOff();
+  network.disable();
 }
 
 void KOReaderAuthActivity::render(Activity::RenderLock&&) {
