@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <functional>
 
 #include "ReadingStats.h"
@@ -76,8 +77,8 @@ bool BookFinishedCache::loadFromDisk() {
 
   clear();
   if (!corrupted) {
-    const uint8_t clampedCount = (count > MAX_ENTRIES) ? static_cast<uint8_t>(MAX_ENTRIES) : count;
-    for (uint8_t i = 0; i < clampedCount; i++) {
+    const size_t entriesToLoad = std::min(static_cast<size_t>(count), entries.size());
+    for (size_t i = 0; i < entriesToLoad; i++) {
       uint32_t key;
       uint32_t age;
       uint8_t value;
@@ -118,12 +119,8 @@ bool BookFinishedCache::saveToDisk() {
     return false;
   }
 
-  uint8_t usedCount = 0;
-  for (const auto& entry : entries) {
-    if (entry.used) {
-      usedCount++;
-    }
-  }
+  const uint8_t usedCount = static_cast<uint8_t>(
+      std::count_if(entries.begin(), entries.end(), [](const Entry& entry) { return entry.used; }));
 
   writeU32(f, CACHE_MAGIC);
   uint8_t version = CACHE_VERSION;
@@ -206,9 +203,9 @@ bool BookFinishedCache::resolve(const std::string& bookPath, bool& finished) {
     return true;
   }
 
-  const bool loaded = loadFinishedFromStats(bookPath, finished);
+  const bool loadedFromStats = loadFinishedFromStats(bookPath, finished);
   put(bookPath, finished);
-  return loaded;
+  return loadedFromStats;
 }
 
 void BookFinishedCache::put(const std::string& bookPath, const bool finished) {
@@ -228,9 +225,7 @@ void BookFinishedCache::put(const std::string& bookPath, const bool finished) {
 }
 
 void BookFinishedCache::clear() {
-  for (auto& entry : entries) {
-    entry = Entry{};
-  }
+  std::fill(entries.begin(), entries.end(), Entry{});
   ageCounter = 0;
   dirty = false;
 }
