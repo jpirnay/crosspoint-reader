@@ -44,40 +44,42 @@ void ReaderStatsActivity::loop() {
 void ReaderStatsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  constexpr int marginLeft = 20;
-  constexpr int sectionGap = 8;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto pageWidth = renderer.getScreenWidth();
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_STATISTICS));
+
+  const int marginLeft = metrics.contentSidePadding;
+  const int sectionGap = metrics.verticalSpacing;
   constexpr int rowHeight = 26;
-  int y = 10;
+  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
 
-  // Title
-  renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_STATISTICS), true, EpdFontFamily::BOLD);
-  y += 36;
-
-  // --- This session ---
-  renderer.drawText(UI_10_FONT_ID, marginLeft, y, tr(STR_STATS_SESSION), true, EpdFontFamily::BOLD);
-  y += rowHeight;
-
-  renderer.drawText(UI_10_FONT_ID, marginLeft, y,
-                    (std::string(tr(STR_STATS_TIME)) + formatTime(sessionSeconds)).c_str());
-  y += rowHeight;
-  renderer.drawText(UI_10_FONT_ID, marginLeft, y,
-                    (std::string(tr(STR_STATS_PAGES)) + std::to_string(sessionPages)).c_str());
-  y += rowHeight;
-  renderer.drawText(UI_10_FONT_ID, marginLeft, y,
-                    (std::string(tr(STR_STATS_WORDS)) + std::to_string(sessionWords)).c_str());
-  y += rowHeight;
-
-  if (sessionSeconds >= 30 && sessionWords > 0) {
-    const uint32_t wpm = (sessionWords * 60) / sessionSeconds;
-    renderer.drawText(UI_10_FONT_ID, marginLeft, y,
-                      (std::string(tr(STR_STATS_SPEED)) + std::to_string(wpm) + " wpm").c_str());
+  if (showSession) {
+    // --- This session ---
+    renderer.drawText(UI_10_FONT_ID, marginLeft, y, tr(STR_STATS_SESSION), true, EpdFontFamily::BOLD);
     y += rowHeight;
+
+    renderer.drawText(UI_10_FONT_ID, marginLeft, y,
+                      (std::string(tr(STR_STATS_TIME)) + formatTime(sessionSeconds)).c_str());
+    y += rowHeight;
+    renderer.drawText(UI_10_FONT_ID, marginLeft, y,
+                      (std::string(tr(STR_STATS_PAGES)) + std::to_string(sessionPages)).c_str());
+    y += rowHeight;
+    renderer.drawText(UI_10_FONT_ID, marginLeft, y,
+                      (std::string(tr(STR_STATS_WORDS)) + std::to_string(sessionWords)).c_str());
+    y += rowHeight;
+
+    if (sessionSeconds >= 30 && sessionWords > 0) {
+      const uint32_t wpm = (sessionWords * 60) / sessionSeconds;
+      renderer.drawText(UI_10_FONT_ID, marginLeft, y,
+                        (std::string(tr(STR_STATS_SPEED)) + std::to_string(wpm) + " wpm").c_str());
+      y += rowHeight;
+    }
+
+    y += sectionGap;
   }
 
-  y += sectionGap;
-
-  // --- This book ---
-  renderer.drawText(UI_10_FONT_ID, marginLeft, y, tr(STR_STATS_THIS_BOOK), true, EpdFontFamily::BOLD);
+  // --- Current book ---
+  renderer.drawText(UI_10_FONT_ID, marginLeft, y, tr(STR_STATS_CURRENT_BOOK), true, EpdFontFamily::BOLD);
   y += rowHeight;
 
   renderer.drawText(UI_10_FONT_ID, marginLeft, y,
