@@ -53,9 +53,9 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
 void OtaUpdateActivity::onEnter() {
   Activity::onEnter();
 
-  // Turn on WiFi immediately
-  LOG_DBG("OTA", "Turning on WiFi...");
-  network.enable();
+  // Enable WiFi and keep it on for the duration of this activity via RAII guard.
+  // The guard calls network.disable() automatically when reset or destroyed.
+  networkGuard_.emplace(network);
 
   // Launch WiFi selection subactivity
   LOG_DBG("OTA", "Launching WifiSelectionActivity...");
@@ -65,9 +65,7 @@ void OtaUpdateActivity::onEnter() {
 
 void OtaUpdateActivity::onExit() {
   Activity::onExit();
-
-  // Turn off wifi
-  network.disable();
+  networkGuard_.reset();  // Destroys the Guard, disabling WiFi
 }
 
 void OtaUpdateActivity::render(RenderLock&&) {

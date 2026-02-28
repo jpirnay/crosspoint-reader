@@ -51,8 +51,10 @@ void KOReaderAuthActivity::performAuthentication() {
 void KOReaderAuthActivity::onEnter() {
   Activity::onEnter();
 
-  // Turn on WiFi
-  network.enable();
+  // Enable WiFi and keep it on for the duration of this activity via RAII guard.
+  // Authentication may involve multiple requests and user interactions (e.g. captive portal).
+  // The guard calls network.disable() automatically when reset or destroyed.
+  networkGuard_.emplace(network);
 
   // Check if already connected
   if (network.isConnected()) {
@@ -78,9 +80,7 @@ void KOReaderAuthActivity::onEnter() {
 
 void KOReaderAuthActivity::onExit() {
   Activity::onExit();
-
-  // Turn off wifi
-  network.disable();
+  networkGuard_.reset();  // Destroys the Guard, disabling WiFi
 }
 
 void KOReaderAuthActivity::render(RenderLock&&) {
