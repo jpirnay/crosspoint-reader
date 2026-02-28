@@ -232,13 +232,24 @@ void MyLibraryActivity::render(RenderLock&&) {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
         [this](int index) {
-          std::string name = getFileName(files[index]);
-          if (index >= 0 && index < static_cast<int>(filesFinished.size()) && filesFinished[index]) {
+          if (index < 0 || static_cast<size_t>(index) >= files.size()) {
+            return std::string();
+          }
+
+          const size_t safeIndex = static_cast<size_t>(index);
+          std::string name = getFileName(files[safeIndex]);
+          if (safeIndex < filesFinished.size() && filesFinished[safeIndex]) {
             name += " [✓]";
           }
           return name;
         },
-        nullptr, [this](int index) { return UITheme::getFileIcon(files[index]); });
+        nullptr,
+        [this](int index) {
+          if (index < 0 || static_cast<size_t>(index) >= files.size()) {
+            return UIIcon::File;
+          }
+          return UITheme::getFileIcon(files[static_cast<size_t>(index)]);
+        });
   }
 
   // Help text

@@ -118,13 +118,28 @@ void RecentBooksActivity::render(RenderLock&&) {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,
         [this](int index) {
-          if (index >= 0 && index < static_cast<int>(recentBooksFinished.size()) && recentBooksFinished[index]) {
-            return recentBooks[index].title + " [✓]";
+          if (index < 0 || static_cast<size_t>(index) >= recentBooks.size()) {
+            return std::string();
           }
-          return recentBooks[index].title;
+
+          const size_t safeIndex = static_cast<size_t>(index);
+          if (safeIndex < recentBooksFinished.size() && recentBooksFinished[safeIndex]) {
+            return recentBooks[safeIndex].title + " [✓]";
+          }
+          return recentBooks[safeIndex].title;
         },
-        [this](int index) { return recentBooks[index].author; },
-        [this](int index) { return UITheme::getFileIcon(recentBooks[index].path); });
+        [this](int index) {
+          if (index < 0 || static_cast<size_t>(index) >= recentBooks.size()) {
+            return std::string();
+          }
+          return recentBooks[static_cast<size_t>(index)].author;
+        },
+        [this](int index) {
+          if (index < 0 || static_cast<size_t>(index) >= recentBooks.size()) {
+            return UIIcon::File;
+          }
+          return UITheme::getFileIcon(recentBooks[static_cast<size_t>(index)].path);
+        });
   }
 
   // Help text

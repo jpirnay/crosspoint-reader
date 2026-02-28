@@ -605,9 +605,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       bookStats.finished = true;
       saveProgress(currentSpineIndex, 0, 0, false);
     }
-    if (!bookFinishedThisSession) {
-      bookFinishedThisSession = true;
-    }
+    bookFinishedThisSession = true;
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
