@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <functional>
 
+#include "BookFinishedCache.h"
 #include "MappedInputManager.h"
-#include "ReadingStats.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -31,18 +31,23 @@ void RecentBooksActivity::loadRecentBooks() {
       continue;
     }
 
-    bool isFinished = false;
-    if (StringUtils::checkFileExtension(book.path, ".epub")) {
-      BookStats stats;
-      const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
-      if (stats.loadFromFile(cachePath + "/stats.json")) {
-        isFinished = stats.finished;
-      }
-    }
-
     recentBooks.push_back(book);
-    recentBooksFinished.push_back(isFinished);
+    recentBooksFinished.push_back(StringUtils::checkFileExtension(book.path, ".epub") ? -1 : 0);
   }
+}
+
+bool RecentBooksActivity::isBookFinished(size_t index) {
+  if (index >= recentBooks.size() || index >= recentBooksFinished.size()) {
+    return false;
+  }
+
+  if (recentBooksFinished[index] == -1) {
+    bool isFinished = false;
+    BOOK_FINISHED_CACHE.resolve(recentBooks[index].path, isFinished);
+    recentBooksFinished[index] = isFinished ? 1 : 0;
+  }
+
+  return recentBooksFinished[index] == 1;
 }
 
 void RecentBooksActivity::onEnter() {
@@ -123,7 +128,7 @@ void RecentBooksActivity::render(RenderLock&&) {
           }
 
           const size_t safeIndex = static_cast<size_t>(index);
-          if (safeIndex < recentBooksFinished.size() && recentBooksFinished[safeIndex]) {
+          if (isBookFinished(safeIndex)) {
             return recentBooks[safeIndex].title + " [✓]";
           }
           return recentBooks[safeIndex].title;

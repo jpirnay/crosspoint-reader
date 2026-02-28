@@ -30,6 +30,8 @@ class EpubReaderActivity final : public Activity {
   unsigned long sessionStartMs = 0;
   uint32_t sessionWordsRead = 0;
   uint32_t sessionPagesRead = 0;
+  int lastTrackedSpineIndex = -1;
+  int lastTrackedPageNumber = -1;
   bool bookFinishedThisSession = false;
   bool bookWasFinishedOnEnter = false;
   BookStats bookStats;
@@ -47,7 +49,7 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
-  void saveProgress(int spineIndex, int currentPage, int pageCount, bool countAsPageRead = true);
+  void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);

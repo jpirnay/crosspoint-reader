@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -16,7 +17,8 @@ class MyLibraryActivity final : public Activity {
   // Files state
   std::string basepath = "/";
   std::vector<std::string> files;
-  std::vector<bool> filesFinished;
+  std::vector<int8_t> filesFinished;
+  bool isFileFinished(size_t index);
 
   // Data loading
   void loadFiles();

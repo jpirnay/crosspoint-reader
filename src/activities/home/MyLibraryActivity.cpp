@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <functional>
 
+#include "BookFinishedCache.h"
 #include "MappedInputManager.h"
-#include "ReadingStats.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/StringUtils.h"
@@ -106,17 +106,27 @@ void MyLibraryActivity::loadFiles() {
 
   filesFinished.reserve(files.size());
   for (const auto& entry : files) {
-    bool isFinished = false;
     if (entry.back() != '/' && StringUtils::checkFileExtension(entry, ".epub")) {
-      const std::string fullPath = (basepath == "/") ? ("/" + entry) : (basepath + "/" + entry);
-      const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(fullPath));
-      BookStats stats;
-      if (stats.loadFromFile(cachePath + "/stats.json")) {
-        isFinished = stats.finished;
-      }
+      filesFinished.push_back(-1);
+    } else {
+      filesFinished.push_back(0);
     }
-    filesFinished.push_back(isFinished);
   }
+}
+
+bool MyLibraryActivity::isFileFinished(size_t index) {
+  if (index >= files.size() || index >= filesFinished.size()) {
+    return false;
+  }
+
+  if (filesFinished[index] == -1) {
+    bool isFinished = false;
+    const std::string fullPath = (basepath == "/") ? ("/" + files[index]) : (basepath + "/" + files[index]);
+    BOOK_FINISHED_CACHE.resolve(fullPath, isFinished);
+    filesFinished[index] = isFinished ? 1 : 0;
+  }
+
+  return filesFinished[index] == 1;
 }
 
 void MyLibraryActivity::onEnter() {
@@ -238,7 +248,7 @@ void MyLibraryActivity::render(RenderLock&&) {
 
           const size_t safeIndex = static_cast<size_t>(index);
           std::string name = getFileName(files[safeIndex]);
-          if (safeIndex < filesFinished.size() && filesFinished[safeIndex]) {
+          if (isFileFinished(safeIndex)) {
             name += " [✓]";
           }
           return name;

@@ -8,6 +8,7 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include "BookFinishedCache.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "EpubReaderChapterSelectionActivity.h"
@@ -23,6 +24,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
+
 
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
@@ -118,6 +120,8 @@ void EpubReaderActivity::onEnter() {
   sessionStartMs = millis();
   sessionWordsRead = 0;
   sessionPagesRead = 0;
+  lastTrackedSpineIndex = -1;
+  lastTrackedPageNumber = -1;
   bookFinishedThisSession = false;
   bookStats = BookStats{};
   bookStats.loadFromFile(epub->getCachePath() + "/stats.json");
@@ -125,6 +129,7 @@ void EpubReaderActivity::onEnter() {
     bookStats.finished = loadedFinishedFromProgress;
   }
   bookWasFinishedOnEnter = bookStats.finished;
+  BOOK_FINISHED_CACHE.put(epub->getPath(), bookStats.finished);
 
   // Trigger first update
   requestUpdate();
@@ -603,7 +608,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (currentSpineIndex == epub->getSpineItemsCount()) {
     if (!bookStats.finished) {
       bookStats.finished = true;
-      saveProgress(currentSpineIndex, 0, 0, false);
+      bookStats.saveToFile(epub->getCachePath() + "/stats.json");
+      BOOK_FINISHED_CACHE.put(epub->getPath(), true);
+      saveProgress(currentSpineIndex, 0, 0);
     }
     bookFinishedThisSession = true;
     renderer.clearScreen();
@@ -722,6 +729,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // Collect footnotes from the loaded page
     currentPageFootnotes = std::move(p->footnotes);
 
+    const bool pageChanged =
+        (currentSpineIndex != lastTrackedSpineIndex || section->currentPage != lastTrackedPageNumber);
+    if (pageChanged) {
+      sessionPagesRead++;
+      sessionWordsRead += static_cast<uint32_t>(p->wordCount());
+      lastTrackedSpineIndex = currentSpineIndex;
+      lastTrackedPageNumber = section->currentPage;
+    }
+
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
@@ -735,10 +751,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 }
 
-void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool countAsPageRead) {
-  if (countAsPageRead) {
-    sessionPagesRead++;
-  }
+void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
     uint8_t data[7];
@@ -759,9 +772,6 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
-  // Accumulate word count for reading statistics
-  sessionWordsRead += static_cast<uint32_t>(page->wordCount());
-
   // Force special handling for pages with images when anti-aliasing is on
   bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing;
 
