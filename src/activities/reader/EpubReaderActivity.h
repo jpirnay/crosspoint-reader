@@ -31,6 +31,7 @@ class EpubReaderActivity final : public Activity {
   uint32_t sessionWordsRead = 0;
   uint32_t sessionPagesRead = 0;
   bool bookFinishedThisSession = false;
+  bool bookWasFinishedOnEnter = false;
   BookStats bookStats;
 
   // Footnote support
@@ -46,7 +47,7 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
-  void saveProgress(int spineIndex, int currentPage, int pageCount);
+  void saveProgress(int spineIndex, int currentPage, int pageCount, bool countAsPageRead = true);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);

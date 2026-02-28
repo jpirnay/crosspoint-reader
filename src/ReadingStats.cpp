@@ -21,6 +21,7 @@ bool BookStats::loadFromFile(const std::string& path) {
   totalPagesRead = doc["totalPagesRead"] | (uint32_t)0;
   totalWordsRead = doc["totalWordsRead"] | (uint32_t)0;
   sessionsCount = doc["sessionsCount"] | (uint16_t)0;
+  finished = doc["finished"] | false;
   return true;
 }
 
@@ -30,6 +31,7 @@ bool BookStats::saveToFile(const std::string& path) const {
   doc["totalPagesRead"] = totalPagesRead;
   doc["totalWordsRead"] = totalWordsRead;
   doc["sessionsCount"] = sessionsCount;
+  doc["finished"] = finished;
   String json;
   serializeJson(doc, json);
   return Storage.writeFile(path.c_str(), json);

@@ -77,18 +77,25 @@ void EpubReaderActivity::onEnter() {
 
   epub->setupCacheDir();
 
+  bool loadedFinishedFromProgress = false;
+  bool hasFinishedInProgress = false;
+
   FsFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[6];
-    int dataSize = f.read(data, 6);
-    if (dataSize == 4 || dataSize == 6) {
+    uint8_t data[7];
+    int dataSize = f.read(data, 7);
+    if (dataSize == 4 || dataSize == 6 || dataSize == 7) {
       currentSpineIndex = data[0] + (data[1] << 8);
       nextPageNumber = data[2] + (data[3] << 8);
       cachedSpineIndex = currentSpineIndex;
       LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
     }
-    if (dataSize == 6) {
+    if (dataSize == 6 || dataSize == 7) {
       cachedChapterTotalPageCount = data[4] + (data[5] << 8);
+    }
+    if (dataSize == 7) {
+      loadedFinishedFromProgress = (data[6] != 0);
+      hasFinishedInProgress = true;
     }
     f.close();
   }
@@ -114,6 +121,10 @@ void EpubReaderActivity::onEnter() {
   bookFinishedThisSession = false;
   bookStats = BookStats{};
   bookStats.loadFromFile(epub->getCachePath() + "/stats.json");
+  if (hasFinishedInProgress) {
+    bookStats.finished = loadedFinishedFromProgress;
+  }
+  bookWasFinishedOnEnter = bookStats.finished;
 
   // Trigger first update
   requestUpdate();
@@ -140,7 +151,7 @@ void EpubReaderActivity::onExit() {
     if (isFirstSession) {
       global.booksStarted++;
     }
-    if (bookFinishedThisSession) {
+    if (bookFinishedThisSession && !bookWasFinishedOnEnter) {
       global.booksFinished++;
     }
     global.saveToFile();
@@ -590,6 +601,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   // Show end of book screen
   if (currentSpineIndex == epub->getSpineItemsCount()) {
+    if (!bookStats.finished) {
+      bookStats.finished = true;
+      saveProgress(currentSpineIndex, 0, 0, false);
+    }
     if (!bookFinishedThisSession) {
       bookFinishedThisSession = true;
     }
@@ -722,18 +737,21 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 }
 
-void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
-  sessionPagesRead++;
+void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool countAsPageRead) {
+  if (countAsPageRead) {
+    sessionPagesRead++;
+  }
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[6];
-    data[0] = currentSpineIndex & 0xFF;
-    data[1] = (currentSpineIndex >> 8) & 0xFF;
+    uint8_t data[7];
+    data[0] = spineIndex & 0xFF;
+    data[1] = (spineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
     data[3] = (currentPage >> 8) & 0xFF;
     data[4] = pageCount & 0xFF;
     data[5] = (pageCount >> 8) & 0xFF;
-    f.write(data, 6);
+    data[6] = bookStats.finished ? 1 : 0;
+    f.write(data, 7);
     f.close();
     LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d", spineIndex, currentPage);
   } else {

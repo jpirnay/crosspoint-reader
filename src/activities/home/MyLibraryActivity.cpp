@@ -5,8 +5,10 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <functional>
 
 #include "MappedInputManager.h"
+#include "ReadingStats.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/StringUtils.h"
@@ -69,6 +71,7 @@ void sortFileList(std::vector<std::string>& strs) {
 
 void MyLibraryActivity::loadFiles() {
   files.clear();
+  filesFinished.clear();
 
   auto root = Storage.open(basepath.c_str());
   if (!root || !root.isDirectory()) {
@@ -100,6 +103,20 @@ void MyLibraryActivity::loadFiles() {
   }
   root.close();
   sortFileList(files);
+
+  filesFinished.reserve(files.size());
+  for (const auto& entry : files) {
+    bool isFinished = false;
+    if (entry.back() != '/' && StringUtils::checkFileExtension(entry, ".epub")) {
+      const std::string fullPath = (basepath == "/") ? ("/" + entry) : (basepath + "/" + entry);
+      const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(fullPath));
+      BookStats stats;
+      if (stats.loadFromFile(cachePath + "/stats.json")) {
+        isFinished = stats.finished;
+      }
+    }
+    filesFinished.push_back(isFinished);
+  }
 }
 
 void MyLibraryActivity::onEnter() {
@@ -114,6 +131,7 @@ void MyLibraryActivity::onEnter() {
 void MyLibraryActivity::onExit() {
   Activity::onExit();
   files.clear();
+  filesFinished.clear();
 }
 
 void MyLibraryActivity::loop() {
@@ -213,8 +231,14 @@ void MyLibraryActivity::render(RenderLock&&) {
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
-        [this](int index) { return getFileName(files[index]); }, nullptr,
-        [this](int index) { return UITheme::getFileIcon(files[index]); });
+        [this](int index) {
+          std::string name = getFileName(files[index]);
+          if (index >= 0 && index < static_cast<int>(filesFinished.size()) && filesFinished[index]) {
+            name += " [✓]";
+          }
+          return name;
+        },
+        nullptr, [this](int index) { return UITheme::getFileIcon(files[index]); });
   }
 
   // Help text

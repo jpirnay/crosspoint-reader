@@ -20,7 +20,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
 

@@ -5,8 +5,10 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <functional>
 
 #include "MappedInputManager.h"
+#include "ReadingStats.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -18,15 +20,28 @@ constexpr unsigned long GO_HOME_MS = 1000;
 
 void RecentBooksActivity::loadRecentBooks() {
   recentBooks.clear();
+  recentBooksFinished.clear();
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(books.size());
+  recentBooksFinished.reserve(books.size());
 
   for (const auto& book : books) {
     // Skip if file no longer exists
     if (!Storage.exists(book.path.c_str())) {
       continue;
     }
+
+    bool isFinished = false;
+    if (StringUtils::checkFileExtension(book.path, ".epub")) {
+      BookStats stats;
+      const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
+      if (stats.loadFromFile(cachePath + "/stats.json")) {
+        isFinished = stats.finished;
+      }
+    }
+
     recentBooks.push_back(book);
+    recentBooksFinished.push_back(isFinished);
   }
 }
 
@@ -43,6 +58,7 @@ void RecentBooksActivity::onEnter() {
 void RecentBooksActivity::onExit() {
   Activity::onExit();
   recentBooks.clear();
+  recentBooksFinished.clear();
 }
 
 void RecentBooksActivity::loop() {
@@ -101,7 +117,13 @@ void RecentBooksActivity::render(RenderLock&&) {
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,
-        [this](int index) { return recentBooks[index].title; }, [this](int index) { return recentBooks[index].author; },
+        [this](int index) {
+          if (index >= 0 && index < static_cast<int>(recentBooksFinished.size()) && recentBooksFinished[index]) {
+            return recentBooks[index].title + " [✓]";
+          }
+          return recentBooks[index].title;
+        },
+        [this](int index) { return recentBooks[index].author; },
         [this](int index) { return UITheme::getFileIcon(recentBooks[index].path); });
   }
 

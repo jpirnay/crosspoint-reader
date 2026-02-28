@@ -16,6 +16,7 @@ class MyLibraryActivity final : public Activity {
   // Files state
   std::string basepath = "/";
   std::vector<std::string> files;
+  std::vector<bool> filesFinished;
 
   // Data loading
   void loadFiles();

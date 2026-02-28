@@ -93,6 +93,11 @@ void ReaderStatsActivity::render(RenderLock&&) {
   y += rowHeight;
   renderer.drawText(UI_10_FONT_ID, marginLeft, y,
                     (std::string(tr(STR_STATS_SESSIONS)) + std::to_string(bookStats.sessionsCount)).c_str());
+  y += rowHeight;
+  renderer.drawText(
+      UI_10_FONT_ID, marginLeft, y,
+      (std::string(tr(STR_STATS_FINISHED)) + (bookStats.finished ? std::string(tr(STR_YES)) : std::string(tr(STR_NO))))
+          .c_str());
   y += rowHeight + sectionGap;
 
   // --- All books ---
