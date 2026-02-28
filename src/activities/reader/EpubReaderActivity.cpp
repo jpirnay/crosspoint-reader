@@ -25,7 +25,6 @@
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
 
-
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long skipChapterMs = 700;
@@ -137,6 +136,8 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+
+  BOOK_FINISHED_CACHE.saveIfDirty();
 
   // Reading stats: commit session to disk
   if (epub) {
@@ -610,6 +611,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       bookStats.finished = true;
       bookStats.saveToFile(epub->getCachePath() + "/stats.json");
       BOOK_FINISHED_CACHE.put(epub->getPath(), true);
+      BOOK_FINISHED_CACHE.saveIfDirty();
       saveProgress(currentSpineIndex, 0, 0);
     }
     bookFinishedThisSession = true;

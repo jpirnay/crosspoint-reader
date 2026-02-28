@@ -140,6 +140,7 @@ void MyLibraryActivity::onEnter() {
 
 void MyLibraryActivity::onExit() {
   Activity::onExit();
+  BOOK_FINISHED_CACHE.saveIfDirty();
   files.clear();
   filesFinished.clear();
 }

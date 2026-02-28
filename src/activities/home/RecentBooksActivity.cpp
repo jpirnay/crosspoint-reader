@@ -62,6 +62,7 @@ void RecentBooksActivity::onEnter() {
 
 void RecentBooksActivity::onExit() {
   Activity::onExit();
+  BOOK_FINISHED_CACHE.saveIfDirty();
   recentBooks.clear();
   recentBooksFinished.clear();
 }
