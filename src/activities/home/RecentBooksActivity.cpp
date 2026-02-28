@@ -16,6 +16,11 @@
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
+
+bool isSupportedEbookExtension(const std::string& path) {
+  return StringUtils::checkFileExtension(path, ".epub") || StringUtils::checkFileExtension(path, ".xtch") ||
+         StringUtils::checkFileExtension(path, ".xtc");
+}
 }  // namespace
 
 void RecentBooksActivity::loadRecentBooks() {
@@ -32,7 +37,7 @@ void RecentBooksActivity::loadRecentBooks() {
     }
 
     recentBooks.push_back(book);
-    recentBooksFinished.push_back(StringUtils::checkFileExtension(book.path, ".epub") ? -1 : 0);
+    recentBooksFinished.push_back(isSupportedEbookExtension(book.path) ? -1 : 0);
   }
 }
 
