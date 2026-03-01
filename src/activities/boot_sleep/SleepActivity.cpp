@@ -307,7 +307,11 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
 
   // Draw overlay text if provided
   const std::string overlayText = SETTINGS.sleepCoverOverlay ? getBookOverlayText(APP_STATE.openEpubPath) : "";
-  if (!overlayText.empty()) {
+  const auto drawOverlay = [&]() {
+    if (overlayText.empty()) {
+      return;
+    }
+
     // Split text into lines
     size_t newlinePos = overlayText.find('\n');
     std::string line1 = (newlinePos != std::string::npos) ? overlayText.substr(0, newlinePos) : overlayText;
@@ -319,7 +323,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     line1 = renderer.truncatedText(UI_10_FONT_ID, line1.c_str(), pageWidth - 20);
     line2 = renderer.truncatedText(UI_10_FONT_ID, line2.c_str(), pageWidth - 20);
 
-    // Draw semi-transparent background rectangle at the bottom (taller for two lines)
+    // Draw white background rectangle at the bottom (taller for two lines)
     const int overlayHeight = 50;
     const int overlayY = pageHeight - overlayHeight - 20;             // Position 20 pixels higher from bottom
     renderer.fillRect(0, overlayY, pageWidth, overlayHeight, false);  // White background
@@ -335,7 +339,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
       const int textX2 = (pageWidth - renderer.getTextWidth(UI_10_FONT_ID, line2.c_str())) / 2;
       renderer.drawText(UI_10_FONT_ID, textX2, line2Y, line2.c_str(), true);  // Black text
     }
-  }
+  };
+
+  drawOverlay();
 
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
@@ -344,12 +350,14 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    drawOverlay();
     renderer.copyGrayscaleLsbBuffers();
 
     bitmap.rewindToData();
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    drawOverlay();
     renderer.copyGrayscaleMsbBuffers();
 
     renderer.displayGrayBuffer();
