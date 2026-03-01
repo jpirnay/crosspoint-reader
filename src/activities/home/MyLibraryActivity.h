@@ -21,8 +21,18 @@ class MyLibraryActivity final : public Activity {
   std::string basepath = "/";
   std::vector<std::string> files;
 
+  // Per-file subtitle metadata (parallel to files)
+  struct FileMetadata {
+    std::string subtitle;
+  };
+  std::vector<FileMetadata> fileMetadata;
+  bool metadataLoading = false;
+  bool metadataLoaded = false;
+  bool firstRenderDone = false;
+
   // Data loading
   void loadFiles();
+  void loadFileMetadata();
   size_t findEntry(const std::string& name) const;
 
  public:

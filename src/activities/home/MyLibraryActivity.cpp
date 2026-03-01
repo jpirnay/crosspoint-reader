@@ -102,6 +102,61 @@ void MyLibraryActivity::loadFiles() {
   }
   root.close();
   sortFileList(files);
+
+  // Reset metadata state for the new file list
+  fileMetadata.assign(files.size(), FileMetadata{});
+  metadataLoading = false;
+  metadataLoaded = false;
+  firstRenderDone = false;
+}
+
+static std::string buildEpubSubtitle(const std::string& title, const std::string& author) {
+  if (!title.empty() && !author.empty()) return title + " - " + author;
+  if (!title.empty()) return title;
+  return author;
+}
+
+void MyLibraryActivity::loadFileMetadata() {
+  metadataLoading = true;
+
+  std::string basepathFixed = basepath;
+  if (basepathFixed.back() != '/') basepathFixed += '/';
+
+  for (size_t i = 0; i < files.size(); i++) {
+    const std::string& entry = files[i];
+
+    // Directories get a translated "Folder" label — instant, no I/O
+    if (entry.back() == '/') {
+      fileMetadata[i].subtitle = tr(STR_FOLDER);
+      continue;
+    }
+
+    // Only epub files carry author/title metadata
+    if (!StringUtils::checkFileExtension(entry, ".epub")) continue;
+
+    const std::string fullPath = basepathFixed + entry;
+
+    // 1. Check RecentBooksStore first (fast, in-memory)
+    RecentBook cached = RECENT_BOOKS.getDataFromBook(fullPath);
+    if (!cached.author.empty() || !cached.title.empty()) {
+      fileMetadata[i].subtitle = buildEpubSubtitle(cached.title, cached.author);
+      continue;
+    }
+
+    // 2. Try loading from existing epub cache (fast binary read)
+    Epub epub(fullPath, "/.crosspoint");
+    if (epub.load(false, true)) {
+      fileMetadata[i].subtitle = buildEpubSubtitle(epub.getTitle(), epub.getAuthor());
+    } else {
+      // 3. No cache — parse the epub and build cache (slower, skip CSS)
+      epub.load(true, true);
+      fileMetadata[i].subtitle = buildEpubSubtitle(epub.getTitle(), epub.getAuthor());
+    }
+  }
+
+  metadataLoaded = true;
+  metadataLoading = false;
+  requestUpdate();
 }
 
 void MyLibraryActivity::onEnter() {
@@ -116,6 +171,9 @@ void MyLibraryActivity::onEnter() {
 void MyLibraryActivity::onExit() {
   Activity::onExit();
   files.clear();
+  fileMetadata.clear();
+  metadataLoading = false;
+  metadataLoaded = false;
 }
 
 void MyLibraryActivity::clearFileMetadata(const std::string& fullPath) {
@@ -136,7 +194,7 @@ void MyLibraryActivity::loop() {
     return;
   }
 
-  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (files.empty()) return;
@@ -261,7 +319,11 @@ void MyLibraryActivity::render(RenderLock&&) {
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
-        [this](int index) { return getFileName(files[index]); }, nullptr,
+        [this](int index) { return getFileName(files[index]); },
+        [this](int index) -> std::string {
+          if (static_cast<size_t>(index) < fileMetadata.size()) return fileMetadata[index].subtitle;
+          return {};
+        },
         [this](int index) { return UITheme::getFileIcon(files[index]); });
   }
 
@@ -272,6 +334,16 @@ void MyLibraryActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
+
+  // Show filenames on the first frame, then load all metadata in one pass
+  // (matching HomeActivity's cover-loading pattern: one blocking call → one
+  // final refresh, rather than N refreshes for N files).
+  if (!firstRenderDone) {
+    firstRenderDone = true;
+    requestUpdate();
+  } else if (!metadataLoaded && !metadataLoading) {
+    loadFileMetadata();
+  }
 }
 
 size_t MyLibraryActivity::findEntry(const std::string& name) const {
