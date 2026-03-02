@@ -13,6 +13,7 @@
 #define EPD_BUSY 6   // Busy
 
 #define SPI_MISO 7  // SPI MISO, shared between SD card and display (Master In Slave Out)
+#define SD_CS 12    // SD card Chip Select
 
 #define BAT_GPIO0 0  // Battery voltage
 

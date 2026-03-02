@@ -2,6 +2,7 @@
 
 #include <Logging.h>
 #include <WiFi.h>
+#include <driver/gpio.h>
 #include <esp_sleep.h>
 
 #include <cassert>
@@ -58,6 +59,10 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
     delay(50);
     gpio.update();
   }
+  // Hold SPI CS pins HIGH during deep sleep so they stay deselected while the 3.3V rail remains powered.
+  // Without this, CS pins float on entry to deep sleep and can accidentally select the SD card or display.
+  gpio_hold_en(static_cast<gpio_num_t>(SD_CS));
+  gpio_hold_en(static_cast<gpio_num_t>(EPD_CS));
   // Arm the wakeup trigger *after* the button is released
   esp_deep_sleep_enable_gpio_wakeup(1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
   // Enter Deep Sleep

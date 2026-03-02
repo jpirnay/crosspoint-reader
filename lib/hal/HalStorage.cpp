@@ -20,6 +20,8 @@ HalStorage::HalStorage() {
 
 bool HalStorage::begin() { return SDCard.begin(); }
 
+void HalStorage::end() { SDCard.end(); }
+
 bool HalStorage::ready() const { return SDCard.ready(); }
 
 // For the rest of the methods, we acquire the mutex to ensure thread safety

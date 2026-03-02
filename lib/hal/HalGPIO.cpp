@@ -1,7 +1,12 @@
 #include <HalGPIO.h>
 #include <SPI.h>
+#include <driver/gpio.h>
 
 void HalGPIO::begin() {
+  // Release any GPIO holds that were set before entering deep sleep,
+  // so the SPI bus and CS pins can be reconfigured normally.
+  gpio_hold_dis(static_cast<gpio_num_t>(SD_CS));
+  gpio_hold_dis(static_cast<gpio_num_t>(EPD_CS));
   inputMgr.begin();
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
   pinMode(UART0_RXD, INPUT);

@@ -185,6 +185,7 @@ void enterDeepSleep() {
 
   activityManager.goToSleep();
 
+  Storage.end();
   display.deepSleep();
   LOG_DBG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
   LOG_DBG("MAIN", "Entering deep sleep");
