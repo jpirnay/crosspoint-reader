@@ -59,10 +59,16 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
     delay(50);
     gpio.update();
   }
-  // Hold SPI CS pins HIGH during deep sleep so they stay deselected while the 3.3V rail remains powered.
-  // Without this, CS pins float on entry to deep sleep and can accidentally select the SD card or display.
+  // Drive SPI CS pins HIGH and latch them so they stay deselected through deep sleep.
+  // Without explicit direction+level before gpio_hold_en, the latched value is undefined if the pin floated.
+  // gpio_deep_sleep_hold_en() is required for the hold to survive deep sleep on ESP32-C3.
+  gpio_set_direction(static_cast<gpio_num_t>(SD_CS), GPIO_MODE_OUTPUT);
+  gpio_set_level(static_cast<gpio_num_t>(SD_CS), 1);
   gpio_hold_en(static_cast<gpio_num_t>(SD_CS));
+  gpio_set_direction(static_cast<gpio_num_t>(EPD_CS), GPIO_MODE_OUTPUT);
+  gpio_set_level(static_cast<gpio_num_t>(EPD_CS), 1);
   gpio_hold_en(static_cast<gpio_num_t>(EPD_CS));
+  gpio_deep_sleep_hold_en();
   // Arm the wakeup trigger *after* the button is released
   esp_deep_sleep_enable_gpio_wakeup(1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
   // Enter Deep Sleep
