@@ -676,7 +676,7 @@ def main(translations_dir=None, output_dir=None) -> None:
                 string_keys, translations, lang_idx
             )
             abbrev = get_lang_abbreviation(code, name)
-            ratio = 100 * len(comp) // decomp_len
+            ratio = 100 * len(comp) // decomp_len if decomp_len else 0
             print(f"  {abbrev:<6} {decomp_len:>7} B {len(comp):>8} B  {ratio:>5}%")
             compressed_data.append((comp, decomp_len))
             total_raw += decomp_len
@@ -694,7 +694,7 @@ def main(translations_dir=None, output_dir=None) -> None:
 
         print(f"  {'-' * 6:<6} {'-' * 8:>8} {'-' * 11:>11} {'-' * 6:>6}")
         print(
-            f"  {'TOTAL':<6} {total_raw:>7} B {total_compressed:>8} B  {100 * total_compressed // total_raw:>5}%"
+            f"  {'TOTAL':<6} {total_raw:>7} B {total_compressed:>8} B  {100 * total_compressed // total_raw if total_raw else 0:>5}%"
         )
         print()
         print("Flash usage (estimated compiled binary):")
