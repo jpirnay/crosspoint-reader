@@ -558,23 +558,43 @@ def generate_strings_cpp(
 # ---------------------------------------------------------------------------
 
 
-def generate_manifest(
+def validate_manifest(
     language_codes: List[str],
-    language_names: List[str],
-    output_path: str,
+    manifest_path: str,
 ) -> None:
-    """Generate manifest.json listing all non-core languages for on-device discovery."""
+    """Warn if manifest.json is out of sync with the YAML files.
+
+    manifest.json is a manually maintained committed file (not auto-generated).
+    This check catches missing or stale entries so contributors notice early.
+    """
     import json
 
-    entries = [
-        {"code": code, "name": name}
-        for code, name in zip(language_codes, language_names)
-        if code not in CORE_LANGUAGES
-    ]
-    with open(output_path, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(entries, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    print(f"Generated: {output_path}")
+    non_core = {c for c in language_codes if c not in CORE_LANGUAGES}
+
+    if not os.path.exists(manifest_path):
+        print(
+            f"WARNING: {manifest_path} not found. "
+            "Create it to allow on-device language discovery."
+        )
+        return
+
+    with open(manifest_path, encoding="utf-8") as f:
+        try:
+            entries = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"WARNING: {manifest_path} is not valid JSON: {e}")
+            return
+
+    manifest_codes = {e["code"] for e in entries if "code" in e}
+    missing = non_core - manifest_codes
+    extra   = manifest_codes - non_core
+
+    if missing:
+        print(f"WARNING: manifest.json is missing languages: {', '.join(sorted(missing))}")
+    if extra:
+        print(f"WARNING: manifest.json has extra codes not in translations/: {', '.join(sorted(extra))}")
+    if not missing and not extra:
+        print(f"OK: manifest.json is in sync ({len(manifest_codes)} non-core languages)")
 
 
 # ---------------------------------------------------------------------------
@@ -645,9 +665,8 @@ def main(
             translations,
             str(out / "I18nStrings.cpp"),
         )
-        generate_manifest(
+        validate_manifest(
             language_codes,
-            language_names,
             str(Path(translations_dir) / "manifest.json"),
         )
 
