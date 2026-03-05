@@ -1,96 +1,310 @@
 #include "I18n.h"
 
 #include <HalStorage.h>
-#include <HardwareSerial.h>
+#include <Logging.h>
 #include <Serialization.h>
+
+#include <cstdlib>
+#include <cstring>
 
 #include "I18nStrings.h"
 
 using namespace i18n_strings;
 
-// Settings file path
-static constexpr const char* SETTINGS_FILE = "/.crosspoint/language.bin";
-static constexpr uint8_t SETTINGS_VERSION = 1;
+// Settings file — stores language as a null-terminated code string (e.g. "EN", "FI").
+static constexpr const char* SETTINGS_FILE   = "/.crosspoint/language.cfg";
+static constexpr uint8_t     SETTINGS_VERSION = 2;
+
+// Legacy v1 file (stored uint8_t enum index).
+static constexpr const char* LEGACY_SETTINGS_FILE = "/.crosspoint/language.bin";
+
+// Maximum size of a language YAML file we will attempt to load.
+static constexpr size_t EXT_LANG_BUF_SIZE = 14000;
+
+// ---------------------------------------------------------------------------
+// Singleton
+// ---------------------------------------------------------------------------
 
 I18n& I18n::getInstance() {
   static I18n instance;
   return instance;
 }
 
+// ---------------------------------------------------------------------------
+// String lookup
+// ---------------------------------------------------------------------------
+
 const char* I18n::get(StrId id) const {
-  const auto index = static_cast<size_t>(id);
-  if (index >= static_cast<size_t>(StrId::_COUNT)) {
-    return "???";
+  const size_t index = static_cast<size_t>(id);
+  if (index >= static_cast<size_t>(StrId::_COUNT)) return "???";
+
+  if (_language == Language::EXTERNAL && _extTable[index]) {
+    return _extTable[index];
   }
 
-  // Use generated helper function - no hardcoded switch needed!
-  const char* const* strings = getStringArray(_language);
-  return strings[index];
+  // Core language (or EN fallback for EXTERNAL when string is missing).
+  const Language coreLang =
+      (_language == Language::EXTERNAL) ? Language::EN : _language;
+  return getStringArray(coreLang)[index];
 }
 
+// ---------------------------------------------------------------------------
+// Language switching
+// ---------------------------------------------------------------------------
+
 void I18n::setLanguage(Language lang) {
-  if (lang >= Language::_COUNT) {
-    return;
-  }
+  if (static_cast<uint8_t>(lang) >= static_cast<uint8_t>(Language::_CORE_COUNT)) return;
+  unloadExternalLanguage();
   _language = lang;
   saveSettings();
 }
 
+bool I18n::setExternalLanguage(const char* code) {
+  if (!code || code[0] == '\0') return false;
+  if (!loadExternalLanguage(code)) return false;
+  saveSettings();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
+
+const char* I18n::getActiveCode() const {
+  if (_language == Language::EXTERNAL) return _extCode;
+  // Core languages occupy the first _CORE_COUNT entries of ALL_LANGUAGES
+  // in the same order as the Language enum, so this is a direct index.
+  return ALL_LANGUAGES[static_cast<uint8_t>(_language)].code;
+}
+
+const char* I18n::getActiveName() const {
+  if (_language == Language::EXTERNAL) {
+    for (uint8_t i = 0; i < LANGUAGE_META_COUNT; i++) {
+      if (strcmp(ALL_LANGUAGES[i].code, _extCode) == 0) return ALL_LANGUAGES[i].name;
+    }
+    return _extCode;
+  }
+  return getLanguageName(_language);
+}
+
 const char* I18n::getLanguageName(Language lang) const {
   const auto index = static_cast<size_t>(lang);
-  if (index >= static_cast<size_t>(Language::_COUNT)) {
-    return "???";
-  }
+  if (index >= static_cast<size_t>(Language::_CORE_COUNT)) return "???";
   return LANGUAGE_NAMES[index];
 }
+
+const char* I18n::getCharacterSet() const {
+  if (_language == Language::EXTERNAL) return CHARACTER_SETS[0];  // EN fallback
+  return getCharacterSet(_language);
+}
+
+const char* I18n::getCharacterSet(Language lang) {
+  const auto idx = static_cast<size_t>(lang);
+  if (idx >= static_cast<size_t>(Language::_CORE_COUNT)) return CHARACTER_SETS[0];
+  return CHARACTER_SETS[idx];
+}
+
+// ---------------------------------------------------------------------------
+// External language loader (SD YAML)
+// ---------------------------------------------------------------------------
+
+void I18n::unloadExternalLanguage() {
+  if (_extBuffer) {
+    free(_extBuffer);
+    _extBuffer = nullptr;
+  }
+  memset(_extTable, 0, sizeof(_extTable));
+  memset(_extCode, 0, sizeof(_extCode));
+  if (_language == Language::EXTERNAL) _language = Language::EN;
+}
+
+// Read one '\n'-terminated line from file into buf (strips \r, null-terminates).
+// Returns false at EOF with no bytes read.
+static bool readFileLine(FsFile& file, char* buf, size_t bufSize) {
+  size_t pos = 0;
+  while (pos < bufSize - 1) {
+    uint8_t c;
+    if (file.read(&c, 1) != 1) {
+      buf[pos] = '\0';
+      return pos > 0;
+    }
+    if (c == '\n') break;
+    if (c != '\r') buf[pos++] = static_cast<char>(c);
+  }
+  buf[pos] = '\0';
+  return true;
+}
+
+bool I18n::loadExternalLanguage(const char* code) {
+  char path[48];
+  snprintf(path, sizeof(path), "/.crosspoint/languages/%s.yaml", code);
+
+  FsFile file;
+  if (!Storage.openFileForRead("I18N", path, file)) {
+    LOG_DBG("I18N", "External language file not found: %s", path);
+    return false;
+  }
+
+  char* buf = static_cast<char*>(malloc(EXT_LANG_BUF_SIZE));
+  if (!buf) {
+    LOG_ERR("I18N", "Out of memory loading external language");
+    file.close();
+    return false;
+  }
+
+  // Clear previous state before filling the new table.
+  if (_extBuffer) free(_extBuffer);
+  _extBuffer = buf;
+  memset(_extTable, 0, sizeof(_extTable));
+
+  size_t bufUsed = 0;
+  int    strCount = 0;
+  char   line[512];
+
+  while (readFileLine(file, line, sizeof(line))) {
+    // Skip blank lines and metadata (_language_name, _language_code, etc.)
+    if (line[0] == '\0' || line[0] == '_') continue;
+
+    // Expect:  KEY: "value"
+    char* colon = strchr(line, ':');
+    if (!colon) continue;
+    *colon = '\0';
+    const char* key = line;
+
+    // Advance past ':' and whitespace to opening quote
+    char* p = colon + 1;
+    while (*p == ' ') p++;
+    if (*p != '"') continue;
+    p++;  // skip opening quote
+
+    // Record where this string starts in _extBuffer
+    const size_t strStart = bufUsed;
+
+    // Unescape and copy value into _extBuffer
+    while (*p && bufUsed < EXT_LANG_BUF_SIZE - 1) {
+      if (*p == '"') { p++; break; }  // closing quote
+      if (*p == '\\' && *(p + 1)) {
+        const char esc = *(p + 1);
+        if      (esc == 'n')  { buf[bufUsed++] = '\n'; p += 2; }
+        else if (esc == '"')  { buf[bufUsed++] = '"';  p += 2; }
+        else if (esc == '\\') { buf[bufUsed++] = '\\'; p += 2; }
+        else                  { p++; }  // unknown escape: skip
+      } else {
+        buf[bufUsed++] = *p++;
+      }
+    }
+    buf[bufUsed++] = '\0';
+
+    // Map key name -> StrId and store pointer
+    const StrId id = strIdFromKey(key);
+    if (id != StrId::_COUNT) {
+      _extTable[static_cast<size_t>(id)] = _extBuffer + strStart;
+      strCount++;
+    }
+  }
+
+  file.close();
+
+  if (strCount == 0) {
+    LOG_ERR("I18N", "No valid strings found in %s", path);
+    free(_extBuffer);
+    _extBuffer = nullptr;
+    return false;
+  }
+
+  strncpy(_extCode, code, sizeof(_extCode) - 1);
+  _extCode[sizeof(_extCode) - 1] = '\0';
+  _language = Language::EXTERNAL;
+
+  LOG_DBG("I18N", "Loaded external language %s: %d/%d strings",
+          code, strCount, static_cast<int>(StrId::_COUNT));
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Settings persistence
+// ---------------------------------------------------------------------------
 
 void I18n::saveSettings() {
   Storage.mkdir("/.crosspoint");
 
   FsFile file;
   if (!Storage.openFileForWrite("I18N", SETTINGS_FILE, file)) {
-    Serial.printf("[I18N] Failed to save settings\n");
+    LOG_ERR("I18N", "Failed to save language settings");
     return;
   }
 
+  const char* code = getActiveCode();
   serialization::writePod(file, SETTINGS_VERSION);
-  serialization::writePod(file, static_cast<uint8_t>(_language));
-
+  // Write code as fixed 8-byte null-padded field
+  char codeBuf[8] = {};
+  strncpy(codeBuf, code, sizeof(codeBuf) - 1);
+  file.write(reinterpret_cast<const uint8_t*>(codeBuf), sizeof(codeBuf));
   file.close();
-  Serial.printf("[I18N] Settings saved: language=%d\n", static_cast<int>(_language));
+
+  LOG_DBG("I18N", "Settings saved: language=%s", code);
 }
 
 void I18n::loadSettings() {
-  FsFile file;
-  if (!Storage.openFileForRead("I18N", SETTINGS_FILE, file)) {
-    Serial.printf("[I18N] No settings file, using default (English)\n");
-    return;
+  // Try new v2 format first
+  {
+    FsFile file;
+    if (Storage.openFileForRead("I18N", SETTINGS_FILE, file)) {
+      uint8_t version = 0;
+      serialization::readPod(file, version);
+      if (version == SETTINGS_VERSION) {
+        char codeBuf[8] = {};
+        file.read(reinterpret_cast<uint8_t*>(codeBuf), sizeof(codeBuf));
+        codeBuf[sizeof(codeBuf) - 1] = '\0';
+        file.close();
+
+        // Find in ALL_LANGUAGES
+        for (uint8_t i = 0; i < LANGUAGE_META_COUNT; i++) {
+          if (strcmp(ALL_LANGUAGES[i].code, codeBuf) == 0) {
+            if (ALL_LANGUAGES[i].core) {
+              // Core languages occupy indices 0.._CORE_COUNT-1 in ALL_LANGUAGES
+              // in the same order as the Language enum.
+              _language = static_cast<Language>(i);
+              LOG_DBG("I18N", "Loaded core language: %s", codeBuf);
+              return;
+            } else {
+              // Non-core: load from SD
+              if (!loadExternalLanguage(codeBuf)) {
+                LOG_DBG("I18N", "External language %s not on SD, defaulting to EN", codeBuf);
+              }
+              return;
+            }
+          }
+        }
+        LOG_DBG("I18N", "Unknown language code '%s', defaulting to EN", codeBuf);
+        return;
+      }
+      file.close();
+    }
   }
 
-  uint8_t version;
-  serialization::readPod(file, version);
-  if (version != SETTINGS_VERSION) {
-    Serial.printf("[I18N] Settings version mismatch\n");
-    file.close();
-    return;
+  // Try legacy v1 format (uint8_t enum index)
+  {
+    FsFile file;
+    if (Storage.openFileForRead("I18N", LEGACY_SETTINGS_FILE, file)) {
+      uint8_t version = 0;
+      serialization::readPod(file, version);
+      if (version == 1) {
+        uint8_t langIdx = 0;
+        serialization::readPod(file, langIdx);
+        file.close();
+        // Map old enum index to Language (was same order as CORE_LANGUAGES, but
+        // previously included all 17; guard against out-of-range)
+        if (langIdx < static_cast<uint8_t>(Language::_CORE_COUNT)) {
+          _language = static_cast<Language>(langIdx);
+          LOG_DBG("I18N", "Migrated legacy language index %d", langIdx);
+          saveSettings();  // upgrade to new format
+        }
+        return;
+      }
+      file.close();
+    }
   }
 
-  uint8_t lang;
-  serialization::readPod(file, lang);
-  if (lang < static_cast<size_t>(Language::_COUNT)) {
-    _language = static_cast<Language>(lang);
-    Serial.printf("[I18N] Loaded language: %d\n", static_cast<int>(_language));
-  }
-
-  file.close();
-}
-
-// Generate character set for a specific language
-const char* I18n::getCharacterSet(Language lang) {
-  const auto langIndex = static_cast<size_t>(lang);
-  if (langIndex >= static_cast<size_t>(Language::_COUNT)) {
-    lang = Language::EN;  // Fallback to first language
-  }
-
-  return CHARACTER_SETS[static_cast<size_t>(lang)];
+  LOG_DBG("I18N", "No language settings found, defaulting to EN");
 }
