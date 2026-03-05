@@ -308,12 +308,29 @@ void I18n::loadSettings() {
         uint8_t langIdx = 0;
         serialization::readPod(file, langIdx);
         file.close();
-        // Map old enum index to Language (was same order as CORE_LANGUAGES, but
-        // previously included all 17; guard against out-of-range)
-        if (langIdx < static_cast<uint8_t>(Language::_CORE_COUNT)) {
-          _language = static_cast<Language>(langIdx);
-          LOG_DBG("I18N", "Migrated legacy language index %d", langIdx);
-          saveSettings();  // upgrade to new format
+        // Old firmware stored a flat index across all 17 languages in a different
+        // order than the new Language enum.  Map old index -> language code first.
+        static const char* const kLegacyIndexToCode[] = {"EN", "ES", "FR", "DE", "CS", "PT", "RU", "SV", "RO",
+                                                         "CA", "UK", "BE", "IT", "PL", "FI", "DA", "NL"};
+        constexpr uint8_t kLegacyCount = sizeof(kLegacyIndexToCode) / sizeof(kLegacyIndexToCode[0]);
+        if (langIdx < kLegacyCount) {
+          const char* code = kLegacyIndexToCode[langIdx];
+          // Check if it's a core language
+          for (uint8_t i = 0; i < LANGUAGE_META_COUNT; i++) {
+            if (strcmp(ALL_LANGUAGES[i].code, code) == 0) {
+              _language = static_cast<Language>(i);
+              LOG_DBG("I18N", "Migrated legacy language %d -> %s (core)", langIdx, code);
+              saveSettings();
+              return;
+            }
+          }
+          // Non-core: attempt to load from SD card
+          if (loadExternalLanguage(code)) {
+            LOG_DBG("I18N", "Migrated legacy language %d -> %s (external)", langIdx, code);
+            saveSettings();
+          } else {
+            LOG_DBG("I18N", "Legacy language %s not on SD, defaulting to EN", code);
+          }
         }
         return;
       }

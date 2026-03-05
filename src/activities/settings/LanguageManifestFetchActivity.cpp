@@ -13,9 +13,13 @@
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 
+// static constexpr const char* MANIFEST_URL =
+//     "https://raw.githubusercontent.com/"
+//     "crosspoint-reader/crosspoint-reader/master/"
+//     "lib/I18n/translations/manifest.json";
 static constexpr const char* MANIFEST_URL =
     "https://raw.githubusercontent.com/"
-    "crosspoint-reader/crosspoint-reader/master/"
+    "jpirnay/crosspoint-reader/feat-minimal-languages/"
     "lib/I18n/translations/manifest.json";
 
 static constexpr const char* MANIFEST_PATH = "/.crosspoint/languages/manifest.json";
