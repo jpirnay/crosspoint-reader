@@ -34,13 +34,6 @@ from typing import List, Dict, Optional, Tuple
 # English MUST be first (index 0) and is always the fallback.
 CORE_LANGUAGES = ["EN", "DE", "FR", "ES", "PT"]
 
-# GitHub raw base URL used by the on-device downloader
-GITHUB_RAW_BASE = (
-    "https://raw.githubusercontent.com/"
-    "crosspoint-reader/crosspoint-reader/master/"
-    "lib/I18n/translations/"
-)
-
 # ---------------------------------------------------------------------------
 # YAML file reading (simple key: "value" format, no PyYAML dependency)
 # ---------------------------------------------------------------------------
@@ -410,15 +403,6 @@ def generate_keys_header(
         "    default:",
         f"      return i18n_strings::STRINGS_EN;  // EN fallback",
         "  }",
-        "}",
-        "",
-    ]
-
-    # --- Convenience helper ---
-    lines += [
-        "// Number of core (flash) languages.",
-        "constexpr uint8_t getCoreLanguageCount() {",
-        "  return static_cast<uint8_t>(Language::_CORE_COUNT);",
         "}",
         "",
     ]
