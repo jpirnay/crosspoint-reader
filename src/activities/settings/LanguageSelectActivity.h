@@ -10,7 +10,6 @@
 #include "components/UITheme.h"
 #include "util/ButtonNavigator.h"
 
-
 class MappedInputManager;
 
 /**
