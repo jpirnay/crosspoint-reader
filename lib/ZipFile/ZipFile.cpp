@@ -327,6 +327,7 @@ int ZipFile::fillUncompressedSizes(std::vector<SizeTarget>& targets, std::vector
   file.seek(zipDetails.centralDirOffset);
 
   int matched = 0;
+  const int targetCount = static_cast<int>(targets.size());
   uint32_t sig;
   char itemName[256];
 
@@ -366,6 +367,10 @@ int ZipFile::fillUncompressedSizes(std::vector<SizeTarget>& targets, std::vector
           matched++;
         }
         ++it;
+      }
+
+      if (matched >= targetCount) {
+        break;
       }
     } else {
       file.seekCur(nameLen);
