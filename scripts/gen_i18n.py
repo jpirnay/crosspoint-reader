@@ -320,28 +320,27 @@ def generate_keys_header(
 
     # --- Core Language enum (flash-baked) ---
     lines += [
-        "// Core languages baked into flash.  EXTERNAL means an SD-card YAML is active.",
+        "// Core languages baked into flash.  EXT_LANG means an SD-card YAML is active.",
         "enum class Language : uint8_t {",
     ]
     for i, code in enumerate(core_codes):
         lines.append(f"  {code} = {i},")
     lines += [
         "  _CORE_COUNT,",
-        "  EXTERNAL = 255,  // SD-card language active",
+        "  EXT_LANG = 255,  // SD-card language active",
         "};",
         "",
     ]
 
-    # --- LanguageMeta struct + ALL_LANGUAGES table ---
+    # --- LanguageMeta struct + ALL_LANGUAGES table (core only) ---
     lines += [
-        "// Metadata for every known language (core + non-core downloadable).",
+        "// Metadata for the core (flash-baked) languages.",
         "struct LanguageMeta {",
-        '  const char* code;   // e.g. "FI"',
-        '  const char* name;   // native display name, e.g. "Suomi"',
-        "  bool        core;   // true = baked into flash",
+        '  const char* code;   // e.g. "EN"',
+        '  const char* name;   // native display name, e.g. "English"',
         "};",
         "",
-        f"constexpr uint8_t LANGUAGE_META_COUNT = {len(language_codes)}u;",
+        f"constexpr uint8_t LANGUAGE_META_COUNT = {len(core_codes)}u;",
         "extern const LanguageMeta ALL_LANGUAGES[LANGUAGE_META_COUNT];",
         "",
     ]
@@ -415,34 +414,12 @@ def generate_keys_header(
         "",
     ]
 
-    # --- Convenience helpers ---
+    # --- Convenience helper ---
     lines += [
         "// Number of core (flash) languages.",
         "constexpr uint8_t getCoreLanguageCount() {",
         "  return static_cast<uint8_t>(Language::_CORE_COUNT);",
         "}",
-        "",
-        "// Total known languages (core + downloadable).",
-        "constexpr uint8_t getAllLanguageCount() { return LANGUAGE_META_COUNT; }",
-        "",
-        "// Legacy alias kept for compatibility.",
-        "constexpr uint8_t getLanguageCount() { return getCoreLanguageCount(); }",
-        "",
-    ]
-
-    # --- Sorted index for display (all languages, EN first, rest alpha by code) ---
-    en_idx = language_codes.index("EN")
-    rest = sorted(
-        (i for i in range(len(language_codes)) if i != en_idx),
-        key=lambda i: language_codes[i],
-    )
-    sorted_indices = [en_idx] + rest
-    comment_names = ", ".join(language_names[i] for i in sorted_indices)
-    indices_str = ", ".join(str(i) for i in sorted_indices)
-    lines += [
-        "// Display order for ALL_LANGUAGES[] (EN first, then alphabetical by code).",
-        f"// {comment_names}",
-        f"constexpr uint8_t SORTED_ALL_LANGUAGE_INDICES[LANGUAGE_META_COUNT] = {{{indices_str}}};",
         "",
     ]
 
@@ -494,15 +471,14 @@ def generate_strings_cpp(
         "",
     ]
 
-    # ALL_LANGUAGES table (all languages, used by language selector + downloader)
+    # ALL_LANGUAGES table (core only — runtime list built dynamically by LanguageRegistry)
     lines += [
-        "// All known languages — core languages are baked into flash;",
-        "// non-core languages can be downloaded to the SD card.",
+        "// Core (flash-baked) languages only.",
         "const LanguageMeta ALL_LANGUAGES[LANGUAGE_META_COUNT] = {",
     ]
-    for code, name in zip(language_codes, language_names):
-        is_core = "true" if code in CORE_LANGUAGES else "false"
-        lines.append(f'  {{"{code}", "{name}", {is_core}}},')
+    for code in core_codes:
+        idx = language_codes.index(code)
+        lines.append(f'  {{"{code}", "{language_names[idx]}"}},')
     lines += ["};", ""]
 
     # LANGUAGE_NAMES for core languages (indexed by Language enum)
@@ -578,6 +554,30 @@ def generate_strings_cpp(
 
 
 # ---------------------------------------------------------------------------
+# Manifest generator
+# ---------------------------------------------------------------------------
+
+
+def generate_manifest(
+    language_codes: List[str],
+    language_names: List[str],
+    output_path: str,
+) -> None:
+    """Generate manifest.json listing all non-core languages for on-device discovery."""
+    import json
+
+    entries = [
+        {"code": code, "name": name}
+        for code, name in zip(language_codes, language_names)
+        if code not in CORE_LANGUAGES
+    ]
+    with open(output_path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print(f"Generated: {output_path}")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -644,6 +644,11 @@ def main(
             string_keys,
             translations,
             str(out / "I18nStrings.cpp"),
+        )
+        generate_manifest(
+            language_codes,
+            language_names,
+            str(Path(translations_dir) / "manifest.json"),
         )
 
         print()

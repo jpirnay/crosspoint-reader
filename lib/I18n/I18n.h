@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "I18nKeys.h"
@@ -64,6 +65,7 @@ class I18n {
 
   Language _language = Language::EN;
   char _extCode[8] = {};                                           // active external language code, e.g. "FI"
+  char _extName[48] = {};                                          // active external language native name, e.g. "Suomi"
   char* _extBuffer = nullptr;                                      // heap-allocated string data
   const char* _extTable[static_cast<size_t>(StrId::_COUNT)] = {};  // ptrs into _extBuffer
 };

@@ -3,19 +3,24 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <vector>
+
 #include "../Activity.h"
+#include "LanguageRegistry.h"
 #include "components/UITheme.h"
 #include "util/ButtonNavigator.h"
+
 
 class MappedInputManager;
 
 /**
  * Activity for selecting UI language.
  *
- * Shows all known languages (core + non-core).  Selecting a core language
- * activates it immediately.  Selecting a non-core language that is already
- * installed on the SD card activates it immediately.  Selecting a non-core
- * language that is not installed triggers the download flow (TODO).
+ * Shows all languages discovered at runtime via LanguageRegistry:
+ *   - Core (flash-baked): activate immediately.
+ *   - Non-core installed (SD YAML): activate immediately.
+ *   - Non-core available (manifest): launch LanguageDownloadActivity.
+ *   - "More languages..." entry: fetch manifest via LanguageManifestFetchActivity.
  */
 class LanguageSelectActivity final : public Activity {
  public:
@@ -29,11 +34,13 @@ class LanguageSelectActivity final : public Activity {
 
  private:
   void handleSelection();
-  bool isInstalled(uint8_t metaIndex) const;
+  void refreshList();
+  int totalListItems() const;
 
   void onBack() { finish(); }
 
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
-  static constexpr uint8_t totalItems = getAllLanguageCount();
+  std::vector<LanguageEntry> _languages;
+  bool _hasManifest = false;
 };

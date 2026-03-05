@@ -12,8 +12,8 @@
 using namespace i18n_strings;
 
 // Settings file — stores language as a null-terminated code string (e.g. "EN", "FI").
-static constexpr const char* SETTINGS_FILE   = "/.crosspoint/language.cfg";
-static constexpr uint8_t     SETTINGS_VERSION = 2;
+static constexpr const char* SETTINGS_FILE = "/.crosspoint/language.cfg";
+static constexpr uint8_t SETTINGS_VERSION = 2;
 
 // Legacy v1 file (stored uint8_t enum index).
 static constexpr const char* LEGACY_SETTINGS_FILE = "/.crosspoint/language.bin";
@@ -38,13 +38,12 @@ const char* I18n::get(StrId id) const {
   const size_t index = static_cast<size_t>(id);
   if (index >= static_cast<size_t>(StrId::_COUNT)) return "???";
 
-  if (_language == Language::EXTERNAL && _extTable[index]) {
+  if (_language == Language::EXT_LANG && _extTable[index]) {
     return _extTable[index];
   }
 
   // Core language (or EN fallback for EXTERNAL when string is missing).
-  const Language coreLang =
-      (_language == Language::EXTERNAL) ? Language::EN : _language;
+  const Language coreLang = (_language == Language::EXT_LANG) ? Language::EN : _language;
   return getStringArray(coreLang)[index];
 }
 
@@ -71,18 +70,15 @@ bool I18n::setExternalLanguage(const char* code) {
 // ---------------------------------------------------------------------------
 
 const char* I18n::getActiveCode() const {
-  if (_language == Language::EXTERNAL) return _extCode;
+  if (_language == Language::EXT_LANG) return _extCode;
   // Core languages occupy the first _CORE_COUNT entries of ALL_LANGUAGES
   // in the same order as the Language enum, so this is a direct index.
   return ALL_LANGUAGES[static_cast<uint8_t>(_language)].code;
 }
 
 const char* I18n::getActiveName() const {
-  if (_language == Language::EXTERNAL) {
-    for (uint8_t i = 0; i < LANGUAGE_META_COUNT; i++) {
-      if (strcmp(ALL_LANGUAGES[i].code, _extCode) == 0) return ALL_LANGUAGES[i].name;
-    }
-    return _extCode;
+  if (_language == Language::EXT_LANG) {
+    return _extName[0] ? _extName : _extCode;  // name from YAML metadata, or code as fallback
   }
   return getLanguageName(_language);
 }
@@ -94,7 +90,7 @@ const char* I18n::getLanguageName(Language lang) const {
 }
 
 const char* I18n::getCharacterSet() const {
-  if (_language == Language::EXTERNAL) return CHARACTER_SETS[0];  // EN fallback
+  if (_language == Language::EXT_LANG) return CHARACTER_SETS[0];  // EN fallback
   return getCharacterSet(_language);
 }
 
@@ -115,7 +111,8 @@ void I18n::unloadExternalLanguage() {
   }
   memset(_extTable, 0, sizeof(_extTable));
   memset(_extCode, 0, sizeof(_extCode));
-  if (_language == Language::EXTERNAL) _language = Language::EN;
+  memset(_extName, 0, sizeof(_extName));
+  if (_language == Language::EXT_LANG) _language = Language::EN;
 }
 
 // Read one '\n'-terminated line from file into buf (strips \r, null-terminates).
@@ -158,12 +155,25 @@ bool I18n::loadExternalLanguage(const char* code) {
   memset(_extTable, 0, sizeof(_extTable));
 
   size_t bufUsed = 0;
-  int    strCount = 0;
-  char   line[512];
+  int strCount = 0;
+  char line[512];
 
   while (readFileLine(file, line, sizeof(line))) {
-    // Skip blank lines and metadata (_language_name, _language_code, etc.)
-    if (line[0] == '\0' || line[0] == '_') continue;
+    // Skip blank lines; capture _language_name metadata, skip other _ lines.
+    if (line[0] == '\0') continue;
+    if (line[0] == '_') {
+      if (strncmp(line, "_language_name:", 15) == 0) {
+        const char* p = line + 15;
+        while (*p == ' ') p++;
+        if (*p == '"') {
+          p++;
+          size_t n = 0;
+          while (*p && *p != '"' && n < sizeof(_extName) - 1) _extName[n++] = *p++;
+          _extName[n] = '\0';
+        }
+      }
+      continue;
+    }
 
     // Expect:  KEY: "value"
     char* colon = strchr(line, ':');
@@ -182,13 +192,24 @@ bool I18n::loadExternalLanguage(const char* code) {
 
     // Unescape and copy value into _extBuffer
     while (*p && bufUsed < EXT_LANG_BUF_SIZE - 1) {
-      if (*p == '"') { p++; break; }  // closing quote
+      if (*p == '"') {
+        p++;
+        break;
+      }  // closing quote
       if (*p == '\\' && *(p + 1)) {
         const char esc = *(p + 1);
-        if      (esc == 'n')  { buf[bufUsed++] = '\n'; p += 2; }
-        else if (esc == '"')  { buf[bufUsed++] = '"';  p += 2; }
-        else if (esc == '\\') { buf[bufUsed++] = '\\'; p += 2; }
-        else                  { p++; }  // unknown escape: skip
+        if (esc == 'n') {
+          buf[bufUsed++] = '\n';
+          p += 2;
+        } else if (esc == '"') {
+          buf[bufUsed++] = '"';
+          p += 2;
+        } else if (esc == '\\') {
+          buf[bufUsed++] = '\\';
+          p += 2;
+        } else {
+          p++;
+        }  // unknown escape: skip
       } else {
         buf[bufUsed++] = *p++;
       }
@@ -214,10 +235,9 @@ bool I18n::loadExternalLanguage(const char* code) {
 
   strncpy(_extCode, code, sizeof(_extCode) - 1);
   _extCode[sizeof(_extCode) - 1] = '\0';
-  _language = Language::EXTERNAL;
+  _language = Language::EXT_LANG;
 
-  LOG_DBG("I18N", "Loaded external language %s: %d/%d strings",
-          code, strCount, static_cast<int>(StrId::_COUNT));
+  LOG_DBG("I18N", "Loaded external language %s: %d/%d strings", code, strCount, static_cast<int>(StrId::_COUNT));
   return true;
 }
 
@@ -258,25 +278,20 @@ void I18n::loadSettings() {
         codeBuf[sizeof(codeBuf) - 1] = '\0';
         file.close();
 
-        // Find in ALL_LANGUAGES
+        // Check if this is a core language.
         for (uint8_t i = 0; i < LANGUAGE_META_COUNT; i++) {
           if (strcmp(ALL_LANGUAGES[i].code, codeBuf) == 0) {
-            if (ALL_LANGUAGES[i].core) {
-              // Core languages occupy indices 0.._CORE_COUNT-1 in ALL_LANGUAGES
-              // in the same order as the Language enum.
-              _language = static_cast<Language>(i);
-              LOG_DBG("I18N", "Loaded core language: %s", codeBuf);
-              return;
-            } else {
-              // Non-core: load from SD
-              if (!loadExternalLanguage(codeBuf)) {
-                LOG_DBG("I18N", "External language %s not on SD, defaulting to EN", codeBuf);
-              }
-              return;
-            }
+            // Core languages occupy indices 0.._CORE_COUNT-1 in ALL_LANGUAGES
+            // in the same order as the Language enum.
+            _language = static_cast<Language>(i);
+            LOG_DBG("I18N", "Loaded core language: %s", codeBuf);
+            return;
           }
         }
-        LOG_DBG("I18N", "Unknown language code '%s', defaulting to EN", codeBuf);
+        // Not a core language — attempt to load from SD card.
+        if (!loadExternalLanguage(codeBuf)) {
+          LOG_DBG("I18N", "Language %s not on SD, defaulting to EN", codeBuf);
+        }
         return;
       }
       file.close();
