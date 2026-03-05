@@ -512,7 +512,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (strcmp(name, "a") == 0) {
     const char* href = getAttribute(atts, "href");
     const char* epubType = getAttribute(atts, "epub:type");
-    const bool isNoteRef = attrValueHasToken(epubType, "noteref");
+    const char* typeAttr = getAttribute(atts, "type");
+    const char* roleAttr = getAttribute(atts, "role");
+    const bool isNoteRef = attrValueHasToken(epubType, "noteref") || attrValueHasToken(epubType, "doc-noteref") ||
+                           attrValueHasToken(typeAttr, "noteref") || attrValueHasToken(roleAttr, "doc-noteref") ||
+                           attrValueHasToken(classAttr.c_str(), "noteref") ||
+                           attrValueHasToken(classAttr.c_str(), "footnote-ref") ||
+                           attrValueHasToken(classAttr.c_str(), "footnote_ref") ||
+                           attrValueHasToken(classAttr.c_str(), "fnref");
 
     bool isInternalLink = isInternalEpubLink(href);
 
@@ -538,12 +545,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->currentFootnoteLinkText[0] = '\0';
       self->currentFootnoteLinkTextLen = 0;
 
-      // Apply underline style to visually indicate the link
-      self->underlineUntilDepth = std::min(self->underlineUntilDepth, self->depth);
+      // Keep note markers visually quiet; other internal links stay underlined.
+      if (!isNoteRef) {
+        self->underlineUntilDepth = std::min(self->underlineUntilDepth, self->depth);
+      }
       StyleStackEntry entry;
       entry.depth = self->depth;
       entry.hasUnderline = true;
-      entry.underline = true;
+      entry.underline = !isNoteRef;
       self->inlineStyleStack.push_back(entry);
       self->updateEffectiveInlineStyle();
 
