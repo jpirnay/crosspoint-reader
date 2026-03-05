@@ -71,12 +71,16 @@ class ChapterHtmlSlimParser {
 
   // Footnote link tracking
   bool insideFootnoteLink = false;
+  bool currentFootnoteLinkIsNoteRef = false;
   int footnoteLinkDepth = -1;
   char currentFootnoteLinkText[24] = {};
   int currentFootnoteLinkTextLen = 0;
   char currentFootnoteLinkHref[64] = {};
   std::vector<std::pair<int, FootnoteEntry>> pendingFootnotes;  // <wordIndex, entry>
   int wordsExtractedInBlock = 0;
+
+  static bool attrValueHasToken(const char* value, const char* token);
+  static const char* superscriptDigitUtf8(char digit);
 
   void updateEffectiveInlineStyle();
   void startNewTextBlock(const BlockStyle& blockStyle);

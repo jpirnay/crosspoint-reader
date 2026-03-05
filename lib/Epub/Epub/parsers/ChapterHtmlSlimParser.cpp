@@ -67,6 +67,57 @@ bool isInternalEpubLink(const char* href) {
   return true;
 }
 
+bool ChapterHtmlSlimParser::attrValueHasToken(const char* value, const char* token) {
+  if (!value || !token || token[0] == '\0') return false;
+
+  const size_t tokenLen = strlen(token);
+  const char* p = value;
+  while (*p) {
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+      ++p;
+    }
+    if (*p == '\0') break;
+
+    const char* start = p;
+    while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+      ++p;
+    }
+
+    const size_t len = static_cast<size_t>(p - start);
+    if (len == tokenLen && strncmp(start, token, tokenLen) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const char* ChapterHtmlSlimParser::superscriptDigitUtf8(const char digit) {
+  switch (digit) {
+    case '0':
+      return "\xE2\x81\xB0";  // U+2070
+    case '1':
+      return "\xC2\xB9";  // U+00B9
+    case '2':
+      return "\xC2\xB2";  // U+00B2
+    case '3':
+      return "\xC2\xB3";  // U+00B3
+    case '4':
+      return "\xE2\x81\xB4";  // U+2074
+    case '5':
+      return "\xE2\x81\xB5";  // U+2075
+    case '6':
+      return "\xE2\x81\xB6";  // U+2076
+    case '7':
+      return "\xE2\x81\xB7";  // U+2077
+    case '8':
+      return "\xE2\x81\xB8";  // U+2078
+    case '9':
+      return "\xE2\x81\xB9";  // U+2079
+    default:
+      return nullptr;
+  }
+}
+
 bool isHeaderOrBlock(const char* name) {
   return matches(name, HEADER_TAGS, NUM_HEADER_TAGS) || matches(name, BLOCK_TAGS, NUM_BLOCK_TAGS);
 }
@@ -460,6 +511,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // without special handling. Links pointing to them are collected as footnotes.
   if (strcmp(name, "a") == 0) {
     const char* href = getAttribute(atts, "href");
+    const char* epubType = getAttribute(atts, "epub:type");
+    const bool isNoteRef = attrValueHasToken(epubType, "noteref");
 
     bool isInternalLink = isInternalEpubLink(href);
 
@@ -478,6 +531,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         self->nextWordContinues = true;
       }
       self->insideFootnoteLink = true;
+      self->currentFootnoteLinkIsNoteRef = isNoteRef;
       self->footnoteLinkDepth = self->depth;
       strncpy(self->currentFootnoteLinkHref, href, sizeof(self->currentFootnoteLinkHref) - 1);
       self->currentFootnoteLinkHref[sizeof(self->currentFootnoteLinkHref) - 1] = '\0';
@@ -665,6 +719,27 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   }
 
   for (int i = 0; i < len; i++) {
+    // Render EPUB note-reference markers as superscript-like inline digits for consistency.
+    if (self->insideFootnoteLink && self->currentFootnoteLinkIsNoteRef) {
+      const unsigned char c = static_cast<unsigned char>(s[i]);
+      if (isWhitespace(static_cast<char>(c)) || c == '[' || c == ']') {
+        continue;
+      }
+
+      const char* superscript = superscriptDigitUtf8(static_cast<char>(c));
+      if (superscript != nullptr) {
+        const size_t superLen = strlen(superscript);
+        if (self->partWordBufferIndex + static_cast<int>(superLen) > MAX_WORD_SIZE) {
+          self->flushPartWordBuffer();
+        }
+        if (self->partWordBufferIndex + static_cast<int>(superLen) <= MAX_WORD_SIZE) {
+          memcpy(self->partWordBuffer + self->partWordBufferIndex, superscript, superLen);
+          self->partWordBufferIndex += static_cast<int>(superLen);
+        }
+        continue;
+      }
+    }
+
     if (isWhitespace(s[i])) {
       // Currently looking at whitespace, if there's anything in the partWordBuffer, flush it
       if (self->partWordBufferIndex > 0) {
@@ -838,6 +913,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
       self->pendingFootnotes.push_back({wordIndex, entry});
     }
     self->insideFootnoteLink = false;
+    self->currentFootnoteLinkIsNoteRef = false;
   }
 
   // Leaving skip
