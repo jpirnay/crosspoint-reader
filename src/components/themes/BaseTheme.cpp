@@ -496,7 +496,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       totalTextHeight += renderer.getLineHeight(UI_10_FONT_ID) * 3 / 2;
     }
     if (!lastBookSeries.empty()) {
-      totalTextHeight += renderer.getLineHeight(UI_12_FONT_ID);
+      totalTextHeight += renderer.getLineHeight(UI_10_FONT_ID);
     }
 
     // Vertically center the title block within the card
@@ -507,7 +507,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
                                      : renderer.truncatedText(UI_10_FONT_ID, lastBookAuthor.c_str(), bookWidth - 40);
     const auto truncatedSeries = lastBookSeries.empty()
                                      ? std::string{}
-                                     : renderer.truncatedText(UI_12_FONT_ID, lastBookSeries.c_str(), bookWidth - 40);
+                                     : renderer.truncatedText(UI_10_FONT_ID, lastBookSeries.c_str(), bookWidth - 40);
 
     // If cover image was rendered, draw box behind title, author, and series
     if (coverRendered) {
@@ -527,7 +527,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
         }
       }
       if (!truncatedSeries.empty()) {
-        const int seriesWidth = renderer.getTextWidth(UI_12_FONT_ID, truncatedSeries.c_str());
+        const int seriesWidth = renderer.getTextWidth(UI_10_FONT_ID, truncatedSeries.c_str());
         if (seriesWidth > maxTextWidth) {
           maxTextWidth = seriesWidth;
         }
@@ -556,7 +556,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     if (!truncatedSeries.empty()) {
-      renderer.drawCenteredText(UI_12_FONT_ID, titleYStart, truncatedSeries.c_str(), !bookSelected);
+      renderer.drawCenteredText(UI_10_FONT_ID, titleYStart, truncatedSeries.c_str(), !bookSelected);
     }
 
     // "Continue Reading" label at the bottom
