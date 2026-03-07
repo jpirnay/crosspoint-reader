@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "../util/ConfirmationActivity.h"
+#include "BookInfoActivity.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -127,28 +128,39 @@ void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
 }
 
 void FileBrowserActivity::loop() {
-  // Long press BACK (1s+) goes to root folder
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= GO_HOME_MS &&
-      basepath != "/") {
-    basepath = "/";
-    loadFiles();
-    selectorIndex = 0;
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+
+  // Back always navigates to the home screen
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    onGoHome();
     return;
   }
 
-  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  // Confirm navigates up one directory (labelled "Back" when in a subdir)
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && basepath != "/") {
+    const std::string oldPath = basepath;
+    basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
+    if (basepath.empty()) basepath = "/";
+    loadFiles();
+    const auto pos = oldPath.find_last_of('/');
+    const std::string dirName = oldPath.substr(pos + 1) + "/";
+    selectorIndex = findEntry(dirName);
+    requestUpdate();
+    return;
+  }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  // Left opens the selected entry; long press deletes files
+  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
     if (files.empty()) return;
 
     const std::string& entry = files[selectorIndex];
-    bool isDirectory = (entry.back() == '/');
+    const bool isDirectory = (entry.back() == '/');
 
     if (mappedInput.getHeldTime() >= GO_HOME_MS && !isDirectory) {
-      // --- LONG PRESS ACTION: DELETE FILE ---
-      std::string cleanBasePath = basepath;
-      if (cleanBasePath.back() != '/') cleanBasePath += "/";
-      const std::string fullPath = cleanBasePath + entry;
+      // Long press: delete file
+      std::string cleanBase = basepath;
+      if (cleanBase.back() != '/') cleanBase += "/";
+      const std::string fullPath = cleanBase + entry;
 
       auto handler = [this, fullPath](const ActivityResult& res) {
         if (!res.isCancelled) {
@@ -160,10 +172,8 @@ void FileBrowserActivity::loop() {
             if (files.empty()) {
               selectorIndex = 0;
             } else if (selectorIndex >= files.size()) {
-              // Move selection to the new "last" item
               selectorIndex = files.size() - 1;
             }
-
             requestUpdate(true);
           } else {
             LOG_ERR("FileBrowser", "Failed to delete file: %s", fullPath.c_str());
@@ -173,64 +183,56 @@ void FileBrowserActivity::loop() {
         }
       };
 
-      std::string heading = tr(STR_DELETE) + std::string("? ");
-
-      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
+      startActivityForResult(
+          std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("? "), entry),
+          handler);
       return;
-    } else {
-      // --- SHORT PRESS ACTION: OPEN/NAVIGATE ---
-      if (basepath.back() != '/') basepath += "/";
+    }
 
-      if (isDirectory) {
-        basepath += entry.substr(0, entry.length() - 1);
-        loadFiles();
-        selectorIndex = 0;
-        requestUpdate();
-      } else {
-        onSelectBook(basepath + entry);
-      }
+    // Short press: enter directory or open file
+    if (basepath.back() != '/') basepath += "/";
+    if (isDirectory) {
+      basepath += entry.substr(0, entry.length() - 1);
+      loadFiles();
+      selectorIndex = 0;
+      requestUpdate();
+    } else {
+      onSelectBook(basepath + entry);
     }
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    // Short press: go up one directory, or go home if at root
-    if (mappedInput.getHeldTime() < GO_HOME_MS) {
-      if (basepath != "/") {
-        const std::string oldPath = basepath;
-
-        basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
-        if (basepath.empty()) basepath = "/";
-        loadFiles();
-
-        const auto pos = oldPath.find_last_of('/');
-        const std::string dirName = oldPath.substr(pos + 1) + "/";
-        selectorIndex = findEntry(dirName);
-
-        requestUpdate();
-      } else {
-        onGoHome();
-      }
+  // Right opens the info page for epub files
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    if (files.empty()) return;
+    const std::string& entry = files[selectorIndex];
+    if (entry.back() != '/' && (FsHelpers::hasEpubExtension(entry) || FsHelpers::hasXtcExtension(entry))) {
+      std::string cleanBase = basepath;
+      if (cleanBase.back() != '/') cleanBase += "/";
+      startActivityForResult(std::make_unique<BookInfoActivity>(renderer, mappedInput, cleanBase + entry),
+                             [this](const ActivityResult&) { requestUpdate(); });
     }
+    return;
   }
 
-  int listSize = static_cast<int>(files.size());
-  buttonNavigator.onNextRelease([this, listSize] {
+  // Up/Down side buttons navigate the list
+  const int listSize = static_cast<int>(files.size());
+  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this, listSize] {
     selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this, listSize] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this, listSize] {
     selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this, listSize, pageItems] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
     requestUpdate();
   });
@@ -265,10 +267,15 @@ void FileBrowserActivity::render(RenderLock&&) {
         [this](int index) { return UITheme::getFileIcon(files[index]); });
   }
 
-  // Help text
-  const auto labels =
-      mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
-                            files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+  // Side buttons (Up/Down) navigate; show their hints on the side
+  GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+
+  // Front buttons: Back=Home, Confirm=Back(subdir)/empty(root), Left=Open, Right=Info(epub only)
+  const bool hasInfo =
+      !files.empty() && files[selectorIndex].back() != '/' &&
+      (FsHelpers::hasEpubExtension(files[selectorIndex]) || FsHelpers::hasXtcExtension(files[selectorIndex]));
+  const auto labels = mappedInput.mapLabels(tr(STR_HOME), basepath == "/" ? "" : tr(STR_BACK),
+                                            files.empty() ? "" : tr(STR_OPEN), hasInfo ? tr(STR_INFO) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
