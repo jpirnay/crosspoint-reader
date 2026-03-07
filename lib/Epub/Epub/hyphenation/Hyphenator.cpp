@@ -1,6 +1,7 @@
 #include "Hyphenator.h"
 
 #include <algorithm>
+#include <cassert>
 #include <vector>
 
 #include "HyphenationCommon.h"
@@ -85,6 +86,8 @@ void appendSegmentPatternBreaks(const std::vector<CodepointInfo>& cps, const Lan
       }
 
       for (const size_t idx : segIndexes) {
+        assert(idx > 0 && idx < segment.size());
+        if (idx == 0 || idx >= segment.size()) continue;
         const size_t cpIdx = segStart + idx;
         if (cpIdx < cps.size()) {
           outBreaks.push_back({cps[cpIdx].byteOffset, true});
