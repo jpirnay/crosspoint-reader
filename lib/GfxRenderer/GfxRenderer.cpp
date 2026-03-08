@@ -620,7 +620,6 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
                                                             outerBase, pixelState, renderer.getOrientation());
             break;
         }
-        *cursorX += glyph->advanceX;
         return;
       }
 
@@ -664,7 +663,6 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
         if (renderMode == GfxRenderer::BW) {
           renderGlyphFastBW(renderer.getFrameBuffer(), bitmap, width, height, innerBase, outerBase, pixelState,
                             renderer.getOrientation());
-          *cursorX += glyph->advanceX;
           return;
         }
       }
