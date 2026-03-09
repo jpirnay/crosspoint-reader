@@ -92,6 +92,9 @@ class HalFile : public Print {
   HalFile openNextFile();
   bool isOpen() const;
   operator bool() const;
+  // Returns a FAT-encoded timestamp (date<<16 | time) for modification date sorting.
+  // Returns 0 if the timestamp is unavailable.
+  uint32_t getModifyDateTime();
 };
 
 // Only do renaming FsFile to HalFile if this header is included by downstream code

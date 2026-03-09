@@ -5,13 +5,15 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "FileBrowserMenuActivity.h"
 #include "RecentBooksStore.h"
 #include "util/ButtonNavigator.h"
 
 class FileBrowserActivity final : public Activity {
  private:
-  // Deletion
   void clearFileMetadata(const std::string& fullPath);
+  void deleteSelected();
+  void openMenu();
 
   ButtonNavigator buttonNavigator;
 
@@ -20,6 +22,9 @@ class FileBrowserActivity final : public Activity {
   // Files state
   std::string basepath = "/";
   std::vector<std::string> files;
+  std::vector<uint32_t> fileDates;
+
+  FileBrowserSortOrder sortOrder = FileBrowserSortOrder::NAME_ASC;
 
   // Data loading
   void loadFiles();

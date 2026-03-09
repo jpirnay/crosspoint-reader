@@ -7,71 +7,84 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <numeric>
 
 #include "../util/ConfirmationActivity.h"
 #include "BookInfoActivity.h"
+#include "FileBrowserMenuActivity.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
-}  // namespace
 
-void sortFileList(std::vector<std::string>& strs) {
-  std::sort(begin(strs), end(strs), [](const std::string& str1, const std::string& str2) {
-    // Directories first
-    bool isDir1 = str1.back() == '/';
-    bool isDir2 = str2.back() == '/';
-    if (isDir1 != isDir2) return isDir1;
-
-    // Start naive natural sort
-    const char* s1 = str1.c_str();
-    const char* s2 = str2.c_str();
-
-    // Iterate while both strings have characters
-    while (*s1 && *s2) {
-      // Check if both are at the start of a number
-      if (isdigit(*s1) && isdigit(*s2)) {
-        // Skip leading zeros and track them
-        const char* start1 = s1;
-        const char* start2 = s2;
-        while (*s1 == '0') s1++;
-        while (*s2 == '0') s2++;
-
-        // Count digits to compare lengths first
-        int len1 = 0, len2 = 0;
-        while (isdigit(s1[len1])) len1++;
-        while (isdigit(s2[len2])) len2++;
-
-        // Different length so return smaller integer value
-        if (len1 != len2) return len1 < len2;
-
-        // Same length so compare digit by digit
-        for (int i = 0; i < len1; i++) {
-          if (s1[i] != s2[i]) return s1[i] < s2[i];
-        }
-
-        // Numbers equal so advance pointers
-        s1 += len1;
-        s2 += len2;
-      } else {
-        // Regular case-insensitive character comparison
-        char c1 = tolower(*s1);
-        char c2 = tolower(*s2);
-        if (c1 != c2) return c1 < c2;
-        s1++;
-        s2++;
+// Natural case-insensitive comparison for two C strings.
+bool naturalLess(const char* s1, const char* s2) {
+  while (*s1 && *s2) {
+    if (isdigit(*s1) && isdigit(*s2)) {
+      while (*s1 == '0') s1++;
+      while (*s2 == '0') s2++;
+      int len1 = 0, len2 = 0;
+      while (isdigit(s1[len1])) len1++;
+      while (isdigit(s2[len2])) len2++;
+      if (len1 != len2) return len1 < len2;
+      for (int i = 0; i < len1; i++) {
+        if (s1[i] != s2[i]) return s1[i] < s2[i];
       }
+      s1 += len1;
+      s2 += len2;
+    } else {
+      char c1 = tolower(*s1), c2 = tolower(*s2);
+      if (c1 != c2) return c1 < c2;
+      s1++;
+      s2++;
     }
-
-    // One string is prefix of other
-    return *s1 == '\0' && *s2 != '\0';
-  });
+  }
+  return *s1 == '\0' && *s2 != '\0';
 }
+
+// Return the display name for sorting (no extension, no trailing slash).
+std::string sortName(const std::string& entry) {
+  if (entry.back() == '/') return entry.substr(0, entry.length() - 1);
+  const auto dot = entry.rfind('.');
+  return (dot != std::string::npos) ? entry.substr(0, dot) : entry;
+}
+
+// Strip a leading article from a title string for locale-aware title sort.
+// Handles English ("The", "A", "An") and German ("Der", "Die", "Das", "Ein", "Eine").
+std::string_view stripArticle(std::string_view title) {
+  static const char* articles[] = {
+      "the ", "a ",   "an ",                   // English
+      "der ", "die ", "das ", "ein ", "eine "  // German
+  };
+  // Build a lowercase prefix (max 6 chars needed) for matching
+  char lower[7] = {};
+  for (size_t i = 0; i < title.size() && i < 6; ++i) lower[i] = static_cast<char>(tolower(title[i]));
+
+  for (const char* art : articles) {
+    const size_t len = strlen(art);
+    if (title.size() > len && strncmp(lower, art, len) == 0) {
+      return title.substr(len);
+    }
+  }
+  return title;
+}
+
+// Returns the sort key for title-based sorting.
+std::string titleSortKey(const std::string& entry) {
+  const std::string name = sortName(entry);
+  const std::string_view stripped = stripArticle(name);
+  std::string key(stripped);
+  for (char& c : key) c = static_cast<char>(tolower(c));
+  return key;
+}
+
+}  // namespace
 
 void FileBrowserActivity::loadFiles() {
   files.clear();
+  fileDates.clear();
 
   auto root = Storage.open(basepath.c_str());
   if (!root || !root.isDirectory()) {
@@ -91,18 +104,64 @@ void FileBrowserActivity::loadFiles() {
 
     if (file.isDirectory()) {
       files.emplace_back(std::string(name) + "/");
+      fileDates.push_back(0);
     } else {
       std::string_view filename{name};
       if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
           FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
           FsHelpers::hasBmpExtension(filename)) {
         files.emplace_back(filename);
+        fileDates.push_back(file.getModifyDateTime());
       }
     }
     file.close();
   }
   root.close();
-  sortFileList(files);
+
+  // Sort using an index permutation so files and fileDates stay in sync.
+  std::vector<size_t> idx(files.size());
+  std::iota(idx.begin(), idx.end(), 0);
+
+  std::sort(idx.begin(), idx.end(), [this](size_t a, size_t b) {
+    const bool dirA = files[a].back() == '/';
+    const bool dirB = files[b].back() == '/';
+    // Directories always come first, sorted by name.
+    if (dirA != dirB) return dirA;
+    if (dirA && dirB) return naturalLess(files[a].c_str(), files[b].c_str());
+
+    switch (sortOrder) {
+      case FileBrowserSortOrder::NAME_DESC:
+        return naturalLess(files[b].c_str(), files[a].c_str());
+      case FileBrowserSortOrder::TITLE_ASC: {
+        const auto ka = titleSortKey(files[a]);
+        const auto kb = titleSortKey(files[b]);
+        return naturalLess(ka.c_str(), kb.c_str());
+      }
+      case FileBrowserSortOrder::TITLE_DESC: {
+        const auto ka = titleSortKey(files[a]);
+        const auto kb = titleSortKey(files[b]);
+        return naturalLess(kb.c_str(), ka.c_str());
+      }
+      case FileBrowserSortOrder::DATE_NEWEST:
+        return fileDates[a] > fileDates[b];
+      case FileBrowserSortOrder::DATE_OLDEST:
+        return fileDates[a] < fileDates[b];
+      case FileBrowserSortOrder::NAME_ASC:
+      default:
+        return naturalLess(files[a].c_str(), files[b].c_str());
+    }
+  });
+
+  std::vector<std::string> sortedFiles;
+  std::vector<uint32_t> sortedDates;
+  sortedFiles.reserve(files.size());
+  sortedDates.reserve(fileDates.size());
+  for (const size_t i : idx) {
+    sortedFiles.push_back(std::move(files[i]));
+    sortedDates.push_back(fileDates[i]);
+  }
+  files = std::move(sortedFiles);
+  fileDates = std::move(sortedDates);
 }
 
 void FileBrowserActivity::onEnter() {
@@ -174,46 +233,9 @@ void FileBrowserActivity::loop() {
     return;
   }
 
-  // Left short press does nothing; long press deletes selected file after confirmation
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-    if (mappedInput.getHeldTime() < GO_HOME_MS || files.empty()) {
-      return;
-    }
-
-    const std::string& entry = files[selectorIndex];
-    const bool isDirectory = (entry.back() == '/');
-    if (isDirectory) {
-      return;
-    }
-
-    std::string cleanBase = basepath;
-    if (cleanBase.back() != '/') cleanBase += "/";
-    const std::string fullPath = cleanBase + entry;
-
-    auto handler = [this, fullPath](const ActivityResult& res) {
-      if (!res.isCancelled) {
-        LOG_DBG("FileBrowser", "Attempting to delete: %s", fullPath.c_str());
-        clearFileMetadata(fullPath);
-        if (Storage.remove(fullPath.c_str())) {
-          LOG_DBG("FileBrowser", "Deleted successfully");
-          loadFiles();
-          if (files.empty()) {
-            selectorIndex = 0;
-          } else if (selectorIndex >= files.size()) {
-            selectorIndex = files.size() - 1;
-          }
-          requestUpdate(true);
-        } else {
-          LOG_ERR("FileBrowser", "Failed to delete file: %s", fullPath.c_str());
-        }
-      } else {
-        LOG_DBG("FileBrowser", "Delete cancelled by user");
-      }
-    };
-
-    startActivityForResult(
-        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("? "), entry),
-        handler);
+  // Left short press opens the context menu
+  if (mappedInput.wasReleased(MappedInputManager::Button::Left) && mappedInput.getHeldTime() < GO_HOME_MS) {
+    openMenu();
     return;
   }
 
@@ -253,6 +275,84 @@ void FileBrowserActivity::loop() {
   });
 }
 
+void FileBrowserActivity::deleteSelected() {
+  const std::string& entry = files[selectorIndex];
+  const bool isDirectory = (entry.back() == '/');
+
+  std::string cleanBase = basepath;
+  if (cleanBase.back() != '/') cleanBase += "/";
+  const std::string fullPath = cleanBase + (isDirectory ? entry.substr(0, entry.length() - 1) : entry);
+
+  auto handler = [this, fullPath, isDirectory](const ActivityResult& res) {
+    if (!res.isCancelled) {
+      LOG_DBG("FileBrowser", "Attempting to delete: %s", fullPath.c_str());
+      clearFileMetadata(fullPath);
+      const bool ok = isDirectory ? Storage.removeDir(fullPath.c_str()) : Storage.remove(fullPath.c_str());
+      if (ok) {
+        LOG_DBG("FileBrowser", "Deleted successfully");
+        loadFiles();
+        if (files.empty()) {
+          selectorIndex = 0;
+        } else if (selectorIndex >= files.size()) {
+          selectorIndex = files.size() - 1;
+        }
+        requestUpdate(true);
+      } else {
+        LOG_ERR("FileBrowser", "Failed to delete: %s", fullPath.c_str());
+      }
+    }
+  };
+
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("? "),
+                                             isDirectory ? entry.substr(0, entry.length() - 1) : entry),
+      handler);
+}
+
+void FileBrowserActivity::openMenu() {
+  const std::string selectedName =
+      files.empty()
+          ? std::string(tr(STR_SD_CARD))
+          : (files[selectorIndex].back() == '/' ? files[selectorIndex].substr(0, files[selectorIndex].length() - 1)
+                                                : files[selectorIndex]);
+  const bool isDirectory = !files.empty() && files[selectorIndex].back() == '/';
+
+  startActivityForResult(
+      std::make_unique<FileBrowserMenuActivity>(renderer, mappedInput, selectedName, isDirectory, sortOrder),
+      [this](const ActivityResult& res) {
+        if (res.isCancelled) return;
+        const auto action = static_cast<FileBrowserMenuActivity::MenuAction>(std::get<MenuResult>(res.data).action);
+        switch (action) {
+          case FileBrowserMenuActivity::MenuAction::SORT_NAME_ASC:
+            sortOrder = FileBrowserSortOrder::NAME_ASC;
+            break;
+          case FileBrowserMenuActivity::MenuAction::SORT_NAME_DESC:
+            sortOrder = FileBrowserSortOrder::NAME_DESC;
+            break;
+          case FileBrowserMenuActivity::MenuAction::SORT_TITLE_ASC:
+            sortOrder = FileBrowserSortOrder::TITLE_ASC;
+            break;
+          case FileBrowserMenuActivity::MenuAction::SORT_TITLE_DESC:
+            sortOrder = FileBrowserSortOrder::TITLE_DESC;
+            break;
+          case FileBrowserMenuActivity::MenuAction::SORT_DATE_NEWEST:
+            sortOrder = FileBrowserSortOrder::DATE_NEWEST;
+            break;
+          case FileBrowserMenuActivity::MenuAction::SORT_DATE_OLDEST:
+            sortOrder = FileBrowserSortOrder::DATE_OLDEST;
+            break;
+          case FileBrowserMenuActivity::MenuAction::DELETE:
+            if (!files.empty()) deleteSelected();
+            return;
+        }
+        // Re-sort and keep the same entry selected if possible
+        const std::string selectedEntry = files.empty() ? std::string{} : files[selectorIndex];
+        loadFiles();
+        selectorIndex = selectedEntry.empty() ? 0 : findEntry(selectedEntry);
+        requestUpdate(true);
+      });
+}
+
 std::string getFileName(std::string filename) {
   if (filename.back() == '/') {
     return filename.substr(0, filename.length() - 1);
@@ -285,12 +385,13 @@ void FileBrowserActivity::render(RenderLock&&) {
   // Side buttons (Up/Down) navigate; show their hints on the side
   GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
 
-  // Front buttons: Back=Back(subdir)/Home(root), Confirm=Open, Left=hidden long-press delete, Right=Info
+  // Front buttons: Back=Back(subdir)/Home(root), Confirm=Open, Left=Menu, Right=Info
   const bool hasInfo =
       !files.empty() && files[selectorIndex].back() != '/' &&
       (FsHelpers::hasEpubExtension(files[selectorIndex]) || FsHelpers::hasXtcExtension(files[selectorIndex]));
-  const auto labels = mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK),
-                                            files.empty() ? "" : tr(STR_OPEN), "", hasInfo ? tr(STR_INFO) : "");
+  const auto labels =
+      mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
+                            tr(STR_MENU), hasInfo ? tr(STR_INFO) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
