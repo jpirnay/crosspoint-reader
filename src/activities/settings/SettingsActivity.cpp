@@ -221,9 +221,7 @@ void SettingsActivity::render(RenderLock&&) {
   const auto& settings = *currentSettings;
   GUI.drawList(
       renderer,
-      Rect{contentRect.x, contentTop, contentRect.width,
-           contentRect.height -
-               (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 2)},
+      Rect{contentRect.x, contentTop, contentRect.width, contentRect.height - contentTop - metrics.verticalSpacing},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {

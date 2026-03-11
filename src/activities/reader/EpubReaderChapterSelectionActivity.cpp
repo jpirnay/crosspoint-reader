@@ -12,8 +12,8 @@ int EpubReaderChapterSelectionActivity::getTotalItems() const { return epub->get
 int EpubReaderChapterSelectionActivity::getPageItems() const {
   constexpr int lineHeight = 30;
   const Rect contentRect = UITheme::getContentRect(renderer, ContentHints::BOTTOM_HINTS);
-  const int startY = 60 + contentRect.y;
-  const int availableHeight = contentRect.y + contentRect.height - startY - lineHeight;
+  constexpr int startY = 60;
+  const int availableHeight = contentRect.height - startY - lineHeight;
   // Clamp to at least one item to avoid division by zero and empty paging.
   return std::max(1, availableHeight / lineHeight);
 }

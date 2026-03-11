@@ -520,7 +520,7 @@ void WifiSelectionActivity::renderNetworkList() const {
   if (networks.empty()) {
     // No networks found or scan failed
     const auto height = renderer.getLineHeight(UI_10_FONT_ID);
-    const auto top = (contentRect.y + contentRect.height - height) / 2;
+    const auto top = contentRect.y + (contentRect.height - height) / 2;
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_NETWORKS));
     renderer.drawCenteredText(SMALL_FONT_ID, top + height + 10, tr(STR_PRESS_OK_SCAN));
   } else {
