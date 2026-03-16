@@ -54,8 +54,24 @@ bool HalStorage::writeFile(const char* path, const String& content) {
 
 bool HalStorage::ensureDirectoryExists(const char* path) { HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path); }
 
-uint64_t HalStorage::sdTotalBytes() const { HAL_STORAGE_WRAPPED_CALL(totalBytes); }
-uint64_t HalStorage::sdUsedBytes() const { HAL_STORAGE_WRAPPED_CALL(usedBytes); }
+uint64_t HalStorage::sdTotalBytes() const {
+  StorageLock lock;
+  if (!SDCard.ready()) return 0;
+  const auto* vol = FsVolume::cwv();
+  if (!vol) return 0;
+  return (uint64_t)vol->clusterCount() * vol->bytesPerCluster();
+}
+
+uint64_t HalStorage::sdUsedBytes() const {
+  StorageLock lock;
+  if (!SDCard.ready()) return 0;
+  const auto* vol = FsVolume::cwv();
+  if (!vol) return 0;
+  const int32_t freeClusters = vol->freeClusterCount();
+  if (freeClusters < 0) return 0;  // error reading FAT
+  const uint64_t bytesPerCluster = vol->bytesPerCluster();
+  return ((uint64_t)vol->clusterCount() - freeClusters) * bytesPerCluster;
+}
 
 class HalFile::Impl {
  public:
