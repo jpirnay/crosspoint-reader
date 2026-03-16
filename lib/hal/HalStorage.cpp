@@ -81,7 +81,12 @@ uint64_t HalStorage::sdUsedBytes() const {
   return (clusterCount - cappedFreeClusters) * bytesPerCluster;
 }
 
-uint64_t HalStorage::sdFreeBytes() const { return sdTotalBytes() - sdUsedBytes(); }
+uint64_t HalStorage::sdFreeBytes() const {
+  uint64_t total = sdTotalBytes();
+  uint64_t used = sdUsedBytes();
+  if (total <= used) return 0;
+  return total - used;
+}
 
 class HalFile::Impl {
  public:
