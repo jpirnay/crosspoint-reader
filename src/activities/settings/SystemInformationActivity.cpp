@@ -9,13 +9,16 @@
 #include "fontIds.h"
 
 static std::string formatBytes(uint64_t bytes) {
-  if (bytes >= 1024ULL * 1024 * 1024) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f GB", bytes / (1024.0 * 1024 * 1024));
-    return buf;
-  }
   char buf[16];
-  snprintf(buf, sizeof(buf), "%u MB", static_cast<unsigned>(bytes / (1024 * 1024)));
+  if (bytes >= 1024ULL * 1024 * 1024) {
+    snprintf(buf, sizeof(buf), "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+  } else if (bytes >= 1024ULL * 1024) {
+    snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024.0));
+  } else if (bytes >= 1024ULL) {
+    snprintf(buf, sizeof(buf), "%.1f KB", bytes / 1024.0);
+  } else {
+    snprintf(buf, sizeof(buf), "%llu B", static_cast<unsigned long long>(bytes));
+  }
   return buf;
 }
 
