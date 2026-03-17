@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "SettingsList.h"
+#include "SystemStatus.h"
 #include "WebDAVHandler.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -316,16 +317,17 @@ void CrossPointWebServer::handleNotFound() const {
 }
 
 void CrossPointWebServer::handleStatus() const {
-  // Get correct IP based on AP vs STA mode
-  const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
+  const auto status = SystemStatus::collect();
 
   JsonDocument doc;
-  doc["version"] = CROSSPOINT_VERSION;
-  doc["ip"] = ipAddr;
-  doc["mode"] = apMode ? "AP" : "STA";
-  doc["rssi"] = apMode ? 0 : WiFi.RSSI();
-  doc["freeHeap"] = ESP.getFreeHeap();
-  doc["uptime"] = millis() / 1000;
+  doc["version"] = status.version;
+  doc["ip"] = status.ip;
+  doc["mode"] = status.wifiMode;
+  doc["rssi"] = status.rssi;
+  doc["freeHeap"] = status.freeHeapBytes;
+  doc["uptime"] = status.uptimeSeconds;
+  doc["sdTotal"] = status.sdTotalBytes;
+  doc["sdUsed"] = status.sdUsedBytes;
 
   String json;
   serializeJson(doc, json);
