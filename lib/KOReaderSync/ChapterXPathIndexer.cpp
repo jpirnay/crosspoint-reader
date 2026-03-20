@@ -45,7 +45,7 @@ struct ParserState {
   std::vector<std::unordered_map<std::string, int>> siblingCounters;
   std::vector<XPathAnchor> anchors;
 
-  std::string baseXPath() const { return "/body/docfragment[" + std::to_string(spineIndex + 1) + "]/body"; }
+  std::string baseXPath() const { return "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body"; }
 
   // Canonicalize incoming KOReader XPath before matching:
   // - remove all whitespace
