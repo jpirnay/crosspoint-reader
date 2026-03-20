@@ -402,9 +402,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   self->flushPartWordBuffer();
                 }
                 if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
-                  self->makePages();
-                  self->currentTextBlock.reset();
-                  self->wordsExtractedInBlock = 0;
+                  self->startNewTextBlock(BlockStyle());
                 }
 
                 // Create page for image - only break if image won't fit remaining space
