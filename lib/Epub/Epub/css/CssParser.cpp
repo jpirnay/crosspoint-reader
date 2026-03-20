@@ -52,6 +52,29 @@ constexpr size_t MAX_SELECTOR_LENGTH = 256;
 // Check if character is CSS whitespace
 bool isCssWhitespace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; }
 
+std::string_view stripTrailingImportant(std::string_view value) {
+  constexpr std::string_view IMPORTANT = "!important";
+
+  while (!value.empty() && isCssWhitespace(value.back())) {
+    value.remove_suffix(1);
+  }
+
+  if (value.size() < IMPORTANT.size()) {
+    return value;
+  }
+
+  const size_t suffixPos = value.size() - IMPORTANT.size();
+  if (value.substr(suffixPos) != IMPORTANT) {
+    return value;
+  }
+
+  value.remove_suffix(IMPORTANT.size());
+  while (!value.empty() && isCssWhitespace(value.back())) {
+    value.remove_suffix(1);
+  }
+  return value;
+}
+
 }  // anonymous namespace
 
 // String utilities implementation
@@ -318,7 +341,8 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
       style.defined.imageWidth = 1;
     }
   } else if (propNameBuf == "display") {
-    style.display = (propValueBuf == "none") ? CssDisplay::None : CssDisplay::Block;
+    const std::string_view displayValue = stripTrailingImportant(propValueBuf);
+    style.display = (displayValue == "none") ? CssDisplay::None : CssDisplay::Block;
     style.defined.display = 1;
   }
 }
@@ -753,11 +777,39 @@ bool CssParser::loadFromCache() {
     return false;
   }
 
+  if (ruleCount > MAX_RULES) {
+    LOG_DBG("CSS", "Invalid cache rule count (%u > %zu)", ruleCount, MAX_RULES);
+    rulesBySelector_.clear();
+    file.close();
+    return false;
+  }
+
+  auto hasRemainingBytes = [&file](const size_t neededBytes) -> bool {
+    return static_cast<size_t>(file.available()) >= neededBytes;
+  };
+
+  constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
+  constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
+  constexpr size_t CSS_FIXED_STYLE_BYTES =
+      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(uint8_t) + sizeof(uint16_t);
+
   // Read each rule
   for (uint16_t i = 0; i < ruleCount; ++i) {
     // Read selector string
     uint16_t selectorLen = 0;
+    if (!hasRemainingBytes(sizeof(selectorLen))) {
+      rulesBySelector_.clear();
+      file.close();
+      return false;
+    }
     if (file.read(&selectorLen, sizeof(selectorLen)) != sizeof(selectorLen)) {
+      rulesBySelector_.clear();
+      file.close();
+      return false;
+    }
+
+    if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH || !hasRemainingBytes(selectorLen)) {
+      LOG_DBG("CSS", "Invalid selector length in cache: %u", selectorLen);
       rulesBySelector_.clear();
       file.close();
       return false;
@@ -766,6 +818,13 @@ bool CssParser::loadFromCache() {
     std::string selector;
     selector.resize(selectorLen);
     if (file.read(&selector[0], selectorLen) != selectorLen) {
+      rulesBySelector_.clear();
+      file.close();
+      return false;
+    }
+
+    if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES)) {
+      LOG_DBG("CSS", "Truncated CSS cache while reading style payload");
       rulesBySelector_.clear();
       file.close();
       return false;
