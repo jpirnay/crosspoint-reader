@@ -176,7 +176,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
         value = tr(STR_STATE_OFF);
       }
       const auto width = renderer.getTextWidth(UI_10_FONT_ID, value);
-      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - 20 - width, displayY, value, !isSelected);
+      renderer.drawText(UI_10_FONT_ID, contentRect.x + contentRect.width - 20 - width, displayY, value, !isSelected);
     }
 
     if (menuItems[i].action == MenuAction::IMAGE_RENDERING) {
@@ -185,7 +185,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
         value = I18N.get(imageRenderingLabels[pendingImageRenderingOverride]);
       }
       const auto width = renderer.getTextWidth(UI_10_FONT_ID, value);
-      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - 20 - width, displayY, value, !isSelected);
+      renderer.drawText(UI_10_FONT_ID, contentRect.x + contentRect.width - 20 - width, displayY, value, !isSelected);
     }
   }
 
