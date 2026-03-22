@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
@@ -44,7 +45,7 @@ struct SystemStatus {
     s.flashAppUsedBytes = static_cast<uint64_t>(ESP.getSketchSize());
     s.flashAppFreeBytes = static_cast<uint64_t>(ESP.getFreeSketchSpace());
     s.batteryPercent = powerManager.getBatteryPercentage();
-    s.charging = digitalRead(UART0_RXD) == HIGH;
+    s.charging = gpio.isUsbConnected();
     s.uptimeSeconds = millis() / 1000;
     s.macAddress = WiFi.macAddress().c_str();
     s.sdTotalBytes = 0;

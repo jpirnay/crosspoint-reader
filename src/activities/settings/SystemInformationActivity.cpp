@@ -66,10 +66,10 @@ void SystemInformationActivity::render(RenderLock&&) {
   const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
   const int startY = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 3;
 
-  auto drawRow = [&](int row, const char* label, const std::string& value) {
+  auto drawRow = [&](int row, const char* label, const char* value) {
     const int y = startY + row * (lineH + metrics.verticalSpacing);
     renderer.drawText(UI_10_FONT_ID, leftX, y, label, true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, valueX, y, value.c_str());
+    renderer.drawText(UI_10_FONT_ID, valueX, y, value);
   };
 
   if (!status_.has_value()) {
@@ -84,34 +84,41 @@ void SystemInformationActivity::render(RenderLock&&) {
 
   const auto& status = *status_;
 
+  char buf[32];
+
   drawRow(0, tr(STR_FW_VERSION), status.version);
-  drawRow(1, tr(STR_CHIP), status.chipVersion);
-  drawRow(2, tr(STR_CPU), std::to_string(status.cpuFreqMHz) + " " + tr(STR_MHZ));
-  drawRow(3, tr(STR_FREE_RAM), formatBytes(status.freeHeapBytes));
-  drawRow(4, tr(STR_MIN_FREE), formatBytes(status.minFreeHeapBytes));
-  drawRow(5, tr(STR_MAX_BLOCK), formatBytes(status.maxAllocHeapBytes));
-  drawRow(
-      6, tr(STR_FLASH_USED),
-      formatBytes(status.flashAppUsedBytes) + " / " + formatBytes(status.flashAppUsedBytes + status.flashAppFreeBytes));
-  std::string batteryLabel = std::to_string(status.batteryPercent) + "%";
+  drawRow(1, tr(STR_CHIP), status.chipVersion.c_str());
+
+  snprintf(buf, sizeof(buf), "%lu %s", (unsigned long)status.cpuFreqMHz, tr(STR_MHZ));
+  drawRow(2, tr(STR_CPU), buf);
+
+  drawRow(3, tr(STR_FREE_RAM), formatBytes(status.freeHeapBytes).c_str());
+  drawRow(4, tr(STR_MIN_FREE), formatBytes(status.minFreeHeapBytes).c_str());
+  drawRow(5, tr(STR_MAX_BLOCK), formatBytes(status.maxAllocHeapBytes).c_str());
+
+  snprintf(buf, sizeof(buf), "%s / %s", formatBytes(status.flashAppUsedBytes).c_str(),
+           formatBytes(status.flashAppUsedBytes + status.flashAppFreeBytes).c_str());
+  drawRow(6, tr(STR_FLASH_USED), buf);
+
   if (status.charging) {
-    batteryLabel += " (";
-    batteryLabel += tr(STR_CHARGING);
-    batteryLabel += ")";
+    snprintf(buf, sizeof(buf), "%u%% (%s)", status.batteryPercent, tr(STR_CHARGING));
+  } else {
+    snprintf(buf, sizeof(buf), "%u%%", status.batteryPercent);
   }
-  drawRow(7, tr(STR_BATTERY), batteryLabel);
+  drawRow(7, tr(STR_BATTERY), buf);
 
   const uint32_t h = status.uptimeSeconds / 3600;
   const uint32_t m = (status.uptimeSeconds % 3600) / 60;
   const uint32_t s = status.uptimeSeconds % 60;
-  char uptimeBuf[16];
-  snprintf(uptimeBuf, sizeof(uptimeBuf), "%uh %02um %02us", h, m, s);
-  drawRow(8, tr(STR_UPTIME), uptimeBuf);
+  snprintf(buf, sizeof(buf), "%uh %02um %02us", h, m, s);
+  drawRow(8, tr(STR_UPTIME), buf);
 
   if (!sdStatusReady_) {
     drawRow(9, tr(STR_SD_CARD), tr(STR_READING));
   } else if (status.sdTotalBytes > 0) {
-    drawRow(9, tr(STR_SD_CARD), formatBytes(status.sdUsedBytes) + " / " + formatBytes(status.sdTotalBytes));
+    snprintf(buf, sizeof(buf), "%s / %s", formatBytes(status.sdUsedBytes).c_str(),
+             formatBytes(status.sdTotalBytes).c_str());
+    drawRow(9, tr(STR_SD_CARD), buf);
   } else {
     drawRow(9, tr(STR_SD_CARD), tr(STR_NOT_SET));
   }
