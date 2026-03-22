@@ -3,6 +3,7 @@
 #include <Print.h>
 #include <common/FsApiConstants.h>  // for oflag_t
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 
 #include <memory>
 #include <string>
@@ -45,8 +46,11 @@ class HalStorage {
   bool openFileForWrite(const char* moduleName, const String& path, HalFile& file);
   bool removeDir(const char* path);
 
+  // Returns total SD card size in bytes (cached — fast, no SD access).
   uint64_t sdTotalBytes() const;
+  // Returns used space in bytes (total minus free, both cached — fast).
   uint64_t sdUsedBytes() const;
+  // Returns free space in bytes (cached — fast, no SD access).
   uint64_t sdFreeBytes() const;
 
   static HalStorage& getInstance() { return instance; }
@@ -58,6 +62,20 @@ class HalStorage {
 
   bool initialized = false;
   SemaphoreHandle_t storageMutex = nullptr;
+
+  // Free-space cache. sdTotalBytes is populated once in begin() and never changes.
+  // sdFreeMB is a uint32_t written atomically on single-core RISC-V — no mutex needed for reads.
+  uint64_t sdTotalBytesCache = 0;
+  volatile uint32_t sdFreeMB = 0;
+
+  // Background task: blocks until notified, then waits for a 5-second quiet window
+  // (debounce) before walking the FAT to refresh sdFreeMB. This ensures that even a
+  // large batch of uploads or deletes triggers exactly one FAT walk, at the end.
+  static void sdFreeUpdateTask(void* param);
+  TaskHandle_t sdFreeUpdateTaskHandle = nullptr;
+
+  // Wake the background task. Safe to call from any task; no-op if the task was not started.
+  void notifySdFreeUpdate();
 };
 
 #define Storage HalStorage::getInstance()
@@ -66,13 +84,16 @@ class HalFile : public Print {
   friend class HalStorage;
   class Impl;
   std::unique_ptr<Impl> impl;
+  // Set by HalStorage::openFileForWrite; cleared after notifying sdFreeUpdateTask in close().
+  // Prevents read-only file closes from triggering unnecessary FAT walks.
+  bool openedForWrite = false;
   explicit HalFile(std::unique_ptr<Impl> impl);
 
  public:
   HalFile();
   ~HalFile();
-  HalFile(HalFile&&);
-  HalFile& operator=(HalFile&&);
+  HalFile(HalFile&&) noexcept;
+  HalFile& operator=(HalFile&&) noexcept;
   HalFile(const HalFile&) = delete;
   HalFile& operator=(const HalFile&) = delete;
 
