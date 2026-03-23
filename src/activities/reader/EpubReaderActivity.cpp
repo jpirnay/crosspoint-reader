@@ -144,17 +144,7 @@ void EpubReaderActivity::loop() {
     startActivityForResult(
         std::make_unique<KOReaderSyncActivity>(renderer, mappedInput, epub, epub->getPath(), currentSpineIndex,
                                                currentPage, totalPages),
-        [this](const ActivityResult& result) {
-          if (!result.isCancelled) {
-            const auto& sync = std::get<SyncResult>(result.data);
-            if (currentSpineIndex != sync.spineIndex || (section && section->currentPage != sync.page)) {
-              RenderLock lock(*this);
-              currentSpineIndex = sync.spineIndex;
-              nextPageNumber = sync.page;
-              section.reset();
-            }
-          }
-        });
+        [this](const ActivityResult& result) { handleSyncResult(result); });
     return;
   }
 
@@ -411,19 +401,21 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
         startActivityForResult(
             std::make_unique<KOReaderSyncActivity>(renderer, mappedInput, epub, epub->getPath(), currentSpineIndex,
                                                    currentPage, totalPages),
-            [this](const ActivityResult& result) {
-              if (!result.isCancelled) {
-                const auto& sync = std::get<SyncResult>(result.data);
-                if (currentSpineIndex != sync.spineIndex || (section && section->currentPage != sync.page)) {
-                  RenderLock lock(*this);
-                  currentSpineIndex = sync.spineIndex;
-                  nextPageNumber = sync.page;
-                  section.reset();
-                }
-              }
-            });
+            [this](const ActivityResult& result) { handleSyncResult(result); });
       }
       break;
+    }
+  }
+}
+
+void EpubReaderActivity::handleSyncResult(const ActivityResult& result) {
+  if (!result.isCancelled) {
+    const auto& sync = std::get<SyncResult>(result.data);
+    if (currentSpineIndex != sync.spineIndex || (section && section->currentPage != sync.page)) {
+      RenderLock lock(*this);
+      currentSpineIndex = sync.spineIndex;
+      nextPageNumber = sync.page;
+      section.reset();
     }
   }
 }
