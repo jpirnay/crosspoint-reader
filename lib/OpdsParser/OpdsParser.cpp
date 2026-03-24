@@ -152,11 +152,21 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
     const char* href = findAttribute(atts, "href");
 
     if (href) {
-      // Check for acquisition link with epub type (this is a downloadable book)
+      // Check for acquisition link with epub type (this is a downloadable book).
+      // Accept the first matching link, but keep looking: if a later link's href
+      // explicitly points to a plain epub (.epub extension or /epub/ path segment),
+      // prefer that over a derived format (e.g. kepub). Once we have a plain epub
+      // link, stop overwriting.
       if (rel && type && strstr(rel, "opds-spec.org/acquisition") != nullptr &&
           strcmp(type, "application/epub+zip") == 0) {
-        self->currentEntry.type = OpdsEntryType::BOOK;
-        self->currentEntry.href = href;
+        const bool isPlainEpub = strstr(href, ".epub") != nullptr || strstr(href, "/epub/") != nullptr;
+        const bool alreadyHasPlainEpub = self->currentEntry.type == OpdsEntryType::BOOK &&
+                                         (self->currentEntry.href.find(".epub") != std::string::npos ||
+                                          self->currentEntry.href.find("/epub/") != std::string::npos);
+        if (self->currentEntry.type != OpdsEntryType::BOOK || (isPlainEpub && !alreadyHasPlainEpub)) {
+          self->currentEntry.type = OpdsEntryType::BOOK;
+          self->currentEntry.href = href;
+        }
       }
       // Check for navigation link (subsection or no rel specified with atom+xml type)
       else if (type && strstr(type, "application/atom+xml") != nullptr) {
