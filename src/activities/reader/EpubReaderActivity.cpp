@@ -58,8 +58,8 @@ void EpubReaderActivity::onEnter() {
 
   FsFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[8];
-    int dataSize = f.read(data, 8);
+    uint8_t data[9];
+    int dataSize = f.read(data, 9);
     if (dataSize >= 4) {
       currentSpineIndex = data[0] + (data[1] << 8);
       nextPageNumber = data[2] + (data[3] << 8);
@@ -72,9 +72,15 @@ void EpubReaderActivity::onEnter() {
     if (dataSize >= 8) {
       rulerLineIndex = data[6] + (data[7] << 8);
     }
+    if (dataSize >= 9) {
+      readingRulerActive = (data[8] != 0) && (SETTINGS.readingRulerEnabled != 0);
+    }
     f.close();
   }
-  readingRulerActive = (SETTINGS.readingRulerEnabled != 0);
+  // Default for books without saved ruler state: follow global setting
+  if (readingRulerActive == false && rulerLineIndex == 0) {
+    readingRulerActive = (SETTINGS.readingRulerEnabled != 0);
+  }
   rulerLastInteraction = millis();
   // We may want a better condition to detect if we are opening for the first time.
   // This will trigger if the book is re-opened at Chapter 0.
@@ -743,7 +749,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[8];
+    uint8_t data[9];
     data[0] = currentSpineIndex & 0xFF;
     data[1] = (currentSpineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
@@ -752,7 +758,8 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     data[5] = (pageCount >> 8) & 0xFF;
     data[6] = rulerLineIndex & 0xFF;
     data[7] = (rulerLineIndex >> 8) & 0xFF;
-    f.write(data, 8);
+    data[8] = readingRulerActive ? 1 : 0;
+    f.write(data, 9);
     f.close();
     LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d", spineIndex, currentPage);
   } else {
