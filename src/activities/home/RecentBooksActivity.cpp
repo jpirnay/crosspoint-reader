@@ -90,8 +90,18 @@ void RecentBooksActivity::loop() {
     requestUpdate();
   });
 
+  buttonNavigator.onPreviousRelease([this, listSize] {
+    selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
+    requestUpdate();
+  });
+
   buttonNavigator.onNextContinuous([this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
+    requestUpdate();
+  });
+
+  buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
+    selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
     requestUpdate();
   });
 }
