@@ -43,13 +43,23 @@ void NetworkModeSelectionActivity::loop() {
   }
 
   // Handle navigation
-  buttonNavigator.onNext([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEM_COUNT);
+  buttonNavigator.onMenuNext([this](int steps) {
+    selectedIndex = ButtonNavigator::nextIndexBy(selectedIndex, MENU_ITEM_COUNT, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEM_COUNT);
+  buttonNavigator.onMenuPrevious([this](int steps) {
+    selectedIndex = ButtonNavigator::previousIndexBy(selectedIndex, MENU_ITEM_COUNT, steps);
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuFirst([this] {
+    selectedIndex = 0;
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuLast([this] {
+    selectedIndex = MENU_ITEM_COUNT - 1;
     requestUpdate();
   });
 }

@@ -46,13 +46,23 @@ void EpubReaderMenuActivity::onExit() { Activity::onExit(); }
 
 void EpubReaderMenuActivity::loop() {
   // Handle navigation
-  buttonNavigator.onNext([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(menuItems.size()));
+  buttonNavigator.onMenuNext([this](int steps) {
+    selectedIndex = ButtonNavigator::nextIndexBy(selectedIndex, static_cast<int>(menuItems.size()), steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(menuItems.size()));
+  buttonNavigator.onMenuPrevious([this](int steps) {
+    selectedIndex = ButtonNavigator::previousIndexBy(selectedIndex, static_cast<int>(menuItems.size()), steps);
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuFirst([this] {
+    selectedIndex = 0;
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuLast([this] {
+    selectedIndex = menuItems.empty() ? 0 : static_cast<int>(menuItems.size()) - 1;
     requestUpdate();
   });
 

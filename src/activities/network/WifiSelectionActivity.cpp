@@ -436,13 +436,25 @@ void WifiSelectionActivity::loop() {
     }
 
     // Handle navigation
-    buttonNavigator.onNext([this] {
-      selectedNetworkIndex = ButtonNavigator::nextIndex(selectedNetworkIndex, networks.size());
+    buttonNavigator.onMenuNext([this](int steps) {
+      selectedNetworkIndex =
+          ButtonNavigator::nextIndexBy(selectedNetworkIndex, static_cast<int>(networks.size()), steps);
       requestUpdate();
     });
 
-    buttonNavigator.onPrevious([this] {
-      selectedNetworkIndex = ButtonNavigator::previousIndex(selectedNetworkIndex, networks.size());
+    buttonNavigator.onMenuPrevious([this](int steps) {
+      selectedNetworkIndex =
+          ButtonNavigator::previousIndexBy(selectedNetworkIndex, static_cast<int>(networks.size()), steps);
+      requestUpdate();
+    });
+
+    buttonNavigator.onMenuFirst([this] {
+      selectedNetworkIndex = 0;
+      requestUpdate();
+    });
+
+    buttonNavigator.onMenuLast([this] {
+      selectedNetworkIndex = networks.empty() ? 0 : static_cast<int>(networks.size()) - 1;
       requestUpdate();
     });
   }

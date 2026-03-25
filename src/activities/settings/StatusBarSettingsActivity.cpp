@@ -69,23 +69,23 @@ void StatusBarSettingsActivity::loop() {
   }
 
   // Handle navigation
-  buttonNavigator.onNextRelease([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
+  buttonNavigator.onMenuNext([this](int steps) {
+    selectedIndex = ButtonNavigator::nextIndexBy(selectedIndex, MENU_ITEMS, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
+  buttonNavigator.onMenuPrevious([this](int steps) {
+    selectedIndex = ButtonNavigator::previousIndexBy(selectedIndex, MENU_ITEMS, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
+  buttonNavigator.onMenuFirst([this] {
+    selectedIndex = 0;
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
+  buttonNavigator.onMenuLast([this] {
+    selectedIndex = MENU_ITEMS - 1;
     requestUpdate();
   });
 }

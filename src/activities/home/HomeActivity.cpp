@@ -174,13 +174,23 @@ void HomeActivity::freeCoverBuffer() {
 void HomeActivity::loop() {
   const int menuCount = getMenuItemCount();
 
-  buttonNavigator.onNext([this, menuCount] {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
+  buttonNavigator.onMenuNext([this, menuCount](int steps) {
+    selectorIndex = ButtonNavigator::nextIndexBy(selectorIndex, menuCount, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this, menuCount] {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
+  buttonNavigator.onMenuPrevious([this, menuCount](int steps) {
+    selectorIndex = ButtonNavigator::previousIndexBy(selectorIndex, menuCount, steps);
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuFirst([this] {
+    selectorIndex = 0;
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuLast([this, menuCount] {
+    selectorIndex = menuCount > 0 ? menuCount - 1 : 0;
     requestUpdate();
   });
 

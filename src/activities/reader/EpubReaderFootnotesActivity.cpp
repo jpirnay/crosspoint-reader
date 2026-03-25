@@ -34,16 +34,30 @@ void EpubReaderFootnotesActivity::loop() {
     return;
   }
 
-  buttonNavigator.onNext([this] {
+  buttonNavigator.onMenuNext([this](int steps) {
     if (!footnotes.empty()) {
-      selectedIndex = (selectedIndex + 1) % footnotes.size();
+      selectedIndex = ButtonNavigator::nextIndexBy(selectedIndex, static_cast<int>(footnotes.size()), steps);
       requestUpdate();
     }
   });
 
-  buttonNavigator.onPrevious([this] {
+  buttonNavigator.onMenuPrevious([this](int steps) {
     if (!footnotes.empty()) {
-      selectedIndex = (selectedIndex - 1 + footnotes.size()) % footnotes.size();
+      selectedIndex = ButtonNavigator::previousIndexBy(selectedIndex, static_cast<int>(footnotes.size()), steps);
+      requestUpdate();
+    }
+  });
+
+  buttonNavigator.onMenuFirst([this] {
+    if (!footnotes.empty()) {
+      selectedIndex = 0;
+      requestUpdate();
+    }
+  });
+
+  buttonNavigator.onMenuLast([this] {
+    if (!footnotes.empty()) {
+      selectedIndex = static_cast<int>(footnotes.size()) - 1;
       requestUpdate();
     }
   });

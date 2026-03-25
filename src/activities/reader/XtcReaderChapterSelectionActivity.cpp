@@ -69,23 +69,23 @@ void XtcReaderChapterSelectionActivity::loop() {
     finish();
   }
 
-  buttonNavigator.onNextRelease([this, totalItems] {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
+  buttonNavigator.onMenuNext([this, totalItems](int steps) {
+    selectorIndex = ButtonNavigator::nextIndexBy(selectorIndex, totalItems, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this, totalItems] {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
+  buttonNavigator.onMenuPrevious([this, totalItems](int steps) {
+    selectorIndex = ButtonNavigator::previousIndexBy(selectorIndex, totalItems, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this, totalItems, pageItems] {
-    selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, totalItems, pageItems);
+  buttonNavigator.onMenuFirst([this] {
+    selectorIndex = 0;
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, totalItems, pageItems] {
-    selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, totalItems, pageItems);
+  buttonNavigator.onMenuLast([this, totalItems] {
+    selectorIndex = totalItems > 0 ? totalItems - 1 : 0;
     requestUpdate();
   });
 }

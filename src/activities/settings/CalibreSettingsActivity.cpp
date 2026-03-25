@@ -37,13 +37,23 @@ void CalibreSettingsActivity::loop() {
   }
 
   // Handle navigation
-  buttonNavigator.onNext([this] {
-    selectedIndex = (selectedIndex + 1) % MENU_ITEMS;
+  buttonNavigator.onMenuNext([this](int steps) {
+    selectedIndex = ButtonNavigator::nextIndexBy(selectedIndex, MENU_ITEMS, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this] {
-    selectedIndex = (selectedIndex + MENU_ITEMS - 1) % MENU_ITEMS;
+  buttonNavigator.onMenuPrevious([this](int steps) {
+    selectedIndex = ButtonNavigator::previousIndexBy(selectedIndex, MENU_ITEMS, steps);
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuFirst([this] {
+    selectedIndex = 0;
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuLast([this] {
+    selectedIndex = MENU_ITEMS - 1;
     requestUpdate();
   });
 }

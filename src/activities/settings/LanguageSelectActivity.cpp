@@ -37,13 +37,23 @@ void LanguageSelectActivity::loop() {
   }
 
   // Handle navigation
-  buttonNavigator.onNextRelease([this] {
-    selectedIndex = ButtonNavigator::nextIndex(static_cast<int>(selectedIndex), totalItems);
+  buttonNavigator.onMenuNext([this](int steps) {
+    selectedIndex = ButtonNavigator::nextIndexBy(static_cast<int>(selectedIndex), totalItems, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
-    selectedIndex = ButtonNavigator::previousIndex(static_cast<int>(selectedIndex), totalItems);
+  buttonNavigator.onMenuPrevious([this](int steps) {
+    selectedIndex = ButtonNavigator::previousIndexBy(static_cast<int>(selectedIndex), totalItems, steps);
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuFirst([this] {
+    selectedIndex = 0;
+    requestUpdate();
+  });
+
+  buttonNavigator.onMenuLast([this] {
+    selectedIndex = totalItems > 0 ? totalItems - 1 : 0;
     requestUpdate();
   });
 }

@@ -147,7 +147,7 @@ void verifyPowerButtonDuration() {
   const uint16_t calibratedPressDuration =
       (calibration < SETTINGS.getPowerButtonDuration()) ? SETTINGS.getPowerButtonDuration() - calibration : 1;
 
-  gpio.update();
+  mappedInputManager.update();
   // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
   while (!gpio.isPressed(HalGPIO::BTN_POWER) && millis() - start < 1000) {
     delay(10);  // only wait 10ms each iteration to not delay too much in case of short configured duration.
@@ -173,7 +173,7 @@ void verifyPowerButtonDuration() {
 }
 
 void waitForPowerRelease() {
-  gpio.update();
+  mappedInputManager.update();
   while (gpio.isPressed(HalGPIO::BTN_POWER)) {
     delay(50);
     gpio.update();
@@ -342,13 +342,13 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || activityManager.preventAutoSleep()) {
+  if (mappedInputManager.wasAnyPressed() || mappedInputManager.wasAnyReleased() || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
 
   static bool screenshotButtonsReleased = true;
-  if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+  if (mappedInputManager.isPressed(MappedInputManager::Button::Power) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;
       {
@@ -369,7 +369,7 @@ void loop() {
     return;
   }
 
-  if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getHeldTime() > SETTINGS.getPowerButtonDuration()) {
+  if (mappedInputManager.isHeldLongerThan(MappedInputManager::Button::Power, SETTINGS.getPowerButtonDuration())) {
     // If the screenshot combination is potentially being pressed, don't sleep
     if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
       return;

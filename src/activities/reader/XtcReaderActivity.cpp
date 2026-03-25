@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
+#include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
 #include "components/UITheme.h"
@@ -69,13 +70,13 @@ void XtcReaderActivity::loop() {
   }
 
   // Long press BACK (1s+) goes to file selection
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= goHomeMs) {
+  if (mappedInput.isHeldLongerThan(MappedInputManager::Button::Back, goHomeMs)) {
     activityManager.goToFileBrowser(xtc ? xtc->getPath() : "");
     return;
   }
 
   // Short press BACK goes directly to home
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && mappedInput.getHeldTime() < goHomeMs) {
+  if (mappedInput.wasReleasedBefore(MappedInputManager::Button::Back, goHomeMs)) {
     onGoHome();
     return;
   }
@@ -86,8 +87,9 @@ void XtcReaderActivity::loop() {
                                                     mappedInput.wasPressed(MappedInputManager::Button::Left))
                                                  : (mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
                                                     mappedInput.wasReleased(MappedInputManager::Button::Left));
-  const bool powerPageTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                             mappedInput.wasReleased(MappedInputManager::Button::Power);
+  const bool powerPageTurn =
+      SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+      mappedInput.wasReleasedBefore(MappedInputManager::Button::Power, SETTINGS.getPowerButtonDuration());
   const bool nextTriggered = usePressForPageTurn
                                  ? (mappedInput.wasPressed(MappedInputManager::Button::PageForward) || powerPageTurn ||
                                     mappedInput.wasPressed(MappedInputManager::Button::Right))
@@ -105,7 +107,7 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  const bool skipPages = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipPageMs;
+  const bool skipPages = SETTINGS.longPressChapterSkip && ReaderUtils::getPageTurnHeldTime(mappedInput) > skipPageMs;
   const int skipAmount = skipPages ? 10 : 1;
 
   if (prevTriggered) {

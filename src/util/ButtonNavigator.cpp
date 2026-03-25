@@ -29,6 +29,41 @@ void ButtonNavigator::onNextContinuous(const Callback& callback) { onContinuous(
 
 void ButtonNavigator::onPreviousContinuous(const Callback& callback) { onContinuous(getPreviousButtons(), callback); }
 
+void ButtonNavigator::onMenuNext(const StepCallback& callback) {
+  if (!mappedInput) return;
+
+  if (mappedInput->wasReleased(MappedInputManager::Button::Right) ||
+      mappedInput->wasClicked(MappedInputManager::Button::Down)) {
+    callback(1);
+  }
+}
+
+void ButtonNavigator::onMenuPrevious(const StepCallback& callback) {
+  if (!mappedInput) return;
+
+  if (mappedInput->wasReleased(MappedInputManager::Button::Left) ||
+      mappedInput->wasClicked(MappedInputManager::Button::Up)) {
+    callback(1);
+    return;
+  }
+
+  if (mappedInput->wasDoubleClicked(MappedInputManager::Button::Up)) {
+    callback(5);
+  }
+}
+
+void ButtonNavigator::onMenuFirst(const Callback& callback) {
+  if (mappedInput != nullptr && mappedInput->wasLongPressed(MappedInputManager::Button::Up)) {
+    callback();
+  }
+}
+
+void ButtonNavigator::onMenuLast(const Callback& callback) {
+  if (mappedInput != nullptr && mappedInput->wasLongPressed(MappedInputManager::Button::Down)) {
+    callback();
+  }
+}
+
 void ButtonNavigator::onPress(const Buttons& buttons, const Callback& callback) {
   const bool wasPressed = std::any_of(buttons.begin(), buttons.end(), [](const MappedInputManager::Button button) {
     return mappedInput != nullptr && mappedInput->wasPressed(button);
@@ -54,9 +89,10 @@ void ButtonNavigator::onRelease(const Buttons& buttons, const Callback& callback
 }
 
 void ButtonNavigator::onContinuous(const Buttons& buttons, const Callback& callback) {
-  const bool isPressed = std::any_of(buttons.begin(), buttons.end(), [this](const MappedInputManager::Button button) {
-    return mappedInput != nullptr && mappedInput->isPressed(button) && shouldNavigateContinuously();
-  });
+  const bool isPressed =
+      std::any_of(buttons.begin(), buttons.end(), [this, &buttons](const MappedInputManager::Button button) {
+        return mappedInput != nullptr && mappedInput->isPressed(button) && shouldNavigateContinuously(buttons);
+      });
 
   if (isPressed) {
     callback();
@@ -64,10 +100,15 @@ void ButtonNavigator::onContinuous(const Buttons& buttons, const Callback& callb
   }
 }
 
-bool ButtonNavigator::shouldNavigateContinuously() const {
+bool ButtonNavigator::shouldNavigateContinuously(const Buttons& buttons) const {
   if (!mappedInput) return false;
 
-  const bool buttonHeldLongEnough = mappedInput->getHeldTime() > continuousStartMs;
+  const auto heldTime =
+      std::accumulate(buttons.begin(), buttons.end(), 0UL,
+                      [this](const unsigned long maxHeldTime, const MappedInputManager::Button button) {
+                        return std::max(maxHeldTime, mappedInput->getHeldTime(button));
+                      });
+  const bool buttonHeldLongEnough = heldTime > continuousStartMs;
   const bool navigationIntervalElapsed = (millis() - lastContinuousNavTime) > continuousIntervalMs;
 
   return buttonHeldLongEnough && navigationIntervalElapsed;
@@ -85,6 +126,18 @@ int ButtonNavigator::previousIndex(const int currentIndex, const int totalItems)
 
   // Calculate the previous index with wrap-around
   return (currentIndex + totalItems - 1) % totalItems;
+}
+
+int ButtonNavigator::nextIndexBy(const int currentIndex, const int totalItems, const int steps) {
+  if (totalItems <= 0 || steps <= 0) return currentIndex;
+
+  return (currentIndex + steps) % totalItems;
+}
+
+int ButtonNavigator::previousIndexBy(const int currentIndex, const int totalItems, const int steps) {
+  if (totalItems <= 0 || steps <= 0) return currentIndex;
+
+  return (currentIndex + totalItems - (steps % totalItems)) % totalItems;
 }
 
 int ButtonNavigator::nextPageIndex(const int currentIndex, const int totalItems, const int itemsPerPage) {

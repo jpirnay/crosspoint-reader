@@ -129,8 +129,7 @@ void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
 
 void FileBrowserActivity::loop() {
   // Long press BACK (1s+) goes to root folder
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= GO_HOME_MS &&
-      basepath != "/") {
+  if (mappedInput.isHeldLongerThan(MappedInputManager::Button::Back, GO_HOME_MS) && basepath != "/") {
     basepath = "/";
     loadFiles();
     selectorIndex = 0;
@@ -145,7 +144,7 @@ void FileBrowserActivity::loop() {
     const std::string& entry = files[selectorIndex];
     bool isDirectory = (entry.back() == '/');
 
-    if (mappedInput.getHeldTime() >= GO_HOME_MS && !isDirectory) {
+    if (mappedInput.wasReleasedAtLeast(MappedInputManager::Button::Confirm, GO_HOME_MS) && !isDirectory) {
       // --- LONG PRESS ACTION: DELETE FILE ---
       std::string cleanBasePath = basepath;
       if (cleanBasePath.back() != '/') cleanBasePath += "/";
@@ -196,7 +195,7 @@ void FileBrowserActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     // Short press: go up one directory, or go home if at root
-    if (mappedInput.getHeldTime() < GO_HOME_MS) {
+    if (mappedInput.wasReleasedBefore(MappedInputManager::Button::Back, GO_HOME_MS)) {
       if (basepath != "/") {
         const std::string oldPath = basepath;
 
@@ -216,23 +215,23 @@ void FileBrowserActivity::loop() {
   }
 
   int listSize = static_cast<int>(files.size());
-  buttonNavigator.onNextRelease([this, listSize] {
-    selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
+  buttonNavigator.onMenuNext([this, listSize](int steps) {
+    selectorIndex = ButtonNavigator::nextIndexBy(static_cast<int>(selectorIndex), listSize, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this, listSize] {
-    selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
+  buttonNavigator.onMenuPrevious([this, listSize](int steps) {
+    selectorIndex = ButtonNavigator::previousIndexBy(static_cast<int>(selectorIndex), listSize, steps);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this, listSize, pageItems] {
-    selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
+  buttonNavigator.onMenuFirst([this] {
+    selectorIndex = 0;
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
-    selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
+  buttonNavigator.onMenuLast([this, listSize] {
+    selectorIndex = listSize > 0 ? listSize - 1 : 0;
     requestUpdate();
   });
 }

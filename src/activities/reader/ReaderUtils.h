@@ -4,6 +4,8 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
+#include <algorithm>
+
 #include "MappedInputManager.h"
 
 namespace ReaderUtils {
@@ -34,6 +36,19 @@ struct PageTurnResult {
   bool next;
 };
 
+inline unsigned long getPageTurnHeldTime(const MappedInputManager& input) {
+  unsigned long heldTime = std::max({input.getHeldTime(MappedInputManager::Button::PageBack),
+                                     input.getHeldTime(MappedInputManager::Button::PageForward),
+                                     input.getHeldTime(MappedInputManager::Button::Left),
+                                     input.getHeldTime(MappedInputManager::Button::Right)});
+
+  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN) {
+    heldTime = std::max(heldTime, input.getHeldTime(MappedInputManager::Button::Power));
+  }
+
+  return heldTime;
+}
+
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool usePress = !SETTINGS.longPressChapterSkip;
   const bool prev = usePress ? (input.wasPressed(MappedInputManager::Button::PageBack) ||
@@ -41,7 +56,7 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
                              : (input.wasReleased(MappedInputManager::Button::PageBack) ||
                                 input.wasReleased(MappedInputManager::Button::Left));
   const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                         input.wasReleased(MappedInputManager::Button::Power);
+                         input.wasReleasedBefore(MappedInputManager::Button::Power, SETTINGS.getPowerButtonDuration());
   const bool next = usePress ? (input.wasPressed(MappedInputManager::Button::PageForward) || powerTurn ||
                                 input.wasPressed(MappedInputManager::Button::Right))
                              : (input.wasReleased(MappedInputManager::Button::PageForward) || powerTurn ||

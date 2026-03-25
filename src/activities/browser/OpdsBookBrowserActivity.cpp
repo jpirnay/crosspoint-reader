@@ -113,23 +113,23 @@ void OpdsBookBrowserActivity::loop() {
 
     // Handle navigation
     if (!entries.empty()) {
-      buttonNavigator.onNextRelease([this] {
-        selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entries.size());
+      buttonNavigator.onMenuNext([this](int steps) {
+        selectorIndex = ButtonNavigator::nextIndexBy(selectorIndex, static_cast<int>(entries.size()), steps);
         requestUpdate();
       });
 
-      buttonNavigator.onPreviousRelease([this] {
-        selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entries.size());
+      buttonNavigator.onMenuPrevious([this](int steps) {
+        selectorIndex = ButtonNavigator::previousIndexBy(selectorIndex, static_cast<int>(entries.size()), steps);
         requestUpdate();
       });
 
-      buttonNavigator.onNextContinuous([this] {
-        selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
+      buttonNavigator.onMenuFirst([this] {
+        selectorIndex = 0;
         requestUpdate();
       });
 
-      buttonNavigator.onPreviousContinuous([this] {
-        selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
+      buttonNavigator.onMenuLast([this] {
+        selectorIndex = entries.empty() ? 0 : static_cast<int>(entries.size()) - 1;
         requestUpdate();
       });
     }

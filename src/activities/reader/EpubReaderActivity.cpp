@@ -160,14 +160,13 @@ void EpubReaderActivity::loop() {
   }
 
   // Long press BACK (1s+) goes to file selection
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
+  if (mappedInput.isHeldLongerThan(MappedInputManager::Button::Back, ReaderUtils::GO_HOME_MS)) {
     activityManager.goToFileBrowser(epub ? epub->getPath() : "");
     return;
   }
 
   // Short press BACK goes directly to home (or restores position if viewing footnote)
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+  if (mappedInput.wasReleasedBefore(MappedInputManager::Button::Back, ReaderUtils::GO_HOME_MS)) {
     if (footnoteDepth > 0) {
       restoreSavedPosition();
       return;
@@ -189,7 +188,8 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  const bool skipChapter = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipChapterMs;
+  const bool skipChapter =
+      SETTINGS.longPressChapterSkip && ReaderUtils::getPageTurnHeldTime(mappedInput) > skipChapterMs;
 
   if (skipChapter) {
     lastPageTurnTime = millis();
