@@ -199,6 +199,10 @@ class CrossPointSettings {
   uint8_t showHiddenFiles = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  // Reading ruler (0 = off, 1 = on in settings)
+  uint8_t readingRulerEnabled = 0;
+  // Reading ruler auto-progress interval (0=off, 1=3s, 2=5s, 3=8s, 4=10s, 5=15s)
+  uint8_t rulerAutoProgressSeconds = 0;
 
   ~CrossPointSettings() = default;
 
@@ -222,6 +226,10 @@ class CrossPointSettings {
   bool loadFromBinaryFile();
 
  public:
+  unsigned long getRulerAutoProgressMs() const {
+    constexpr unsigned long ms[] = {0, 3000, 5000, 8000, 10000, 15000};
+    return rulerAutoProgressSeconds < sizeof(ms) / sizeof(ms[0]) ? ms[rulerAutoProgressSeconds] : 0;
+  }
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;

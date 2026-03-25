@@ -28,6 +28,21 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
 
+  // Reading ruler
+  bool readingRulerActive = false;
+  int16_t rulerLineIndex = 0;
+  int16_t rulerLineCount = 0;
+  unsigned long rulerLastInteraction = 0;
+  unsigned long rulerLastAutoMove = 0;
+  struct LineGeometry {
+    int16_t y;
+    int16_t height;
+  };
+  std::vector<LineGeometry> currentPageLines;
+  int16_t cachedContentLeft = 0;
+  int16_t cachedContentRight = 0;
+  void moveRuler(int direction);
+
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
   struct SavedPosition {
