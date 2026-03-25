@@ -56,6 +56,9 @@ void EpubReaderActivity::onEnter() {
 
   epub->setupCacheDir();
 
+  // progress.bin layout (little-endian, backward-compatible):
+  //   [0-1] spineIndex   [2-3] page   [4-5] pageCount
+  //   [6-7] rulerLineIndex   [8] rulerActive (0/1)
   FsFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
     uint8_t data[9];
@@ -808,7 +811,6 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   cachedContentRight = orientedMarginRight;
 
   // Draw reading ruler underline
-  LOG_DBG("ERS", "Ruler: active=%d lines=%d index=%d", readingRulerActive, rulerLineCount, rulerLineIndex);
   if (readingRulerActive && !currentPageLines.empty()) {
     if (rulerLineIndex == INT16_MAX) {
       rulerLineIndex = rulerLineCount - 1;
