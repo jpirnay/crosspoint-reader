@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Logging.h>
 #include <Preferences.h>
+#include <WiFi.h>
 #include <esp_private/esp_clk.h>
 #include <esp_sntp.h>
 #include <sys/time.h>
@@ -258,6 +259,19 @@ void formatLogTime(char* buf, size_t bufSize) {
   struct tm timeinfo;
   localtime_r(&t, &timeinfo);
   snprintf(buf, bufSize, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+}
+
+void wifiOff(bool skipNtpSync) {
+  if (!skipNtpSync && isApproximate() && WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
+    syncNtp();
+  }
+  if (esp_sntp_enabled()) {
+    esp_sntp_stop();
+  }
+  WiFi.disconnect(false);
+  delay(100);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
 }
 
 }  // namespace HalClock

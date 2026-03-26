@@ -5,25 +5,12 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
-#include <esp_sntp.h>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-
-namespace {
-void wifiOff() {
-  if (esp_sntp_enabled()) {
-    esp_sntp_stop();
-  }
-  WiFi.disconnect(false);
-  delay(100);
-  WiFi.mode(WIFI_OFF);
-  delay(100);
-}
-}  // namespace
 
 void SyncTimeActivity::onEnter() {
   Activity::onEnter();
@@ -45,7 +32,7 @@ void SyncTimeActivity::onEnter() {
 
 void SyncTimeActivity::onExit() {
   Activity::onExit();
-  wifiOff();
+  HalClock::wifiOff(true);
 }
 
 void SyncTimeActivity::onWifiSelectionComplete(bool success) {
@@ -68,7 +55,7 @@ void SyncTimeActivity::onWifiSelectionCancelled() { finish(); }
 
 void SyncTimeActivity::performSync() {
   bool ok = HalClock::syncNtp();
-  wifiOff();
+  HalClock::wifiOff(true);
 
   state = ok ? SUCCESS : FAILED;
   requestUpdate();

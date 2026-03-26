@@ -6,7 +6,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
-#include <esp_sntp.h>
 
 #include <string>
 
@@ -188,15 +187,6 @@ bool detectTimezoneSetting(uint8_t& outSetting, std::string& outIana, bool& outD
   return true;
 }
 
-void wifiOff() {
-  if (esp_sntp_enabled()) {
-    esp_sntp_stop();
-  }
-  WiFi.disconnect(false);
-  delay(100);
-  WiFi.mode(WIFI_OFF);
-  delay(100);
-}
 }  // namespace
 
 void DetectTimezoneActivity::onEnter() {
@@ -219,7 +209,7 @@ void DetectTimezoneActivity::onEnter() {
 
 void DetectTimezoneActivity::onExit() {
   Activity::onExit();
-  wifiOff();
+  HalClock::wifiOff();
 }
 
 void DetectTimezoneActivity::onWifiSelectionComplete(bool success) {
@@ -254,7 +244,7 @@ void DetectTimezoneActivity::performDetect() {
     state = FAILED;
   }
 
-  wifiOff();
+  HalClock::wifiOff();
   requestUpdate();
 }
 

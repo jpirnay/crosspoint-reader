@@ -5,7 +5,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
-#include <esp_sntp.h>
 
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
@@ -13,18 +12,6 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-
-namespace {
-void wifiOff() {
-  if (esp_sntp_enabled()) {
-    esp_sntp_stop();
-  }
-  WiFi.disconnect(false);
-  delay(100);
-  WiFi.mode(WIFI_OFF);
-  delay(100);
-}
-}  // namespace
 
 void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
@@ -149,7 +136,7 @@ void KOReaderSyncActivity::performUpload() {
   const auto result = KOReaderSyncClient::updateProgress(progress);
 
   if (result != KOReaderSyncClient::OK) {
-    wifiOff();
+    HalClock::wifiOff(true);
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
@@ -159,7 +146,7 @@ void KOReaderSyncActivity::performUpload() {
     return;
   }
 
-  wifiOff();
+  HalClock::wifiOff(true);
   {
     RenderLock lock(*this);
     state = UPLOAD_COMPLETE;
@@ -193,7 +180,7 @@ void KOReaderSyncActivity::onEnter() {
 void KOReaderSyncActivity::onExit() {
   Activity::onExit();
 
-  wifiOff();
+  HalClock::wifiOff(true);
 }
 
 void KOReaderSyncActivity::render(RenderLock&&) {
