@@ -146,6 +146,29 @@ def load_translations(
     if english_file is None:
         raise ValueError("No YAML file with _language_code: EN found")
 
+    duplicate_orders: Dict[str, List[str]] = {}
+    order_to_files: Dict[str, List[str]] = {}
+    for fname, data in parsed.items():
+        order = data.get("_order")
+        if not order:
+            continue
+        order_to_files.setdefault(order, []).append(fname)
+
+    for order, files in order_to_files.items():
+        if len(files) > 1:
+            duplicate_orders[order] = sorted(files)
+
+    if duplicate_orders:
+        duplicate_messages = [
+            f"_order {order}: {', '.join(files)}"
+            for order, files in sorted(
+                duplicate_orders.items(), key=lambda item: int(item[0])
+            )
+        ]
+        raise ValueError(
+            "Duplicate _order values found:\n  " + "\n  ".join(duplicate_messages) + "\nEach _order value must be unique to ensure a deterministic language order."
+        )
+
     # Order: English first, then by _order metadata (falls back to filename)
     def sort_key(fname: str) -> Tuple[int, int, str]:
         """English always first (0), then by _order, then by filename."""
