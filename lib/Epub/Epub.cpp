@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <HalStorage.h>
+#include <I18n.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
 #include <PngToBmpConverter.h>
@@ -776,7 +777,7 @@ BookMetadataCache::TocEntry Epub::getTocItem(const int tocIndex) const {
     }
 
     const auto spine = bookMetadataCache->getSpineEntry(tocIndex);
-    return BookMetadataCache::TocEntry("Section " + std::to_string(tocIndex + 1), spine.href, "", 1,
+    return BookMetadataCache::TocEntry(tr(STR_SECTION_PREFIX) + std::to_string(tocIndex + 1), spine.href, "", 1,
                                        static_cast<int16_t>(tocIndex));
   }
 
