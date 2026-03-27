@@ -29,6 +29,8 @@ class Epub {
   std::unique_ptr<CssParser> cssParser;
   // CSS files
   std::vector<std::string> cssFiles;
+  // -1 unknown, 0 unreliable, 1 reliable
+  mutable int tocReliabilityState = -1;
 
   bool findContentOpfFile(std::string* contentOpfFile) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata);
@@ -66,6 +68,7 @@ class Epub {
   int getTocItemsCount() const;
   int getSpineIndexForTocIndex(int tocIndex) const;
   int getTocIndexForSpineIndex(int spineIndex) const;
+  bool hasReliableToc() const;
   size_t getCumulativeSpineItemSize(int spineIndex) const;
   int getSpineIndexForTextReference() const;
 
