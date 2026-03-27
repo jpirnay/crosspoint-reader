@@ -37,6 +37,7 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   }
 
   auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
+  epub->setSyntheticTocFallbackEnabled(SETTINGS.syntheticTocFallback != 0);
   if (epub->load(true, SETTINGS.embeddedStyle == 0)) {
     return epub;
   }
