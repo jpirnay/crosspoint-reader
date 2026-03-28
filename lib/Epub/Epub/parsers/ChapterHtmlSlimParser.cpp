@@ -22,7 +22,7 @@ constexpr int NUM_HEADER_TAGS = sizeof(HEADER_TAGS) / sizeof(HEADER_TAGS[0]);
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
 
-const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
+const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "pre"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
 
 const char* BOLD_TAGS[] = {"b", "strong"};
@@ -639,6 +639,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
       if (strcmp(name, "li") == 0) {
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
+      } else if (strcmp(name, "pre") == 0) {
+        // Record depth so characterData can treat \n as a hard line break inside <pre>.
+        // depth has not been incremented yet here; it will be after startElement returns.
+        self->preUntilDepth = std::min(self->preUntilDepth, self->depth);
       }
     }
   } else if (matches(name, UNDERLINE_TAGS, NUM_UNDERLINE_TAGS)) {
@@ -766,6 +770,21 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
   for (int i = 0; i < len; i++) {
     if (isWhitespace(s[i])) {
+      // Inside <pre>: treat \n as a hard line break.
+      if (s[i] == '\n' && self->preUntilDepth < self->depth) {
+        if (self->partWordBufferIndex > 0) {
+          self->flushPartWordBuffer();
+        }
+        // Blank line: the current block is empty, but we still need to emit a visible
+        // empty line.  Add a single space so the block is non-empty and makePages()
+        // will produce a line of the correct height instead of reusing the empty block.
+        if (self->currentTextBlock->isEmpty()) {
+          self->currentTextBlock->addWord(" ", EpdFontFamily::REGULAR);
+        }
+        self->startNewTextBlock(self->currentTextBlock->getBlockStyle());
+        self->nextWordContinues = false;
+        continue;
+      }
       // Currently looking at whitespace, if there's anything in the partWordBuffer, flush it
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
@@ -1000,6 +1019,11 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->underlineUntilDepth = INT_MAX;
   }
 
+  // Leaving pre tag
+  if (self->preUntilDepth == self->depth) {
+    self->preUntilDepth = INT_MAX;
+  }
+
   // Pop from inline style stack if we pushed an entry at this depth
   // This handles all inline elements: b, i, u, span, etc.
   if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().depth == self->depth) {
@@ -1223,8 +1247,11 @@ void ChapterHtmlSlimParser::makePages() {
     currentPageNextY += blockStyle.paddingBottom;
   }
 
-  // Extra paragraph spacing if enabled (default behavior)
-  if (extraParagraphSpacing) {
+  // Extra paragraph spacing if enabled (default behavior).
+  // Suppressed between lines within a <pre> block so code/preformatted text is not
+  // double-spaced; the last line of the block is flushed after </pre> is closed and
+  // preUntilDepth has already been reset, so it still receives normal paragraph spacing.
+  if (extraParagraphSpacing && preUntilDepth == INT_MAX) {
     currentPageNextY += lineHeight / 2;
   }
 }
