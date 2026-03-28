@@ -45,7 +45,8 @@ size_t countVisibleBytes(const XML_Char* text, const int len) {
 }
 
 // Canonicalize a KOReader XPath for comparison:
-// - remove whitespace, lowercase, strip /text() with optional char offset.
+// - remove whitespace, lowercase, strip /text() with optional char offset,
+//   strip trailing .N text-child-index suffix on the last segment (e.g. br.0 → br).
 std::string normalizeXPath(const std::string& input) {
   if (input.empty()) {
     return "";
@@ -68,6 +69,25 @@ std::string normalizeXPath(const std::string& input) {
     const size_t afterText = textPos + textTag.size();
     if (afterText == out.size() || out[afterText] == '.') {
       out.erase(textPos);
+    }
+  }
+
+  // Strip trailing .N text-child-index suffix on the last path segment
+  // (KOReader notation, e.g. /div/br.0 → /div/br).
+  const size_t lastSlash = out.rfind('/');
+  if (lastSlash != std::string::npos) {
+    const size_t dotPos = out.find('.', lastSlash + 1);
+    if (dotPos != std::string::npos && dotPos + 1 < out.size()) {
+      bool allDigits = true;
+      for (size_t i = dotPos + 1; i < out.size(); i++) {
+        if (!std::isdigit(static_cast<unsigned char>(out[i]))) {
+          allDigits = false;
+          break;
+        }
+      }
+      if (allDigits) {
+        out.erase(dotPos);
+      }
     }
   }
 
@@ -450,7 +470,16 @@ void XMLCALL revStart(void* ud, const XML_Char* name, const XML_Char**) {
   static_cast<ReverseState*>(ud)->pushElement(name);
 }
 
-void XMLCALL revEnd(void* ud, const XML_Char*) { static_cast<ReverseState*>(ud)->popElement(); }
+void XMLCALL revEnd(void* ud, const XML_Char*) {
+  auto* state = static_cast<ReverseState*>(ud);
+  // Textless elements (e.g. <br/>) never trigger onChar, so check for a match
+  // before popping.  The byte offset recorded is the text seen so far, which
+  // is the correct position ("just before this element").
+  if (!state->stack.empty() && !state->stack.back().hasText) {
+    state->checkMatch();
+  }
+  state->popElement();
+}
 
 void XMLCALL revChar(void* ud, const XML_Char* text, const int len) {
   static_cast<ReverseState*>(ud)->onChar(text, len);
