@@ -230,6 +230,14 @@ class CrossPointSettings {
   // so time can be accurately restored on wake. Increases sleep current by ~3-4 mA.
   uint8_t useClock = 0;
 
+  // Scheduled wakeup settings
+  uint8_t scheduledWakeEnabled = 0;
+  uint8_t scheduledWakeHour = 3;     // 0-23, default 3 AM
+  uint8_t scheduledWakeMinute = 0;   // 0-59
+  uint8_t scheduledWakeTaskNtp = 1;  // NTP sync task enabled by default
+  uint8_t scheduledWakeTaskImg = 0;  // Download sleep image task
+  char scheduledWakeImageUrl[128] = "";
+
   ~CrossPointSettings() = default;
 
   // Get singleton instance
