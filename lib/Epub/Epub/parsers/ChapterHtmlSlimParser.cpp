@@ -137,7 +137,8 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       // div's margin should be preserved, even though it has no direct text content.
 
       BlockStyle incoming = blockStyle;
-      if (currentTextBlock->getBlockStyle().fromBrElement) {
+      const bool brGapPending = currentTextBlock->getBlockStyle().fromBrElement;
+      if (brGapPending) {
         // The empty block was created by a <br> section separator. Inject a full line of
         // blank space before the following paragraph so the scene/section break is visible.
         // This only fires when the <br> block stayed empty (i.e. no inline text was added).
@@ -145,7 +146,11 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
         incoming.marginTop = static_cast<int16_t>(incoming.marginTop + lineHeight);
       }
 
-      currentTextBlock->setBlockStyle(currentTextBlock->getBlockStyle().getCombinedBlockStyle(incoming));
+      BlockStyle merged = currentTextBlock->getBlockStyle().getCombinedBlockStyle(incoming);
+      // Preserve only whether the current empty block still represents <br> separators.
+      // This lets consecutive <br> accumulate one line each without leaking the flag to real content blocks.
+      merged.fromBrElement = blockStyle.fromBrElement;
+      currentTextBlock->setBlockStyle(merged);
 
       if (!pendingAnchorId.empty()) {
         if (std::find(tocAnchors.begin(), tocAnchors.end(), pendingAnchorId) != tocAnchors.end()) {
@@ -657,7 +662,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       // the block remains empty (i.e. <br> is a section separator between paragraphs).
       // If the block gets text added before the next block opens it becomes non-empty,
       // goes through makePages() normally, and the flag has no effect (inline <br> case).
-      BlockStyle brStyle = self->currentTextBlock->getBlockStyle();
+      // Build a neutral <br> style that keeps inline alignment/indent context but avoids
+      // carrying cumulative margins from previous empty blocks (which can force spurious page breaks).
+      const BlockStyle& currentStyle = self->currentTextBlock->getBlockStyle();
+      BlockStyle brStyle;
+      brStyle.alignment = currentStyle.alignment;
+      brStyle.textAlignDefined = currentStyle.textAlignDefined;
+      brStyle.textIndent = currentStyle.textIndent;
+      brStyle.textIndentDefined = currentStyle.textIndentDefined;
       brStyle.fromBrElement = true;
       self->startNewTextBlock(brStyle);
     } else {
