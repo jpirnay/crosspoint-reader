@@ -158,7 +158,6 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       // Merge with existing block style to accumulate CSS styling from parent block elements.
       // This handles cases like <div style="margin-bottom:2em"><h1>text</h1></div> where the
       // div's margin should be preserved, even though it has no direct text content.
-
       BlockStyle incoming = blockStyle;
       const bool brGapPending = currentTextBlock->getBlockStyle().fromBrElement;
       if (brGapPending) {
@@ -664,6 +663,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
   const auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(
       cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), self->viewportWidth);
+
+  // Block/header boundaries must flush any buffered trailing word first.
+  // Otherwise tags like ..."item?"<p ...> can carry the final word into the next paragraph.
+  if (self->partWordBufferIndex > 0 && ((matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) ||
+                                        (matches(name, BLOCK_TAGS, NUM_BLOCK_TAGS) && strcmp(name, "br") != 0))) {
+    self->flushPartWordBuffer();
+  }
 
   if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
     self->currentCssStyle = cssStyle;
