@@ -130,6 +130,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
 
   auto metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  const int pageWidth = (int)renderer.getScreenWidth();
+  const int pageHeight = (int)renderer.getScreenHeight();
 
   GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
                  tr(STR_CUSTOMISE_STATUS_BAR));
