@@ -2,11 +2,11 @@
 
 #include <ArduinoJson.h>
 #include <Logging.h>
-#include <algorithm>
-#include <cctype>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
 
+#include <algorithm>
+#include <cctype>
 #include <ctime>
 
 #include "KOReaderCredentialStore.h"
@@ -134,8 +134,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::registerUser() {
   lastHttpCode = httpCode;
   esp_http_client_cleanup(client);
 
-  LOG_DBG("KOSync", "Register response: %d (err: %d) | body: %s", httpCode, err,
-          buf.data ? buf.data : "");
+  LOG_DBG("KOSync", "Register response: %d (err: %d) | body: %s", httpCode, err, buf.data ? buf.data : "");
 
   if (err != ESP_OK) {
     return NETWORK_ERROR;
