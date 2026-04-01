@@ -364,10 +364,11 @@ BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) c
       FsFile f;
       if (Storage.openFileForRead("SLP", epub.getCachePath() + "/progress.bin", f)) {
         uint8_t data[6];
-        if (f.read(data, 6) == 6) {
+        const int dataSize = f.read(data, 6);
+        if (dataSize == 4 || dataSize == 6) {
           int currentSpineIndex = data[0] + (data[1] << 8);
           int currentPage = data[2] + (data[3] << 8);
-          int pageCount = data[4] + (data[5] << 8);
+          int pageCount = (dataSize == 6) ? (data[4] + (data[5] << 8)) : 0;
           if (pageCount > 0) {
             float chapterProgress = static_cast<float>(currentPage) / static_cast<float>(pageCount);
             float bookProgress = epub.calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
@@ -387,6 +388,10 @@ BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) c
                        (unsigned)pageCount, bookProgress);
               info.progressText = buf;
             }
+          } else {
+            char buf[64];
+            snprintf(buf, sizeof(buf), tr(STR_OVERLAY_READING_PROGRESS_NO_TOTAL), (unsigned long)currentPage + 1);
+            info.progressText = buf;
           }
         }
         f.close();
@@ -402,6 +407,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   float cropX = 0, cropY = 0;
+  const bool topAlignForCoverFit = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER ||
+                                    SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM) &&
+                                   SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::FIT;
 
   LOG_DBG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
@@ -418,7 +426,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
         ratio = (1.0f - cropX) * static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
       }
       x = 0;
-      y = 0;
+      y = topAlignForCoverFit
+              ? 0
+              : std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
       LOG_DBG("SLP", "Centering with ratio %f to y=%d", ratio, y);
     } else {
       // image taller than viewport ratio, scaled down image needs to be centered horizontally
@@ -434,7 +444,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
   } else {
     // center the image
     x = (pageWidth - bitmap.getWidth()) / 2;
-    y = 0;
+    y = topAlignForCoverFit ? 0 : (pageHeight - bitmap.getHeight()) / 2;
   }
 
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
@@ -483,16 +493,16 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
       textBlockHeight += lineHeight10;
     }
 
-    const bool textBlack = (overlayMode != 2);
+    const bool textBlack = (overlayMode != 3);
     const int topPadding = lineHeight12 / 3;
     const int bottomPadding = lineHeight10 * 2 / 3;
     const int overlayHeight = textBlockHeight + topPadding + bottomPadding;
     const int overlayY = pageHeight - overlayHeight;
 
-    if (overlayMode == 1) {
+    if (overlayMode == 2) {
       renderer.fillRectDither(0, overlayY, pageWidth, overlayHeight, Color::LightGray);
     } else {
-      renderer.fillRect(0, overlayY, pageWidth, overlayHeight, overlayMode == 2);
+      renderer.fillRect(0, overlayY, pageWidth, overlayHeight, overlayMode == 3);
     }
 
     int currentY = overlayY + topPadding;
@@ -627,7 +637,7 @@ void SleepActivity::renderCoverSleepScreen() const {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
       const uint8_t overlayMode = SETTINGS.sleepCoverOverlay;
       const BookOverlayInfo coverOverlayInfo =
-          overlayMode < 3 ? getBookOverlayInfo(APP_STATE.openEpubPath) : BookOverlayInfo{};
+          overlayMode != 0 ? getBookOverlayInfo(APP_STATE.openEpubPath) : BookOverlayInfo{};
       renderBitmapSleepScreen(bitmap, coverOverlayInfo);
       file.close();
       return;
