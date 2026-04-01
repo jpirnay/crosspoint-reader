@@ -1,8 +1,5 @@
 #include "ChapterXPathReverseMapper.h"
 
-#include "ChapterXPathIndexerInternal.h"
-#include "ChapterXPathIndexerState.h"
-
 #include <HalStorage.h>
 #include <Logging.h>
 #include <expat.h>
@@ -10,6 +7,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string>
+
+#include "ChapterXPathIndexerInternal.h"
+#include "ChapterXPathIndexerState.h"
 
 namespace ChapterXPathIndexerInternal {
 
@@ -225,8 +225,8 @@ bool findProgressForXPathInternal(const std::shared_ptr<Epub>& epub, const int s
     outIntraSpineProgress = std::max(0.0f, std::min(1.0f, outIntraSpineProgress));
   }
 
-  LOG_DBG("KOX", "Reverse: spine=%d %s match offset=%zu/%zu -> progress=%.3f for '%s'", spineIndex,
-          state.bestTierName, state.bestOffset, state.totalTextBytes, outIntraSpineProgress, xpath.c_str());
+  LOG_DBG("KOX", "Reverse: spine=%d %s match offset=%zu/%zu -> progress=%.3f for '%s'", spineIndex, state.bestTierName,
+          state.bestOffset, state.totalTextBytes, outIntraSpineProgress, xpath.c_str());
   return true;
 }
 

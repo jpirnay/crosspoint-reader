@@ -1,15 +1,15 @@
 #include "ChapterXPathForwardMapper.h"
 
-#include "ChapterXPathIndexerInternal.h"
-#include "ChapterXPathIndexerState.h"
-
 #include <HalStorage.h>
 #include <Logging.h>
 #include <expat.h>
 
 #include <algorithm>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
+
+#include "ChapterXPathIndexerInternal.h"
+#include "ChapterXPathIndexerState.h"
 
 namespace ChapterXPathIndexerInternal {
 

@@ -1,15 +1,15 @@
 #include "ChapterXPathIndexer.h"
 
-#include "ChapterXPathForwardMapper.h"
-#include "ChapterXPathIndexerInternal.h"
-#include "ChapterXPathReverseMapper.h"
-
 #include <Logging.h>
 
 #include <cctype>
 #include <cstdlib>
 #include <limits>
 #include <string>
+
+#include "ChapterXPathForwardMapper.h"
+#include "ChapterXPathIndexerInternal.h"
+#include "ChapterXPathReverseMapper.h"
 
 using namespace ChapterXPathIndexerInternal;
 

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "ChapterXPathIndexerInternal.h"
-
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "ChapterXPathIndexerInternal.h"
 
 namespace ChapterXPathIndexerInternal {
 
