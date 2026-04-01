@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <ObfuscationUtils.h>
 
+#include <cctype>
 #include <cstring>
 #include <string>
 
@@ -272,7 +273,33 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
   }
 
   store.lastConnectedSsid = doc["lastConnectedSsid"] | std::string("");
+
+  const auto isValidDashedMac = [](const std::string& value) -> bool {
+    if (value.empty()) {
+      return true;
+    }
+    if (value.size() != 17) {
+      return false;
+    }
+    for (size_t i = 0; i < value.size(); i++) {
+      if (i == 2 || i == 5 || i == 8 || i == 11 || i == 14) {
+        if (value[i] != '-') {
+          return false;
+        }
+      } else if (!std::isxdigit(static_cast<unsigned char>(value[i]))) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   store.lastKnownMacAddress = doc["lastKnownMacAddress"] | std::string("");
+  if (!isValidDashedMac(store.lastKnownMacAddress)) {
+    store.lastKnownMacAddress.clear();
+    if (needsResave) {
+      *needsResave = true;
+    }
+  }
 
   store.credentials.clear();
   JsonArray arr = doc["credentials"].as<JsonArray>();

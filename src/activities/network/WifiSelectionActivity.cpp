@@ -4,6 +4,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_mac.h>
 
 #include <map>
 
@@ -15,21 +16,26 @@
 
 namespace {
 
-bool isLikelyValidMac(const uint8_t mac[6]) {
-  bool allZero = true;
-  bool allFF = true;
-  for (int i = 0; i < 6; i++) {
-    allZero = allZero && (mac[i] == 0x00);
-    allFF = allFF && (mac[i] == 0xFF);
-  }
-  return !allZero && !allFF;
-}
+void readDeviceBaseMac(uint8_t mac[6]) { esp_efuse_mac_get_default(mac); }
 
 std::string formatMacLabel(const uint8_t mac[6]) {
   char macStr[64];
   snprintf(macStr, sizeof(macStr), "%s %02x-%02x-%02x-%02x-%02x-%02x", tr(STR_MAC_ADDRESS), mac[0], mac[1], mac[2],
            mac[3], mac[4], mac[5]);
   return std::string(macStr);
+}
+
+std::string formatMacDashed(const uint8_t mac[6]) {
+  char persistedMac[18];
+  snprintf(persistedMac, sizeof(persistedMac), "%02x-%02x-%02x-%02x-%02x-%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+           mac[5]);
+  return std::string(persistedMac);
+}
+
+String formatMacCompact(const uint8_t mac[6]) {
+  char compactMac[13];
+  snprintf(compactMac, sizeof(compactMac), "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return String(compactMac);
 }
 
 }  // namespace
@@ -44,12 +50,10 @@ void WifiSelectionActivity::onEnter() {
     WIFI_STORE.loadFromFile();
   }
 
-  // Show persisted MAC immediately so UI doesn't briefly display a bogus value.
-  if (!WIFI_STORE.getLastKnownMacAddress().empty()) {
-    cachedMacAddress = std::string(tr(STR_MAC_ADDRESS)) + " " + WIFI_STORE.getLastKnownMacAddress();
-  } else {
-    cachedMacAddress = std::string(tr(STR_MAC_ADDRESS)) + " --";
-  }
+  // Use base MAC from eFuse (stable per-device, independent of WiFi init timing).
+  uint8_t mac[6];
+  readDeviceBaseMac(mac);
+  cachedMacAddress = formatMacLabel(mac);
 
   // Reset state
   selectedNetworkIndex = 0;
@@ -64,18 +68,10 @@ void WifiSelectionActivity::onEnter() {
   forgetPromptSelection = 0;
   autoConnecting = false;
 
-  // Refresh displayed MAC from live hardware value when valid.
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  if (isLikelyValidMac(mac)) {
-    cachedMacAddress = formatMacLabel(mac);
-    char persistedMac[18];
-    snprintf(persistedMac, sizeof(persistedMac), "%02x-%02x-%02x-%02x-%02x-%02x", mac[0], mac[1], mac[2], mac[3],
-             mac[4], mac[5]);
-    if (WIFI_STORE.getLastKnownMacAddress() != persistedMac) {
-      RenderLock lock(*this);
-      WIFI_STORE.setLastKnownMacAddress(persistedMac);
-    }
+  const std::string persistedMac = formatMacDashed(mac);
+  if (WIFI_STORE.getLastKnownMacAddress() != persistedMac) {
+    RenderLock lock(*this);
+    WIFI_STORE.setLastKnownMacAddress(persistedMac);
   }
 
   // Trigger first update to show scanning message
@@ -253,10 +249,10 @@ void WifiSelectionActivity::attemptConnection() {
 
   WiFi.mode(WIFI_STA);
 
-  // Set hostname so routers show "CrossPoint-Reader-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
-  String mac = WiFi.macAddress();
-  mac.replace(":", "");
-  String hostname = "CrossPoint-Reader-" + mac;
+  // Use stable base MAC so hostname suffix is deterministic across WiFi states.
+  uint8_t baseMac[6];
+  readDeviceBaseMac(baseMac);
+  String hostname = "CrossPoint-Reader-" + formatMacCompact(baseMac);
   WiFi.setHostname(hostname.c_str());
 
   if (selectedRequiresPassword && !enteredPassword.empty()) {
