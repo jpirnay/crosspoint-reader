@@ -30,6 +30,37 @@ int HomeActivity::getMenuItemCount() const {
   return count;
 }
 
+bool HomeActivity::isGridLayout() const { return GUI.usesGridHomeLayout(); }
+
+int HomeActivity::getGridItemCount() const { return GUI.getGridHomeItemCount(!recentBooks.empty(), hasOpdsUrl); }
+
+void HomeActivity::handleGridConfirm() {
+  // Grid navigation order: Cover(0), Browse(1), OPDS(2 if present), Recents, Transfer, Settings
+  int idx = 0;
+  const int coverIdx = idx++;
+  const int browseIdx = idx++;
+  const int opdsIdx = hasOpdsUrl ? idx++ : -1;
+  const int recentsIdx = idx++;
+  const int transferIdx = idx++;
+  const int settingsIdx = idx;
+
+  if (selectorIndex == coverIdx) {
+    if (!recentBooks.empty()) {
+      onSelectBook(recentBooks[0].path);
+    }
+  } else if (selectorIndex == browseIdx) {
+    onFileBrowserOpen();
+  } else if (selectorIndex == opdsIdx) {
+    onOpdsBrowserOpen();
+  } else if (selectorIndex == recentsIdx) {
+    onRecentsOpen();
+  } else if (selectorIndex == transferIdx) {
+    onFileTransferOpen();
+  } else if (selectorIndex == settingsIdx) {
+    onSettingsOpen();
+  }
+}
+
 void HomeActivity::loadRecentBooks(int maxBooks) {
   recentBooks.clear();
   const auto& books = RECENT_BOOKS.getBooks();
@@ -116,7 +147,9 @@ void HomeActivity::onEnter() {
   selectorIndex = 0;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  loadRecentBooks(metrics.homeRecentBooksCount);
+  // Grid layout shows a recent books list, so load more
+  int maxBooks = isGridLayout() ? 5 : metrics.homeRecentBooksCount;
+  loadRecentBooks(maxBooks);
 
   // Trigger first update
   requestUpdate();
@@ -172,19 +205,24 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
-  const int menuCount = getMenuItemCount();
+  const int itemCount = isGridLayout() ? getGridItemCount() : getMenuItemCount();
 
-  buttonNavigator.onNext([this, menuCount] {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
+  buttonNavigator.onNext([this, itemCount] {
+    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, itemCount);
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this, menuCount] {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
+  buttonNavigator.onPrevious([this, itemCount] {
+    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, itemCount);
     requestUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (isGridLayout()) {
+      handleGridConfirm();
+      return;
+    }
+
     // Calculate dynamic indices based on which options are available
     int idx = 0;
     int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
@@ -220,29 +258,38 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
-  GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                          recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
+  if (isGridLayout()) {
+    // Grid theme: single call draws the full content area
+    const int contentY = metrics.homeTopPadding;
+    const int contentH = pageHeight - contentY - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    GUI.drawGridHome(renderer, Rect{0, contentY, pageWidth, contentH}, recentBooks, selectorIndex, hasOpdsUrl,
+                     coverRendered, coverBufferStored, bufferRestored,
+                     std::bind(&HomeActivity::storeCoverBuffer, this));
+  } else {
+    GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
+                            recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
+                            std::bind(&HomeActivity::storeCoverBuffer, this));
 
-  // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
+    // Build menu items dynamically
+    std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
+                                          tr(STR_SETTINGS_TITLE)};
+    std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
 
-  if (hasOpdsUrl) {
-    // Insert OPDS Browser after File Browser
-    menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Library);
+    if (hasOpdsUrl) {
+      // Insert OPDS Browser after File Browser
+      menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
+      menuIcons.insert(menuIcons.begin() + 2, Library);
+    }
+
+    GUI.drawButtonMenu(
+        renderer,
+        Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
+             pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
+                           metrics.buttonHintsHeight)},
+        static_cast<int>(menuItems.size()), selectorIndex - recentBooks.size(),
+        [&menuItems](int index) { return std::string(menuItems[index]); },
+        [&menuIcons](int index) { return menuIcons[index]; });
   }
-
-  GUI.drawButtonMenu(
-      renderer,
-      Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
-                         metrics.buttonHintsHeight)},
-      static_cast<int>(menuItems.size()), selectorIndex - recentBooks.size(),
-      [&menuItems](int index) { return std::string(menuItems[index]); },
-      [&menuIcons](int index) { return menuIcons[index]; });
 
   const auto labels = mappedInput.mapLabels("", tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

@@ -28,6 +28,9 @@ class HomeActivity final : public Activity {
   void onOpdsBrowserOpen();
 
   int getMenuItemCount() const;
+  bool isGridLayout() const;
+  int getGridItemCount() const;
+  void handleGridConfirm();
   bool storeCoverBuffer();    // Store frame buffer for cover image
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer

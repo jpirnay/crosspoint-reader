@@ -142,4 +142,14 @@ class BaseTheme {
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth) const;
   virtual void drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const char* label, const bool isSelected) const;
   virtual bool showsFileIcons() const { return false; }
+
+  // Grid home layout support
+  // Themes that return true take full control of the home content area (cover + menu combined).
+  virtual bool usesGridHomeLayout() const { return false; }
+  // Returns number of selectable items in the grid home layout.
+  virtual int getGridHomeItemCount(bool hasRecentBook, bool hasOpdsUrl) const { return 0; }
+  // Draws the full grid home layout. selectorIndex is 0-based across all grid items.
+  virtual void drawGridHome(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
+                            int selectorIndex, bool hasOpdsUrl, bool& coverRendered, bool& coverBufferStored,
+                            bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {}
 };
