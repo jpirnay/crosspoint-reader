@@ -43,6 +43,8 @@ class WeatherActivity final : public Activity {
   void launchWifiSelection();
   void onWifiSelectionComplete(bool connected);
   void fetchWeather();
+  void openSettingsActivity();
+  void triggerRefresh(bool showPopup);
 
   // Render sub-sections (landscape 800x480)
   void renderCurrentConditions(int x, int y, int w, int h);

@@ -125,21 +125,13 @@ void WeatherSettingsActivity::launchCitySearch() {
                                  [this, query = kb.text](const ActivityResult& wifiResult) {
                                    if (wifiResult.isCancelled) return;
                                    searchResults = WeatherClient::searchCity(query);
-                                   if (searchResults.empty()) {
-                                     requestUpdate();
-                                     return;
-                                   }
-                                   showingSearchResults = true;
+                                   showingSearchResults = !searchResults.empty();
                                    selectedIndex = 0;
                                    requestUpdate();
                                  });
         } else {
           searchResults = WeatherClient::searchCity(kb.text);
-          if (searchResults.empty()) {
-            requestUpdate();
-            return;
-          }
-          showingSearchResults = true;
+          showingSearchResults = !searchResults.empty();
           selectedIndex = 0;
           requestUpdate();
         }
@@ -153,10 +145,14 @@ void WeatherSettingsActivity::launchLatitudeEntry() {
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
           const auto& kb = std::get<KeyboardResult>(result.data);
-          float lat = strtof(kb.text.c_str(), nullptr);
-          if (lat >= -90.0f && lat <= 90.0f) {
-            WEATHER_SETTINGS.setLocation(lat, WEATHER_SETTINGS.getLongitude(), WEATHER_SETTINGS.getLocationName());
+          char* end = nullptr;
+          const float lat = strtof(kb.text.c_str(), &end);
+          if (end != kb.text.c_str() && *end == '\0' && lat >= -90.0f && lat <= 90.0f) {
+            if (lat != WEATHER_SETTINGS.getLatitude()) {
+              WEATHER_SETTINGS.setLocation(lat, WEATHER_SETTINGS.getLongitude(), "");
+            }
             WEATHER_SETTINGS.saveToFile();
+            requestUpdate();
           }
         }
       });
@@ -169,10 +165,14 @@ void WeatherSettingsActivity::launchLongitudeEntry() {
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
           const auto& kb = std::get<KeyboardResult>(result.data);
-          float lon = strtof(kb.text.c_str(), nullptr);
-          if (lon >= -180.0f && lon <= 180.0f) {
-            WEATHER_SETTINGS.setLocation(WEATHER_SETTINGS.getLatitude(), lon, WEATHER_SETTINGS.getLocationName());
+          char* end = nullptr;
+          const float lon = strtof(kb.text.c_str(), &end);
+          if (end != kb.text.c_str() && *end == '\0' && lon >= -180.0f && lon <= 180.0f) {
+            if (lon != WEATHER_SETTINGS.getLongitude()) {
+              WEATHER_SETTINGS.setLocation(WEATHER_SETTINGS.getLatitude(), lon, "");
+            }
             WEATHER_SETTINGS.saveToFile();
+            requestUpdate();
           }
         }
       });

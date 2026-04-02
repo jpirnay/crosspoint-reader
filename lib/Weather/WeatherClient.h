@@ -17,6 +17,7 @@ class WeatherClient {
  private:
   static WeatherData fetchFromApi(const WeatherSettingsStore& settings);
   static bool parseWeatherJson(const std::string& json, WeatherData& data);
+  static std::string buildRequestSignature(const WeatherSettingsStore& settings);
   static bool saveCache(const WeatherData& data);
   static bool loadCache(WeatherData& data);
 

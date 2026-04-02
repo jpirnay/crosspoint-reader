@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <cstdio>
 #include <ctime>
 
 #include "../../src/network/HttpDownloader.h"
@@ -12,9 +13,7 @@ namespace {
 constexpr char WEATHER_CACHE_FILE[] = "/.crosspoint/weather_cache.json";
 
 std::string buildForecastUrl(const WeatherSettingsStore& settings) {
-  // Open-Meteo supports plain HTTP. Using HTTP here avoids TLS handshake
-  // instability observed on some ESP32-C3 builds.
-  std::string url = "http://api.open-meteo.com/v1/forecast?";
+  std::string url = "https://api.open-meteo.com/v1/forecast?";
   url += "latitude=" + std::to_string(settings.getLatitude());
   url += "&longitude=" + std::to_string(settings.getLongitude());
   url +=
@@ -33,7 +32,32 @@ std::string buildForecastUrl(const WeatherSettingsStore& settings) {
   url += "&forecast_hours=48";
   return url;
 }
+
+std::string buildRequestSignature(const WeatherSettingsStore& settings) {
+  char latitude[24];
+  char longitude[24];
+  snprintf(latitude, sizeof(latitude), "%.6f", settings.getLatitude());
+  snprintf(longitude, sizeof(longitude), "%.6f", settings.getLongitude());
+
+  std::string signature = "lat=";
+  signature += latitude;
+  signature += "|lon=";
+  signature += longitude;
+  signature += "|temp=";
+  signature += settings.getTempUnitParam();
+  signature += "|wind=";
+  signature += settings.getWindUnitParam();
+  signature += "|precip=";
+  signature += settings.getPrecipUnitParam();
+  signature += "|days=";
+  signature += std::to_string(settings.getForecastDays());
+  return signature;
+}
 }  // namespace
+
+std::string WeatherClient::buildRequestSignature(const WeatherSettingsStore& settings) {
+  return ::buildRequestSignature(settings);
+}
 
 WeatherData WeatherClient::getWeather(const WeatherSettingsStore& settings, bool forceRefresh) {
   if (!settings.hasLocation()) {
@@ -42,19 +66,26 @@ WeatherData WeatherClient::getWeather(const WeatherSettingsStore& settings, bool
     return data;
   }
 
+  const std::string requestSignature = buildRequestSignature(settings);
+
   if (!forceRefresh) {
     WeatherData cached;
     if (loadCache(cached) && cached.valid) {
-      time_t now;
-      time(&now);
-      if (now - cached.fetchedAt < CACHE_TTL_SECONDS) {
-        LOG_DBG("WEA", "Using cached weather data (age: %ld s)", (long)(now - cached.fetchedAt));
+      if (cached.requestSignature != requestSignature) {
+        LOG_DBG("WEA", "Ignoring cache with mismatched request signature");
+        Storage.remove(WEATHER_CACHE_FILE);
+      } else {
+        time_t now;
+        time(&now);
+        if (now - cached.fetchedAt < CACHE_TTL_SECONDS) {
+          LOG_DBG("WEA", "Using cached weather data (age: %ld s)", (long)(now - cached.fetchedAt));
+          return cached;
+        }
+        LOG_DBG("WEA", "Cache expired (age: %ld s)", (long)(now - cached.fetchedAt));
+        // Cache-first behavior: return stale cache and let the caller decide
+        // whether/when to perform a network refresh.
         return cached;
       }
-      LOG_DBG("WEA", "Cache expired (age: %ld s)", (long)(now - cached.fetchedAt));
-      // Cache-first behavior: return stale cache and let the caller decide
-      // whether/when to perform a network refresh.
-      return cached;
     }
 
     LOG_DBG("WEA", "No cache available; caller should establish network and force refresh");
@@ -68,6 +99,7 @@ WeatherData WeatherClient::getWeather(const WeatherSettingsStore& settings, bool
 
 WeatherData WeatherClient::fetchFromApi(const WeatherSettingsStore& settings) {
   WeatherData data;
+  data.requestSignature = buildRequestSignature(settings);
   std::string url = buildForecastUrl(settings);
   LOG_DBG("WEA", "fetchFromApi[1] start");
   LOG_DBG("WEA", "fetchFromApi[2] url length=%zu", url.size());
@@ -188,6 +220,7 @@ bool WeatherClient::saveCache(const WeatherData& data) {
   Storage.mkdir("/.crosspoint");
 
   JsonDocument doc;
+  doc["requestSignature"] = data.requestSignature;
   doc["fetchedAt"] = data.fetchedAt;
   doc["timezone"] = data.timezone;
   doc["utcOffsetSeconds"] = data.utcOffsetSeconds;
@@ -253,6 +286,7 @@ bool WeatherClient::loadCache(WeatherData& data) {
   }
 
   data.fetchedAt = doc["fetchedAt"] | (time_t)0;
+  data.requestSignature = doc["requestSignature"] | std::string("");
   data.timezone = doc["timezone"] | std::string("");
   data.utcOffsetSeconds = doc["utcOffsetSeconds"] | 0;
 

@@ -30,7 +30,7 @@ class WeatherSettingsActivity final : public Activity {
   std::vector<GeocodingResult> searchResults;
   bool showingSearchResults = false;
 
-  static constexpr int MENU_ITEMS = 6;  // Location, Lat, Lon, TempUnit, WindUnit, PrecipUnit
+  static constexpr size_t MENU_ITEMS = 6;  // Location, Lat, Lon, TempUnit, WindUnit, PrecipUnit
 
   void handleSelection();
   void launchCitySearch();

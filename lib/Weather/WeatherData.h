@@ -40,6 +40,7 @@ struct WeatherData {
   CurrentWeather current;
   std::vector<DailyForecast> daily;
   std::vector<HourlyForecast> hourly;
+  std::string requestSignature;
   std::string timezone;
   int utcOffsetSeconds = 0;
   time_t fetchedAt = 0;

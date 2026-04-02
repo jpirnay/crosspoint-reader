@@ -16,6 +16,7 @@ bool WeatherSettingsStore::saveToFile() const {
   JsonDocument doc;
   doc["latitude"] = latitude;
   doc["longitude"] = longitude;
+  doc["locationConfigured"] = locationConfigured;
   doc["locationName"] = locationName;
   doc["tempUnit"] = static_cast<uint8_t>(tempUnit);
   doc["windUnit"] = static_cast<uint8_t>(windUnit);
@@ -47,6 +48,7 @@ bool WeatherSettingsStore::loadFromFile() {
 
   latitude = doc["latitude"] | 0.0f;
   longitude = doc["longitude"] | 0.0f;
+  locationConfigured = doc["locationConfigured"] | (latitude != 0.0f || longitude != 0.0f);
   locationName = doc["locationName"] | std::string("");
   tempUnit = static_cast<WeatherTempUnit>(doc["tempUnit"] | (uint8_t)0);
   windUnit = static_cast<WeatherWindUnit>(doc["windUnit"] | (uint8_t)0);
@@ -63,8 +65,16 @@ bool WeatherSettingsStore::loadFromFile() {
 void WeatherSettingsStore::setLocation(float lat, float lon, const std::string& name) {
   latitude = lat;
   longitude = lon;
+  locationConfigured = true;
   locationName = name;
   LOG_DBG("WEA", "Set location: %s (%.4f, %.4f)", name.c_str(), lat, lon);
+}
+
+void WeatherSettingsStore::clearLocation() {
+  latitude = 0;
+  longitude = 0;
+  locationConfigured = false;
+  locationName.clear();
 }
 
 void WeatherSettingsStore::setForecastDays(uint8_t days) {

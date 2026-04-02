@@ -60,9 +60,10 @@ inline WeatherIconType getWeatherIconType(int wmoCode, bool isDay) {
     case 80:
     case 81:
     case 82:
+      return WeatherIconType::SHOWERS;
     case 85:
     case 86:
-      return WeatherIconType::SHOWERS;
+      return WeatherIconType::SNOW;
     case 95:
     case 96:
     case 99:
@@ -71,9 +72,6 @@ inline WeatherIconType getWeatherIconType(int wmoCode, bool isDay) {
       return WeatherIconType::UNKNOWN;
   }
 }
-
-// Get human-readable description for WMO weather code
-const char* getWeatherDescription(int wmoCode);
 
 // Get the appropriate large icon bitmap (64x64, 1-bit, MSB first)
 const uint8_t* getWeatherIconLarge(WeatherIconType type);

@@ -232,6 +232,27 @@ void WeatherActivity::fetchWeather() {
   requestUpdate();
 }
 
+void WeatherActivity::openSettingsActivity() {
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  startActivityForResult(std::make_unique<WeatherSettingsActivity>(renderer, mappedInput),
+                         [this](const ActivityResult&) {
+                           renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
+                           forceRefresh = true;
+                           loadAndDisplay();
+                         });
+}
+
+void WeatherActivity::triggerRefresh(const bool showPopup) {
+  showRefreshPopup = showPopup;
+  if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
+    state = State::FETCHING;
+    requestUpdate(true);
+    fetchWeather();
+  } else {
+    launchWifiSelection();
+  }
+}
+
 void WeatherActivity::loop() {
   if (state == State::WIFI_SELECTION) {
     return;  // Handled by WifiSelectionActivity
@@ -239,24 +260,10 @@ void WeatherActivity::loop() {
 
   if (state == State::ERROR) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      // Open weather settings (useful when no location is configured)
-      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-      startActivityForResult(std::make_unique<WeatherSettingsActivity>(renderer, mappedInput),
-                             [this](const ActivityResult&) {
-                               renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
-                               forceRefresh = true;
-                               loadAndDisplay();
-                             });
+      openSettingsActivity();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
                mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-      // Retry fetch
-      if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        state = State::FETCHING;
-        requestUpdate(true);
-        fetchWeather();
-      } else {
-        launchWifiSelection();
-      }
+      triggerRefresh(false);
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       onGoHome();
     }
@@ -299,27 +306,10 @@ void WeatherActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     onGoHome();
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    // Open weather settings
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-    startActivityForResult(std::make_unique<WeatherSettingsActivity>(renderer, mappedInput),
-                           [this](const ActivityResult&) {
-                             // Re-apply landscape after returning from settings
-                             renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
-                             // Refresh after settings change
-                             forceRefresh = true;
-                             loadAndDisplay();
-                           });
+    openSettingsActivity();
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
              mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-    // Manual refresh with popup feedback.
-    showRefreshPopup = true;
-    if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-      state = State::FETCHING;
-      requestUpdate(true);
-      fetchWeather();
-    } else {
-      launchWifiSelection();
-    }
+    triggerRefresh(true);
   }
 }
 
@@ -387,9 +377,9 @@ void WeatherActivity::render(RenderLock&&) {
 
   if (state == State::FETCHING && showRefreshPopup) {
     GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  } else {
+    renderer.displayBuffer();
   }
-
-  renderer.displayBuffer();
 }
 
 void WeatherActivity::renderCurrentConditions(int x, int y, int w, int h) {
@@ -490,6 +480,11 @@ void WeatherActivity::renderDailyForecast(int x, int y, int w, int h) {
   const StrId dayNameIds[] = {StrId::STR_WEATHER_DAY_SUN, StrId::STR_WEATHER_DAY_MON, StrId::STR_WEATHER_DAY_TUE,
                               StrId::STR_WEATHER_DAY_WED, StrId::STR_WEATHER_DAY_THU, StrId::STR_WEATHER_DAY_FRI,
                               StrId::STR_WEATHER_DAY_SAT};
+  const StrId monthNameIds[] = {
+      StrId::STR_WEATHER_MONTH_JAN, StrId::STR_WEATHER_MONTH_FEB, StrId::STR_WEATHER_MONTH_MAR,
+      StrId::STR_WEATHER_MONTH_APR, StrId::STR_WEATHER_MONTH_MAY, StrId::STR_WEATHER_MONTH_JUN,
+      StrId::STR_WEATHER_MONTH_JUL, StrId::STR_WEATHER_MONTH_AUG, StrId::STR_WEATHER_MONTH_SEP,
+      StrId::STR_WEATHER_MONTH_OCT, StrId::STR_WEATHER_MONTH_NOV, StrId::STR_WEATHER_MONTH_DEC};
 
   const char* unitSuffix = WEATHER_SETTINGS.getTempUnit() == WeatherTempUnit::CELSIUS ? "C" : "F";
   int numDays = static_cast<int>(weatherData.daily.size());
@@ -527,8 +522,8 @@ void WeatherActivity::renderDailyForecast(int x, int y, int w, int h) {
 
     // Date (e.g. "Apr 3") - for all days
     char dateBuf[16];
-    const char* monthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    snprintf(dateBuf, sizeof(dateBuf), "%s %d", monthNames[timeinfo.tm_mon], timeinfo.tm_mday);
+    const char* monthName = I18N.get(monthNameIds[timeinfo.tm_mon]);
+    snprintf(dateBuf, sizeof(dateBuf), "%s %d", monthName, timeinfo.tm_mday);
     int dateWidth = renderer.getTextWidth(SMALL_FONT_ID, dateBuf);
     renderer.drawText(SMALL_FONT_ID, cardX + (cardWidth - dateWidth) / 2, textY, dateBuf);
     textY += 18;
@@ -638,7 +633,6 @@ void WeatherActivity::renderHourlyGraph(int x, int y, int w, int h) {
     float mid = (tempMax + tempMin) / 2.0f;
     tempMin = mid - 2.5f;
     tempMax = mid + 2.5f;
-    tempRange = 5.0f;
   }
   tempMin -= 1.0f;
   tempMax += 1.0f;

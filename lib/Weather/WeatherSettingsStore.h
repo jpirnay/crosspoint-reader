@@ -12,6 +12,7 @@ class WeatherSettingsStore {
 
   float latitude = 0;
   float longitude = 0;
+  bool locationConfigured = false;
   std::string locationName;
   WeatherTempUnit tempUnit = WeatherTempUnit::CELSIUS;
   WeatherWindUnit windUnit = WeatherWindUnit::KMH;
@@ -31,10 +32,11 @@ class WeatherSettingsStore {
 
   // Location
   void setLocation(float lat, float lon, const std::string& name);
+  void clearLocation();
   float getLatitude() const { return latitude; }
   float getLongitude() const { return longitude; }
   const std::string& getLocationName() const { return locationName; }
-  bool hasLocation() const { return latitude != 0 || longitude != 0; }
+  bool hasLocation() const { return locationConfigured; }
 
   // Units
   void setTempUnit(WeatherTempUnit unit) { tempUnit = unit; }
