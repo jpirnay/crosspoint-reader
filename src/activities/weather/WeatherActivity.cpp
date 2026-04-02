@@ -638,7 +638,6 @@ void WeatherActivity::renderHourlyGraph(int x, int y, int w, int h) {
     float mid = (tempMax + tempMin) / 2.0f;
     tempMin = mid - 2.5f;
     tempMax = mid + 2.5f;
-    tempRange = 5.0f;
   }
   tempMin -= 1.0f;
   tempMax += 1.0f;
