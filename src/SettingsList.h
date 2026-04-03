@@ -89,6 +89,18 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                          StrId::STR_TZ_EST, StrId::STR_TZ_CST, StrId::STR_TZ_MST, StrId::STR_TZ_PST},
                         "timeZone", StrId::STR_CAT_SYSTEM),
       SettingInfo::Toggle(StrId::STR_USE_CLOCK, &CrossPointSettings::useClock, "useClock", StrId::STR_CAT_SYSTEM),
+      SettingInfo::Toggle(StrId::STR_SCHEDULED_WAKE, &CrossPointSettings::scheduledWakeEnabled, "scheduledWakeEnabled",
+                          StrId::STR_CAT_SYSTEM),
+      SettingInfo::Value(StrId::STR_SCHEDULED_WAKE_HOUR, &CrossPointSettings::scheduledWakeHour, {0, 23, 1},
+                         "scheduledWakeHour", StrId::STR_CAT_SYSTEM),
+      SettingInfo::Value(StrId::STR_SCHEDULED_WAKE_MINUTE, &CrossPointSettings::scheduledWakeMinute, {0, 59, 5},
+                         "scheduledWakeMinute", StrId::STR_CAT_SYSTEM),
+      SettingInfo::Toggle(StrId::STR_SCHED_TASK_NTP, &CrossPointSettings::scheduledWakeTaskNtp, "scheduledWakeTaskNtp",
+                          StrId::STR_CAT_SYSTEM),
+      SettingInfo::Toggle(StrId::STR_SCHED_TASK_IMG, &CrossPointSettings::scheduledWakeTaskImg, "scheduledWakeTaskImg",
+                          StrId::STR_CAT_SYSTEM),
+      SettingInfo::String(StrId::STR_SCHEDULED_WAKE_IMAGE_URL, SETTINGS.scheduledWakeImageUrl,
+                          sizeof(SETTINGS.scheduledWakeImageUrl), "scheduledWakeImageUrl", StrId::STR_CAT_SYSTEM),
 
       // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
       SettingInfo::DynamicString(

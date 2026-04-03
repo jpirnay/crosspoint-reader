@@ -33,7 +33,7 @@ class HalPowerManager {
   // When keepClockAlive is true, GPIO13 stays HIGH so the LP timer keeps
   // running during sleep (~3-4 mA extra).  This allows HalClock to compute
   // elapsed sleep time and restore the wall clock accurately on wake.
-  void startDeepSleep(HalGPIO& gpio, bool keepClockAlive = false) const;
+  void startDeepSleep(HalGPIO& gpio, bool keepClockAlive = false, uint64_t timerWakeupUs = 0) const;
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;

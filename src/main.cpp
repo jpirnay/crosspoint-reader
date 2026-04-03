@@ -26,6 +26,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
+#include "util/ScheduledTaskRunner.h"
 #include "util/ScreenshotUtil.h"
 
 HalDisplay display;
@@ -129,6 +130,8 @@ EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 unsigned long t1 = 0;
 unsigned long t2 = 0;
 
+uint64_t calculateTimerWakeupUs();  // forward declaration
+
 // Verify power button press duration on wake-up from deep sleep
 // Pre-condition: isWakeupByPowerButton() == true
 void verifyPowerButtonDuration() {
@@ -168,8 +171,9 @@ void verifyPowerButtonDuration() {
 
   if (abort) {
     // Button released too early. Returning to sleep.
-    // IMPORTANT: Re-arm the wakeup trigger before sleeping again
-    powerManager.startDeepSleep(gpio);
+    // IMPORTANT: Re-arm the wakeup trigger (and scheduled timer) before sleeping again
+    uint64_t timerUs = calculateTimerWakeupUs();
+    powerManager.startDeepSleep(gpio, SETTINGS.useClock, timerUs);
   }
 }
 
@@ -179,6 +183,37 @@ void waitForPowerRelease() {
     delay(50);
     gpio.update();
   }
+}
+
+// Returns microseconds until the next scheduled wakeup time, or 0 if timer should not be armed.
+uint64_t calculateTimerWakeupUs() {
+  if (!SETTINGS.scheduledWakeEnabled || !SETTINGS.useClock) {
+    return 0;
+  }
+  if (!HalClock::isSynced()) {
+    return 0;
+  }
+  if (!SETTINGS.scheduledWakeTaskNtp && !SETTINGS.scheduledWakeTaskImg) {
+    return 0;
+  }
+
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  localtime_r(&now, &timeinfo);
+
+  struct tm target = timeinfo;
+  target.tm_hour = SETTINGS.scheduledWakeHour;
+  target.tm_min = SETTINGS.scheduledWakeMinute;
+  target.tm_sec = 0;
+  time_t targetEpoch = mktime(&target);
+
+  // If target is in the past or within 60s, schedule for tomorrow
+  if (targetEpoch <= now + 60) {
+    targetEpoch += 24 * 3600;
+  }
+
+  int64_t diffSeconds = static_cast<int64_t>(targetEpoch - now);
+  return static_cast<uint64_t>(diffSeconds) * 1000000ULL;
 }
 
 // Enter deep sleep mode
@@ -194,7 +229,8 @@ void enterDeepSleep() {
   LOG_DBG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio, SETTINGS.useClock);
+  uint64_t timerUs = calculateTimerWakeupUs();
+  powerManager.startDeepSleep(gpio, SETTINGS.useClock, timerUs);
 }
 
 void setupDisplayAndFonts() {
@@ -268,16 +304,29 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   switch (gpio.getWakeupReason()) {
+    case HalGPIO::WakeupReason::TimerWake: {
+      // Scheduled timer wakeup — run background tasks headlessly, then re-sleep
+      LOG_DBG("MAIN", "Timer wakeup - running scheduled tasks");
+      HalClock::restore();
+      ScheduledTaskRunner::run();
+      HalClock::saveBeforeSleep(true);  // useClock must be true for timer wake
+      uint64_t timerUs = calculateTimerWakeupUs();
+      powerManager.startDeepSleep(gpio, true, timerUs);
+      break;  // never reached
+    }
     case HalGPIO::WakeupReason::PowerButton:
       // For normal wakeups, verify power button press duration
       LOG_DBG("MAIN", "Verifying power button press duration");
       verifyPowerButtonDuration();
       break;
-    case HalGPIO::WakeupReason::AfterUSBPower:
+    case HalGPIO::WakeupReason::AfterUSBPower: {
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
-      powerManager.startDeepSleep(gpio);
+      HalClock::restore();
+      uint64_t timerUs = calculateTimerWakeupUs();
+      powerManager.startDeepSleep(gpio, SETTINGS.useClock, timerUs);
       break;
+    }
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
     case HalGPIO::WakeupReason::Other:
