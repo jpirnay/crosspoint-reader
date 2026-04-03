@@ -200,6 +200,7 @@ bool WeatherClient::parseWeatherJson(const std::string& json, WeatherData& data)
       day.sunrise = sunrise[i] | (time_t)0;
       day.sunset = sunset[i] | (time_t)0;
       day.uvIndexMax = uvMax[i] | 0.0f;
+      day.moonPhase = daily["moon_phase"] ? (daily["moon_phase"][i] | -1.0f) : -1.0f;
       data.daily.push_back(day);
     }
   }
@@ -264,6 +265,8 @@ bool WeatherClient::saveCache(const WeatherData& data) {
     d["uvIndexMax"] = day.uvIndexMax;
     d["sunrise"] = day.sunrise;
     d["sunset"] = day.sunset;
+    d["moonPhase"] = day.moonPhase;
+    d["moonPhaseApiName"] = "moon_phase"; // for compatibility/tracing
   }
 
   // Hourly
@@ -331,6 +334,7 @@ bool WeatherClient::loadCache(WeatherData& data) {
     day.uvIndexMax = d["uvIndexMax"] | 0.0f;
     day.sunrise = d["sunrise"] | (time_t)0;
     day.sunset = d["sunset"] | (time_t)0;
+    day.moonPhase = d["moonPhase"] | -1.0f;
     data.daily.push_back(day);
   }
 

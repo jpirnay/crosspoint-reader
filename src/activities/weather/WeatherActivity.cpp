@@ -9,7 +9,6 @@
 #include <WiFi.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <vector>
@@ -41,6 +40,7 @@ void drawWeatherIconWithOrientation(const GfxRenderer& renderer, const uint8_t* 
     }
   }
 }
+
 
 StrId getWeatherDescriptionStrId(const int wmoCode) {
   switch (wmoCode) {
@@ -103,6 +103,99 @@ StrId getWeatherDescriptionStrId(const int wmoCode) {
     default:
       return StrId::STR_WEATHER_DESC_UNKNOWN;
   }
+}
+
+enum class MoonPhaseType {
+  NEW,
+  WAXING_CRESCENT,
+  FIRST_QUARTER,
+  WAXING_GIBBOUS,
+  FULL,
+  WANING_GIBBOUS,
+  LAST_QUARTER,
+  WANING_CRESCENT,
+};
+
+static MoonPhaseType getMoonPhaseType(float phase) {
+  if (phase < 0.03f || phase > 0.97f) return MoonPhaseType::NEW;
+  if (phase < 0.22f) return MoonPhaseType::WAXING_CRESCENT;
+  if (phase < 0.28f) return MoonPhaseType::FIRST_QUARTER;
+  if (phase < 0.47f) return MoonPhaseType::WAXING_GIBBOUS;
+  if (phase < 0.53f) return MoonPhaseType::FULL;
+  if (phase < 0.72f) return MoonPhaseType::WANING_GIBBOUS;
+  if (phase < 0.78f) return MoonPhaseType::LAST_QUARTER;
+  return MoonPhaseType::WANING_CRESCENT;
+}
+
+static float getMoonPhaseCycleFromTime(time_t timestamp) {
+  constexpr double knownNewMoon = 947182440.0;  // Jan 6, 2000 18:14 UTC
+  constexpr double lunarCycle = 2551442.8;      // Seconds in synodic month
+
+  double secondsSince = static_cast<double>(timestamp) - knownNewMoon;
+  double phase = secondsSince / lunarCycle;
+  phase = phase - floor(phase);
+  if (phase < 0.0) phase += 1.0;
+  return static_cast<float>(phase);
+}
+
+static StrId getMoonPhaseStrId(MoonPhaseType type) {
+  switch (type) {
+    case MoonPhaseType::NEW:
+      return StrId::STR_WEATHER_MOON_NEW;
+    case MoonPhaseType::WAXING_CRESCENT:
+      return StrId::STR_WEATHER_MOON_WAXING_CRESCENT;
+    case MoonPhaseType::FIRST_QUARTER:
+      return StrId::STR_WEATHER_MOON_FIRST_QUARTER;
+    case MoonPhaseType::WAXING_GIBBOUS:
+      return StrId::STR_WEATHER_MOON_WAXING_GIBBOUS;
+    case MoonPhaseType::FULL:
+      return StrId::STR_WEATHER_MOON_FULL;
+    case MoonPhaseType::WANING_GIBBOUS:
+      return StrId::STR_WEATHER_MOON_WANING_GIBBOUS;
+    case MoonPhaseType::LAST_QUARTER:
+      return StrId::STR_WEATHER_MOON_LAST_QUARTER;
+    case MoonPhaseType::WANING_CRESCENT:
+      return StrId::STR_WEATHER_MOON_WANING_CRESCENT;
+    default:
+      return StrId::STR_WEATHER_DESC_UNKNOWN;
+  }
+}
+
+static float getMoonIlluminationFromCycle(float cycle) {
+  // 0.0 = new, 0.5 = full; convert to illuminated fraction
+  const float pi = 3.14159265358979323846f;
+  float illum = 0.5f * (1.0f - cosf(2.0f * pi * cycle));
+  return illum;
+}
+
+static void formatSunriseSunsetTime(char* buf, size_t bufSize, time_t epoch, int utcOffsetSeconds, bool use24h) {
+  time_t localTime = epoch + utcOffsetSeconds;
+  struct tm timeinfo;
+  gmtime_r(&localTime, &timeinfo);
+
+  if (use24h) {
+    snprintf(buf, bufSize, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+  } else {
+    int hour = timeinfo.tm_hour % 12;
+    if (hour == 0) hour = 12;
+    const char* suffix = timeinfo.tm_hour < 12 ? "AM" : "PM";
+    snprintf(buf, bufSize, "%d:%02d%s", hour, timeinfo.tm_min, suffix);
+  }
+}
+
+static time_t getNextFullMoonTime(time_t now) {
+  constexpr double knownNewMoon = 947182440.0;
+  constexpr double lunarCycle = 2551442.8;
+
+  double secondsSince = static_cast<double>(now) - knownNewMoon;
+  double synodic = secondsSince / lunarCycle;
+  synodic -= floor(synodic);
+  if (synodic < 0.0) synodic += 1.0;
+
+  double untilFull = 0.5 - synodic;
+  if (untilFull < 0.0) untilFull += 1.0;
+
+  return now + static_cast<time_t>(untilFull * lunarCycle + 0.5);
 }
 }  // namespace
 
@@ -330,7 +423,8 @@ void WeatherActivity::render(RenderLock&&) {
   if (state == State::ERROR) {
     renderer.drawCenteredText(UI_12_FONT_ID, pageHeight / 2 - 20, tr(STR_ERROR_MSG));
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, errorMessage.c_str());
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_WEATHER_SETTINGS), tr(STR_WEATHER_REFRESH), "");
+    const auto labels =
+        mappedInput.mapLabels(tr(STR_BACK), tr(STR_WEATHER_SETTINGS_SHORT), tr(STR_WEATHER_REFRESH), "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -503,6 +597,8 @@ void WeatherActivity::renderDailyForecast(int x, int y, int w, int h) {
   const int extraPx = w % numDays;
 
   int cardX = x;
+  int debugMoonX = x + w - 18;
+  int debugMoonYBase = y + 10;
 
   for (int i = 0; i < numDays; i++) {
     const auto& day = weatherData.daily[i];
@@ -567,6 +663,44 @@ void WeatherActivity::renderDailyForecast(int x, int y, int w, int h) {
     snprintf(uvBuf, sizeof(uvBuf), "UV: %.0f", day.uvIndexMax);
     int uvWidth = renderer.getTextWidth(SMALL_FONT_ID, uvBuf);
     renderer.drawText(SMALL_FONT_ID, cardX + (cardWidth - uvWidth) / 2, textY, uvBuf);
+    textY += 16;
+
+    // Sunrise/Sunset
+    {
+      char sunriseStr[16];
+      char sunsetStr[16];
+      formatSunriseSunsetTime(sunriseStr, sizeof(sunriseStr), day.sunrise, weatherData.utcOffsetSeconds,
+                              !SETTINGS.clockFormat12h);
+      formatSunriseSunsetTime(sunsetStr, sizeof(sunsetStr), day.sunset, weatherData.utcOffsetSeconds,
+                              !SETTINGS.clockFormat12h);
+
+      char sunBuf[48];
+      snprintf(sunBuf, sizeof(sunBuf), "%s: %s/%s", tr(STR_WEATHER_SUN_INFO), sunriseStr, sunsetStr);
+      auto truncSun = renderer.truncatedText(SMALL_FONT_ID, sunBuf, cardWidth - 8);
+      int sunWidth = renderer.getTextWidth(SMALL_FONT_ID, truncSun.c_str());
+      renderer.drawText(SMALL_FONT_ID, cardX + (cardWidth - sunWidth) / 2, textY, truncSun.c_str());
+      textY += 14;
+    }
+
+    // Moon phase (derived from local calculation when API data unavailable)
+    {
+      float phase = day.moonPhase;
+      if (phase < 0.0f || phase > 1.0f) {
+        phase = getMoonPhaseCycleFromTime(day.date + weatherData.utcOffsetSeconds + 12 * 3600);
+      }
+      MoonPhaseType phaseType = getMoonPhaseType(phase);
+      float illumination = getMoonIlluminationFromCycle(phase);
+      int phasePercent = static_cast<int>(illumination * 100.0f + 0.5f);
+
+      const char* phaseName = I18N.get(getMoonPhaseStrId(phaseType));
+      char moonBuf[48];
+      snprintf(moonBuf, sizeof(moonBuf), "%s %3d%%", phaseName, phasePercent);
+
+      int moonWidth = renderer.getTextWidth(SMALL_FONT_ID, moonBuf);
+      renderer.drawText(SMALL_FONT_ID, cardX + (cardWidth - moonWidth) / 2, textY, moonBuf);
+
+      textY += 14;
+    }
 
     // Card separator
     if (i < numDays - 1) {

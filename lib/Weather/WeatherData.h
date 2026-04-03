@@ -25,6 +25,7 @@ struct DailyForecast {
   float uvIndexMax = 0;
   time_t sunrise = 0;
   time_t sunset = 0;
+  float moonPhase = -1.0f;  // -1 means unknown, 0.0 new, 0.5 full
 };
 
 struct HourlyForecast {
