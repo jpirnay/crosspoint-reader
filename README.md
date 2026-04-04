@@ -9,7 +9,8 @@ capabilities with KOReader, a popular multi-platform open-source epub reader)
 Therefore this branch focuses on real fixes and real improvements while trying to keep up to pace with developments in the main branch.
 
 # What's different
-- Proper KOReader Snychronisation (including https ssl OOM fix)
+
+- Proper KOReader Snychronisation (including https TLS OOM fix)
 - Fixes for a lot of css rendering issues
 - Additional sleep screens support (information overlay, transparent pictures over current reader screen)
 - Clock-Support 
