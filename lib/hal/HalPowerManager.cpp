@@ -61,11 +61,9 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool keepClockAlive) const {
-  // Ensure that the power button has been released to avoid immediately turning back on if you're holding it
-  while (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    delay(50);
-    gpio.update();
-  }
+  LOG_DBG("PWR", "startDeepSleep: waiting for power button release (isPressed=%d, rawPin=%d, keepClock=%d)",
+          gpio.isPressed(HalGPIO::BTN_POWER), digitalRead(InputManager::POWER_BUTTON_PIN) == LOW, keepClockAlive);
+  gpio.waitForStablePowerRelease();
   // GPIO13 is connected to the battery latch MOSFET.
   // When keepClockAlive is false (default): GPIO13 goes LOW, the MCU is
   // completely powered off during sleep (including the LP timer / RTC memory).
@@ -90,6 +88,11 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool keepClockAlive) const {
   // regardless of the wakeup source configuration.
   // When keepClockAlive is true, this is the actual wakeup mechanism since the MCU stays powered.
   esp_deep_sleep_enable_gpio_wakeup(1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+  // Final check: is the raw pin still LOW (button still physically pressed)?
+  if (digitalRead(InputManager::POWER_BUTTON_PIN) == LOW) {
+    LOG_DBG("PWR", "startDeepSleep: WARNING raw pin still LOW after release wait — may wake immediately!");
+  }
+  LOG_DBG("PWR", "startDeepSleep: entering deep sleep now");
   // Enter Deep Sleep
   esp_deep_sleep_start();
 }

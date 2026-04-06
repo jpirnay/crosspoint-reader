@@ -223,26 +223,48 @@ bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
 
 unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
 
-void HalGPIO::startDeepSleep() {
-  // Ensure that the power button has been released to avoid immediately turning back on if you're holding it
-  while (inputMgr.isPressed(BTN_POWER)) {
-    delay(50);
-    inputMgr.update();
+void HalGPIO::waitForStablePowerRelease() {
+  // Wait until the raw power-button pin reads HIGH (released) for RELEASE_STABLE_MS
+  // consecutive milliseconds.  The InputManager debounce (5 ms) is too short for
+  // mechanical switch bounce which can last 10-50 ms, so we bypass it entirely here.
+  constexpr unsigned long RELEASE_STABLE_MS = 200;
+  const unsigned long waitStart = millis();
+  unsigned long stableStart = 0;
+  while (true) {
+    if (digitalRead(InputManager::POWER_BUTTON_PIN) == HIGH) {
+      if (stableStart == 0) stableStart = millis();
+      if (millis() - stableStart >= RELEASE_STABLE_MS) break;
+    } else {
+      stableStart = 0;
+    }
+    delay(10);
   }
+  LOG_DBG("GPIO", "Power button stable-released after %lu ms", millis() - waitStart);
+  // Re-sync the InputManager so its debounced state matches reality
+  inputMgr.update();
+}
+
+void HalGPIO::startDeepSleep() {
+  LOG_DBG("GPIO", "startDeepSleep: waiting for power button release (isPressed=%d, rawPin=%d)",
+          inputMgr.isPressed(BTN_POWER), digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
+  waitForStablePowerRelease();
   // Arm the wakeup trigger *after* the button is released
   esp_deep_sleep_enable_gpio_wakeup(1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+  LOG_DBG("GPIO", "startDeepSleep: entering deep sleep now");
   // Enter Deep Sleep
   esp_deep_sleep_start();
 }
 
 void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed) {
   if (shortPressAllowed) {
-    // Fast path - no duration check needed
+    LOG_DBG("GPIO", "verifyPowerButtonWakeup: shortPressAllowed, skipping verification");
     return;
   }
   // Calibrate: subtract boot time already elapsed, assuming button held since boot
   const uint16_t calibration = millis();
   const uint16_t calibratedDuration = (calibration < requiredDurationMs) ? (requiredDurationMs - calibration) : 1;
+  LOG_DBG("GPIO", "verifyPowerButtonWakeup: requiredMs=%u, calibration=%u, calibratedMs=%u", requiredDurationMs,
+          calibration, calibratedDuration);
 
   const auto start = millis();
   inputMgr.update();
@@ -251,25 +273,38 @@ void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
     delay(10);
     inputMgr.update();
   }
+  LOG_DBG("GPIO", "verifyPowerButtonWakeup: initial detect took %lu ms, isPressed=%d, rawPin=%d", millis() - start,
+          inputMgr.isPressed(BTN_POWER), digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
+
   if (inputMgr.isPressed(BTN_POWER)) {
     // Use wall-clock elapsed time instead of getHeldTime() which resets on bounce.
     // Tolerate brief release gaps (bouncing switch) up to BOUNCE_TOLERANCE_MS.
     constexpr unsigned long BOUNCE_TOLERANCE_MS = 100;
     unsigned long lastSeenPressed = millis();
     const auto holdStart = millis();
+    unsigned long bounceCount = 0;
 
     while (millis() - holdStart < calibratedDuration) {
       delay(10);
       inputMgr.update();
       if (inputMgr.isPressed(BTN_POWER)) {
+        if (millis() - lastSeenPressed > 20) {
+          bounceCount++;
+        }
         lastSeenPressed = millis();
       } else if (millis() - lastSeenPressed >= BOUNCE_TOLERANCE_MS) {
         // Button released for longer than bounce tolerance — truly released
+        LOG_DBG("GPIO",
+                "verifyPowerButtonWakeup: released during hold check after %lu ms (bounces=%lu), going to sleep",
+                millis() - holdStart, bounceCount);
         startDeepSleep();
       }
     }
+    LOG_DBG("GPIO", "verifyPowerButtonWakeup: hold verified after %lu ms (bounces=%lu), proceeding with boot",
+            millis() - holdStart, bounceCount);
     // Held long enough (tolerating brief bounces) — proceed with boot
   } else {
+    LOG_DBG("GPIO", "verifyPowerButtonWakeup: button not pressed after 1s wait, going to sleep");
     startDeepSleep();
   }
 }
@@ -296,6 +331,8 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   const auto resetReason = esp_reset_reason();
 
   const bool usbConnected = isUsbConnected();
+  LOG_DBG("GPIO", "getWakeupReason: wakeupCause=%d, resetReason=%d, usbConnected=%d", static_cast<int>(wakeupCause),
+          static_cast<int>(resetReason), usbConnected);
 
   if ((wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected) ||
       (wakeupCause == ESP_SLEEP_WAKEUP_GPIO && resetReason == ESP_RST_DEEPSLEEP && usbConnected)) {
