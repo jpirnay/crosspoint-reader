@@ -176,24 +176,17 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   if (currentTextBlock) {
     // already have a text block running and it is empty - just reuse it
     if (currentTextBlock->isEmpty()) {
-      // Merge with existing block style to accumulate CSS styling from parent block elements.
-      // This handles cases like <div style="margin-bottom:2em"><h1>text</h1></div> where the
-      // div's margin should be preserved, even though it has no direct text content.
       BlockStyle incoming = blockStyle;
-      const bool brGapPending = currentTextBlock->getBlockStyle().fromBrElement;
+      const BlockStyle& currentStyle = currentTextBlock->getBlockStyle();
+      const bool brGapPending = currentStyle.fromBrElement;
       if (brGapPending) {
         // The empty block was created by a <br> section separator. Inject a full line of
         // blank space before the following paragraph so the scene/section break is visible.
         // This only fires when the <br> block stayed empty (i.e. no inline text was added).
         const int16_t lineHeight = static_cast<int16_t>(renderer.getLineHeight(fontId) * lineCompression + 0.5f);
-        incoming.marginTop = static_cast<int16_t>(incoming.marginTop + lineHeight);
+        incoming.marginTop = static_cast<int16_t>(currentStyle.marginTop + incoming.marginTop + lineHeight);
       }
-
-      BlockStyle merged = currentTextBlock->getBlockStyle().getCombinedBlockStyle(incoming);
-      // Preserve only whether the current empty block still represents <br> separators.
-      // This lets consecutive <br> accumulate one line each without leaking the flag to real content blocks.
-      merged.fromBrElement = blockStyle.fromBrElement;
-      currentTextBlock->setBlockStyle(merged);
+      currentTextBlock->setBlockStyle(incoming);
 
       if (!pendingAnchorId.empty()) {
         if (std::find(tocAnchors.begin(), tocAnchors.end(), pendingAnchorId) != tocAnchors.end()) {
@@ -475,19 +468,30 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 }
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
+                int containerWidth = self->viewportWidth;
+                if (self->currentTextBlock) {
+                  const int inset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
+                  if (inset > 0 && inset < self->viewportWidth) {
+                    containerWidth = self->viewportWidth - inset;
+                  }
+                } else if (!self->blockStyleStack.empty()) {
+                  const int inset = self->blockStyleStack.back().totalHorizontalInset();
+                  if (inset > 0 && inset < self->viewportWidth) {
+                    containerWidth = self->viewportWidth - inset;
+                  }
+                }
 
                 if (hasCssHeight && hasCssWidth && dims.width > 0 && dims.height > 0) {
-                  // Both CSS height and width set: resolve both, then clamp to viewport preserving requested ratio
+                  // Both CSS height and width set: resolve both, then clamp to the current container preserving ratio.
                   displayHeight = static_cast<int>(
                       imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
-                  displayWidth = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
+                  displayWidth =
+                      static_cast<int>(imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
                   if (displayHeight < 1) displayHeight = 1;
                   if (displayWidth < 1) displayWidth = 1;
-                  if (displayWidth > self->viewportWidth || displayHeight > self->viewportHeight) {
-                    float scaleX = (displayWidth > self->viewportWidth)
-                                       ? static_cast<float>(self->viewportWidth) / displayWidth
-                                       : 1.0f;
+                  if (displayWidth > containerWidth || displayHeight > self->viewportHeight) {
+                    float scaleX =
+                        (displayWidth > containerWidth) ? static_cast<float>(containerWidth) / displayWidth : 1.0f;
                     float scaleY = (displayHeight > self->viewportHeight)
                                        ? static_cast<float>(self->viewportHeight) / displayHeight
                                        : 1.0f;
@@ -512,8 +516,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                         static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
                     if (displayWidth < 1) displayWidth = 1;
                   }
-                  if (displayWidth > self->viewportWidth) {
-                    displayWidth = self->viewportWidth;
+                  if (displayWidth > containerWidth) {
+                    displayWidth = containerWidth;
                     // Rescale height to preserve aspect ratio when width is clamped
                     displayHeight =
                         static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
@@ -522,10 +526,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   if (displayWidth < 1) displayWidth = 1;
                   LOG_DBG("EHP", "Display size from CSS height: %dx%d", displayWidth, displayHeight);
                 } else if (hasCssWidth && !hasCssHeight && dims.width > 0 && dims.height > 0) {
-                  // Use CSS width (resolve % against viewport width) and derive height from aspect ratio
-                  displayWidth = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
-                  if (displayWidth > self->viewportWidth) displayWidth = self->viewportWidth;
+                  // Use CSS width (resolve % against container width) and derive height from aspect ratio.
+                  displayWidth =
+                      static_cast<int>(imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
+                  if (displayWidth > containerWidth) displayWidth = containerWidth;
                   if (displayWidth < 1) displayWidth = 1;
                   displayHeight =
                       static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
@@ -539,8 +543,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   if (displayHeight < 1) displayHeight = 1;
                   LOG_DBG("EHP", "Display size from CSS width: %dx%d", displayWidth, displayHeight);
                 } else {
-                  // Scale to fit viewport while maintaining aspect ratio
-                  int maxWidth = self->viewportWidth;
+                  // Scale to fit the current container while maintaining aspect ratio.
+                  int maxWidth = containerWidth;
                   int maxHeight = self->viewportHeight;
                   float scaleX = (dims.width > maxWidth) ? (float)maxWidth / dims.width : 1.0f;
                   float scaleY = (dims.height > maxHeight) ? (float)maxHeight / dims.height : 1.0f;
@@ -654,7 +658,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       // Fallback to alt text if image processing fails
       if (!alt.empty()) {
         alt = "[Image: " + alt + "]";
-        self->startNewTextBlock(centeredBlockStyle);
+        const BlockStyle altBlockStyle = self->blockStyleStack.empty()
+                                             ? centeredBlockStyle
+                                             : self->blockStyleStack.back().getCombinedBlockStyle(centeredBlockStyle);
+        self->startNewTextBlock(altBlockStyle);
         self->italicUntilDepth = std::min(self->italicUntilDepth, self->depth);
         self->depth += 1;
         self->characterData(userData, alt.c_str(), alt.length());
@@ -768,7 +775,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     if (self->embeddedStyle && cssStyle.hasTextAlign()) {
       headerBlockStyle.alignment = cssStyle.textAlign;
     }
-    self->startNewTextBlock(headerBlockStyle);
+    const BlockStyle accumulatedHeaderBlockStyle = self->blockStyleStack.back().getCombinedBlockStyle(headerBlockStyle);
+    self->blockStyleStack.push_back(accumulatedHeaderBlockStyle);
+    self->startNewTextBlock(accumulatedHeaderBlockStyle);
     self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
     self->updateEffectiveInlineStyle();
   } else if (matches(name, BLOCK_TAGS, NUM_BLOCK_TAGS)) {
@@ -780,7 +789,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         blockStyle.alignment = cssStyle.textAlign;
         blockStyle.textAlignDefined = true;
       }
-      self->startNewTextBlock(blockStyle);
+      const BlockStyle accumulatedBlockStyle = self->blockStyleStack.back().getCombinedBlockStyle(blockStyle);
+      self->blockStyleStack.push_back(accumulatedBlockStyle);
+      self->startNewTextBlock(accumulatedBlockStyle);
       self->updateEffectiveInlineStyle();
 
       self->skipTextUntilDepth = self->depth;
@@ -814,7 +825,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         blockStyle.alignment = cssStyle.textAlign;
         blockStyle.textAlignDefined = true;
       }
-      self->startNewTextBlock(blockStyle);
+      const BlockStyle accumulatedBlockStyle = self->blockStyleStack.back().getCombinedBlockStyle(blockStyle);
+      self->blockStyleStack.push_back(accumulatedBlockStyle);
+      self->startNewTextBlock(accumulatedBlockStyle);
       self->updateEffectiveInlineStyle();
 
       if (strcmp(name, "li") == 0) {
@@ -1258,35 +1271,28 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->currentCssStyle.reset();
     self->updateEffectiveInlineStyle();
 
-    // Reset alignment on empty text blocks to prevent stale alignment from bleeding
-    // into the next sibling element. This fixes issue #1026 where an empty <h1> (default
-    // Center) followed by an image-only <p> causes Center to persist through the chain
-    // of empty block reuse into subsequent text paragraphs.
-    // Margins/padding are preserved so parent element spacing still accumulates correctly.
-    if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
-      auto style = self->currentTextBlock->getBlockStyle();
-      // Keep alignment only when closing the <br> separator itself so subsequent text
-      // within the same block container stays aligned. Reset alignment when closing
-      // other block tags (e.g. div/p) to avoid leaking centered/right alignment globally.
-      const bool preserveForBrClose = style.fromBrElement && strcmp(name, "br") == 0;
-      if (!preserveForBrClose) {
-        style.textAlignDefined = false;
-        style.alignment = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                              ? CssTextAlign::Justify
-                              : static_cast<CssTextAlign>(self->paragraphAlignment);
-        self->currentTextBlock->setBlockStyle(style);
+    if (strcmp(name, "br") != 0 && self->blockStyleStack.size() > 1) {
+      self->blockStyleStack.pop_back();
+      if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
+        self->currentTextBlock->setBlockStyle(self->blockStyleStack.back());
       }
     }
   }
 }
 
 bool ChapterHtmlSlimParser::parseAndBuildPages() {
+  BlockStyle rootBlockStyle;
+  rootBlockStyle.alignment = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                                 ? CssTextAlign::Justify
+                                 : static_cast<CssTextAlign>(this->paragraphAlignment);
+  blockStyleStack.clear();
+  blockStyleStack.reserve(8);
+  blockStyleStack.push_back(rootBlockStyle);
+
   auto paragraphAlignmentBlockStyle = BlockStyle();
   paragraphAlignmentBlockStyle.textAlignDefined = true;
-  // Resolve None sentinel to Justify for initial block (no CSS context yet)
-  const auto align = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                         ? CssTextAlign::Justify
-                         : static_cast<CssTextAlign>(this->paragraphAlignment);
+  // Resolve None sentinel to Justify for the initial block using the root block style.
+  const auto align = rootBlockStyle.alignment;
   paragraphAlignmentBlockStyle.alignment = align;
   startNewTextBlock(paragraphAlignmentBlockStyle);
 
