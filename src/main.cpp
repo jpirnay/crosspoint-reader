@@ -124,63 +124,10 @@ EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 
-// measurement of power button press duration calibration value
-unsigned long t1 = 0;
-unsigned long t2 = 0;
-
-// Verify power button press duration on wake-up from deep sleep
-// Pre-condition: isWakeupByPowerButton() == true
-void verifyPowerButtonDuration() {
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) {
-    // Fast path for short press
-    // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
-    return;
-  }
-
-  // Give the user up to 1000ms to start holding the power button, and must hold for SETTINGS.getPowerButtonDuration()
-  const auto start = millis();
-  bool abort = false;
-  // Subtract the current time, because inputManager only starts counting the HeldTime from the first update()
-  // This way, we remove the time we already took to reach here from the duration,
-  // assuming the button was held until now from millis()==0 (i.e. device start time).
-  const uint16_t calibration = start;
-  const uint16_t calibratedPressDuration =
-      (calibration < SETTINGS.getPowerButtonDuration()) ? SETTINGS.getPowerButtonDuration() - calibration : 1;
-
-  gpio.update();
-  // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
-  while (!gpio.isPressed(HalGPIO::BTN_POWER) && millis() - start < 1000) {
-    delay(10);  // only wait 10ms each iteration to not delay too much in case of short configured duration.
-    gpio.update();
-  }
-
-  t2 = millis();
-  if (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    do {
-      delay(10);
-      gpio.update();
-    } while (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getHeldTime() < calibratedPressDuration);
-    abort = gpio.getHeldTime() < calibratedPressDuration;
-  } else {
-    abort = true;
-  }
-
-  if (abort) {
-    // Button released too early. Returning to sleep.
-    // IMPORTANT: Re-arm the wakeup trigger before sleeping again
-    powerManager.startDeepSleep(gpio);
-  }
-}
-void waitForPowerRelease() {
-  gpio.update();
-  while (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    delay(50);
-    gpio.update();
-  }
-}
-
 // Enter deep sleep mode
 void enterDeepSleep() {
+  LOG_DBG("MAIN", "enterDeepSleep called at millis=%lu, powerBtn isPressed=%d, rawPin=%d", millis(),
+          gpio.isPressed(HalGPIO::BTN_POWER), digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
   HalClock::saveBeforeSleep(SETTINGS.useClock);
@@ -189,7 +136,8 @@ void enterDeepSleep() {
   activityManager.goToSleep();
 
   display.deepSleep();
-  LOG_DBG("MAIN", "Entering deep sleep");
+  LOG_DBG("MAIN", "Entering deep sleep (powerBtn isPressed=%d, rawPin=%d)", gpio.isPressed(HalGPIO::BTN_POWER),
+          digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
 
   powerManager.startDeepSleep(gpio, SETTINGS.useClock);
 }
@@ -228,8 +176,6 @@ void setupDisplayAndFonts() {
 }
 
 void setup() {
-  t1 = millis();
-
   HalSystem::begin();
   gpio.begin();
   powerManager.begin();
@@ -268,11 +214,15 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   const auto wakeupReason = gpio.getWakeupReason();
+  LOG_DBG("MAIN", "Wakeup reason: %d, millis=%lu, rawPowerPin=%d", static_cast<int>(wakeupReason), millis(),
+          digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
-      LOG_DBG("MAIN", "Verifying power button press duration");
+      LOG_DBG("MAIN", "Verifying power button press duration (required=%u ms, shortPress=%d)",
+              SETTINGS.getPowerButtonDuration(), SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
       gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                    SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+      LOG_DBG("MAIN", "Power button verification passed, millis=%lu", millis());
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
@@ -310,9 +260,6 @@ void setup() {
     APP_STATE.saveToFile();
     activityManager.goToReader(path);
   }
-
-  // Ensure we're not still holding the power button before leaving setup
-  waitForPowerRelease();
 }
 
 void loop() {
@@ -379,14 +326,30 @@ void loop() {
     return;
   }
 
-  if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getHeldTime() > SETTINGS.getPowerButtonDuration()) {
-    // If the screenshot combination is potentially being pressed, don't sleep
-    if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
+  // Track power button hold for sleep.  We require a fresh press edge (wasPressed)
+  // before starting to measure hold time, so that a hold carried over from boot
+  // (wake-up press) is never misinterpreted as a "go to sleep" press.
+  static unsigned long powerHoldStart = 0;
+  if (gpio.wasPressed(HalGPIO::BTN_POWER)) {
+    powerHoldStart = millis();
+    LOG_DBG("MAIN", "loop: power button press detected (fresh edge)");
+  }
+  if (gpio.isPressed(HalGPIO::BTN_POWER) && powerHoldStart > 0) {
+    const unsigned long heldTime = millis() - powerHoldStart;
+    if (heldTime > SETTINGS.getPowerButtonDuration()) {
+      // If the screenshot combination is potentially being pressed, don't sleep
+      if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
+        return;
+      }
+      LOG_DBG("MAIN", "loop: power button held for %lu ms (> %u ms), entering deep sleep", heldTime,
+              SETTINGS.getPowerButtonDuration());
+      enterDeepSleep();
+      // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
       return;
     }
-    enterDeepSleep();
-    // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
-    return;
+  }
+  if (!gpio.isPressed(HalGPIO::BTN_POWER)) {
+    powerHoldStart = 0;
   }
 
   // Refresh the battery icon when USB is plugged or unplugged.

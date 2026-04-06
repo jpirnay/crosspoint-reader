@@ -61,11 +61,11 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool keepClockAlive) const {
-  // Ensure that the power button has been released to avoid immediately turning back on if you're holding it
-  while (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    delay(50);
-    gpio.update();
-  }
+  LOG_DBG("PWR", "startDeepSleep: isPressed=%d, rawPin=%d, keepClock=%d", gpio.isPressed(HalGPIO::BTN_POWER),
+          digitalRead(InputManager::POWER_BUTTON_PIN) == LOW, keepClockAlive);
+  // Perform all hardware preparation immediately (while the button may still be held)
+  // so the user gets instant visual feedback (display already off). Only block for
+  // button release at the very end, right before entering sleep.
   // GPIO13 is connected to the battery latch MOSFET.
   // When keepClockAlive is false (default): GPIO13 goes LOW, the MCU is
   // completely powered off during sleep (including the LP timer / RTC memory).
@@ -84,12 +84,18 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool keepClockAlive) const {
   gpio_deep_sleep_hold_en();
   gpio_hold_en(GPIO_SPIWP);
   pinMode(InputManager::POWER_BUTTON_PIN, INPUT_PULLUP);
+
+  // Now wait for the power button to be fully released before arming the wakeup
+  // trigger and entering sleep — prevents immediate re-wake from a held button.
+  gpio.waitForStablePowerRelease();
+
   // Arm the wakeup trigger *after* the button is released
   // Note: when keepClockAlive is false, this is only useful for waking up on USB power. On battery, the MCU will be
   // completely powered off, so the power button is hard-wired to briefly provide power to the MCU, waking it up
   // regardless of the wakeup source configuration.
   // When keepClockAlive is true, this is the actual wakeup mechanism since the MCU stays powered.
   esp_deep_sleep_enable_gpio_wakeup(1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+  LOG_DBG("PWR", "startDeepSleep: entering deep sleep now");
   // Enter Deep Sleep
   esp_deep_sleep_start();
 }

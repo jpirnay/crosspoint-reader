@@ -71,6 +71,11 @@ class HalGPIO {
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
 
+  // Wait until the raw power-button GPIO reads HIGH (released) for a sustained period.
+  // Uses the raw pin directly instead of the InputManager debounced state to avoid
+  // the 5 ms debounce being fooled by mechanical switch bounce during release.
+  void waitForStablePowerRelease();
+
   // Setup wake up GPIO and enter deep sleep
   void startDeepSleep();
 
