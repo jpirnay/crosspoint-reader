@@ -83,6 +83,7 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
     for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), Lyra3CoversMetrics::values.homeRecentBooksCount);
          i++) {
       bool bookSelected = (selectorIndex == i);
+      const int progressPercent = getRecentBookProgressPercent(recentBooks[i]);
 
       int tileX = Lyra3CoversMetrics::values.contentSidePadding + tileWidth * i;
 
@@ -105,6 +106,11 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         renderer.fillRoundedRect(tileX, tileY + coverHeight + hPaddingInSelection, tileWidth, dynamicTitleBoxHeight,
                                  cornerRadius, false, false, true, true, Color::LightGray);
       }
+
+      drawProgressBadge(renderer,
+                        Rect{tileX + hPaddingInSelection, tileY + hPaddingInSelection,
+                             tileWidth - 2 * hPaddingInSelection, coverHeight},
+                        progressPercent);
 
       int currentY = tileY + coverHeight + hPaddingInSelection + 5;
       for (const auto& line : titleLines) {

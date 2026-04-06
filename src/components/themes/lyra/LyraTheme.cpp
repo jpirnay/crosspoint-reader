@@ -1,12 +1,18 @@
 #include "LyraTheme.h"
 
+#include <Epub.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Serialization.h>
+#include <Txt.h>
+#include <Xtc.h>
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -44,7 +50,38 @@ constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 24;
 constexpr int mainMenuColumns = 2;
 constexpr int minAdaptiveMenuRowHeight = 40;
+constexpr int progressBadgeInset = 8;
 int coverWidth = 0;
+
+int clampProgressPercent(const int progressPercent) {
+  if (progressPercent < 0) return 0;
+  if (progressPercent > 100) return 100;
+  return progressPercent;
+}
+
+int readTxtTotalPages(const std::string& cachePath) {
+  FsFile indexFile;
+  if (!Storage.openFileForRead("LYR", cachePath + "/index.bin", indexFile)) {
+    return 0;
+  }
+
+  uint32_t magic = 0;
+  uint8_t version = 0;
+  serialization::readPod(indexFile, magic);
+  serialization::readPod(indexFile, version);
+  static constexpr uint32_t INDEX_CACHE_MAGIC = 0x54585449;  // "TXTI"
+  static constexpr uint8_t INDEX_CACHE_VERSION = 2;
+  if (magic != INDEX_CACHE_MAGIC || version != INDEX_CACHE_VERSION) {
+    indexFile.close();
+    return 0;
+  }
+
+  indexFile.seek(32);
+  uint32_t totalPages = 0;
+  serialization::readPod(indexFile, totalPages);
+  indexFile.close();
+  return static_cast<int>(totalPages);
+}
 
 void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
                          uint16_t percentage) {
@@ -115,6 +152,111 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   return nullptr;
 }
 }  // namespace
+
+int LyraTheme::getRecentBookProgressPercent(const RecentBook& book) {
+  if (book.path.empty()) {
+    return -1;
+  }
+
+  if (FsHelpers::hasEpubExtension(book.path)) {
+    Epub epub(book.path, "/.crosspoint");
+    if (!epub.load(true, true)) {
+      return -1;
+    }
+
+    FsFile progressFile;
+    if (!Storage.openFileForRead("LYR", epub.getCachePath() + "/progress.bin", progressFile)) {
+      return -1;
+    }
+
+    uint8_t data[6];
+    const int dataSize = progressFile.read(data, 6);
+    progressFile.close();
+    if (dataSize != 4 && dataSize != 6) {
+      return -1;
+    }
+
+    const int currentSpineIndex = data[0] + (data[1] << 8);
+    const int currentPage = data[2] + (data[3] << 8);
+    const int pageCount = (dataSize == 6) ? (data[4] + (data[5] << 8)) : 0;
+    if (pageCount <= 0) {
+      return -1;
+    }
+
+    const float chapterProgress = static_cast<float>(currentPage) / static_cast<float>(pageCount);
+    return clampProgressPercent(
+        static_cast<int>(std::lround(epub.calculateProgress(currentSpineIndex, chapterProgress) * 100.0f)));
+  }
+
+  if (FsHelpers::hasXtcExtension(book.path)) {
+    Xtc xtc(book.path, "/.crosspoint");
+    if (!xtc.load()) {
+      return -1;
+    }
+
+    FsFile progressFile;
+    if (!Storage.openFileForRead("LYR", xtc.getCachePath() + "/progress.bin", progressFile)) {
+      return -1;
+    }
+
+    uint8_t data[4];
+    if (progressFile.read(data, 4) != 4) {
+      progressFile.close();
+      return -1;
+    }
+    progressFile.close();
+
+    const uint32_t currentPage = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+                                 (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
+    return clampProgressPercent(static_cast<int>(xtc.calculateProgress(currentPage)));
+  }
+
+  if (FsHelpers::hasTxtExtension(book.path) || FsHelpers::hasMarkdownExtension(book.path)) {
+    Txt txt(book.path, "/.crosspoint");
+    if (!txt.load()) {
+      return -1;
+    }
+
+    FsFile progressFile;
+    if (!Storage.openFileForRead("LYR", txt.getCachePath() + "/progress.bin", progressFile)) {
+      return -1;
+    }
+
+    uint8_t data[4];
+    if (progressFile.read(data, 4) != 4) {
+      progressFile.close();
+      return -1;
+    }
+    progressFile.close();
+
+    const int currentPage = data[0] + (data[1] << 8);
+    const int totalPages = readTxtTotalPages(txt.getCachePath());
+    if (totalPages <= 0) {
+      return -1;
+    }
+
+    return clampProgressPercent(static_cast<int>(std::lround((currentPage + 1) * 100.0f / totalPages)));
+  }
+
+  return -1;
+}
+
+void LyraTheme::drawProgressBadge(GfxRenderer& renderer, Rect anchorRect, int progressPercent) {
+  if (progressPercent < 0) {
+    return;
+  }
+
+  const std::string badgeText = std::to_string(clampProgressPercent(progressPercent)) + "%";
+  const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, badgeText.c_str());
+  const int textHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int badgeWidth = textWidth + 12;
+  const int badgeHeight = textHeight + 6;
+  const int badgeX = anchorRect.x + anchorRect.width - badgeWidth - progressBadgeInset;
+  const int badgeY = anchorRect.y + progressBadgeInset;
+
+  renderer.fillRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 5, Color::Black);
+  renderer.drawText(SMALL_FONT_ID, badgeX + (badgeWidth - textWidth) / 2, badgeY + 3, badgeText.c_str(), false);
+}
 
 void LyraTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
@@ -442,6 +584,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   // Only load from SD on first render, then use stored buffer
   if (hasContinueReading) {
     RecentBook book = recentBooks[0];
+    const int progressPercent = getRecentBookProgressPercent(book);
     if (!coverRendered) {
       std::string coverPath = book.coverBmpPath;
       bool hasCover = true;
@@ -495,6 +638,12 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       renderer.fillRoundedRect(tileX, tileY + coverHeight + hPaddingInSelection, tileWidth, hPaddingInSelection,
                                cornerRadius, false, false, true, true, Color::LightGray);
     }
+
+    drawProgressBadge(
+        renderer,
+        Rect{tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing, tileY,
+             tileWidth - 2 * hPaddingInSelection - coverWidth - LyraMetrics::values.verticalSpacing, tileHeight},
+        progressPercent);
 
     auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
 
