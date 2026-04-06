@@ -32,6 +32,7 @@ inline uint8_t applyBayerDither4Level(uint8_t gray, int x, int y) {
   return quantizeGray4Level((uint8_t)adjusted);
 }
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
 class DiffusedBayerDitherer {
  public:
   explicit DiffusedBayerDitherer(int width) : width(width) {
@@ -85,3 +86,4 @@ class DiffusedBayerDitherer {
   int16_t* errorCurRow;
   int16_t* errorNextRow;
 };
+#endif

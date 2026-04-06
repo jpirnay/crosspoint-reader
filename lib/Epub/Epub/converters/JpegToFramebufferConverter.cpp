@@ -1,6 +1,8 @@
 #include "JpegToFramebufferConverter.h"
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
 #include <BitmapHelpers.h>
+#endif
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -40,9 +42,11 @@ struct JpegContext {
   PixelCache cache;
   bool caching;
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
   int currentDitherRow;
   AtkinsonDitherer* atkinsonDitherer;
   DiffusedBayerDitherer* diffusedBayerDitherer;
+#endif
 
   JpegContext()
       : renderer(nullptr),
@@ -55,17 +59,25 @@ struct JpegContext {
         dstHeight(0),
         fineScaleFP(1 << 16),
         invScaleFP(1 << 16),
-        caching(false),
+        caching(false)
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
+        ,
         currentDitherRow(-1),
         atkinsonDitherer(nullptr),
-        diffusedBayerDitherer(nullptr) {}
+        diffusedBayerDitherer(nullptr)
+#endif
+  {
+  }
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
   ~JpegContext() {
     delete atkinsonDitherer;
     delete diffusedBayerDitherer;
   }
+#endif
 };
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
 void prepareDitherRow(JpegContext& ctx, int dstY) {
   if (!ctx.config || !ctx.config->useDithering) return;
 
@@ -107,6 +119,13 @@ uint8_t ditherGray(JpegContext& ctx, uint8_t gray, int localX, int outX, int out
 
   return applyBayerDither4Level(gray, outX, outY);
 }
+#else
+uint8_t ditherGray(JpegContext& ctx, uint8_t gray, int localX, int outX, int outY) {
+  (void)ctx;
+  (void)localX;
+  return applyBayerDither4Level(gray, outX, outY);
+}
+#endif
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
@@ -235,7 +254,9 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   if (fineScaleFP == FP_ONE) {
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
       prepareDitherRow(*ctx, dstY);
+#endif
       pw.beginRow(outY);
       if (caching) cw.beginRow(outY, ctx->config->y);
       const uint8_t* row = &pixels[(dstY - blockY) * stride];
@@ -264,7 +285,9 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
       prepareDitherRow(*ctx, dstY);
+#endif
       pw.beginRow(outY);
       if (caching) cw.beginRow(outY, ctx->config->y);
       const int32_t srcFyFP = dstY * invScaleFP;
@@ -344,7 +367,9 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   // === Nearest-neighbor (downscale: fineScale < 1.0) ===
   for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
     const int outY = cfgY + dstY;
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
     prepareDitherRow(*ctx, dstY);
+#endif
     pw.beginRow(outY);
     if (caching) cw.beginRow(outY, ctx->config->y);
     const int32_t srcFyFP = dstY * invScaleFP;
@@ -507,6 +532,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   }
 
   if (config.useDithering) {
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
     switch (config.ditherMode) {
       case ImageDitherMode::Atkinson:
         ctx.atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(destWidth);
@@ -525,6 +551,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
       default:
         break;
     }
+#endif
   }
 
   unsigned long decodeStart = millis();

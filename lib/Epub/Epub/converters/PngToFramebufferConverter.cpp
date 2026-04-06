@@ -1,6 +1,8 @@
 #include "PngToFramebufferConverter.h"
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
 #include <BitmapHelpers.h>
+#endif
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -37,9 +39,11 @@ struct PngContext {
   bool caching;
 
   uint8_t* grayLineBuffer;
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
   int currentDitherRow;
   AtkinsonDitherer* atkinsonDitherer;
   DiffusedBayerDitherer* diffusedBayerDitherer;
+#endif
 
   PngContext()
       : renderer(nullptr),
@@ -53,17 +57,25 @@ struct PngContext {
         dstHeight(0),
         lastDstY(-1),
         caching(false),
-        grayLineBuffer(nullptr),
+        grayLineBuffer(nullptr)
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
+        ,
         currentDitherRow(-1),
         atkinsonDitherer(nullptr),
-        diffusedBayerDitherer(nullptr) {}
+        diffusedBayerDitherer(nullptr)
+#endif
+  {
+  }
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
   ~PngContext() {
     delete atkinsonDitherer;
     delete diffusedBayerDitherer;
   }
+#endif
 };
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
 void prepareDitherRow(PngContext& ctx, int dstY) {
   if (!ctx.config || !ctx.config->useDithering) return;
 
@@ -105,6 +117,13 @@ uint8_t ditherGray(PngContext& ctx, uint8_t gray, int localX, int outX, int outY
 
   return applyBayerDither4Level(gray, outX, outY);
 }
+#else
+uint8_t ditherGray(PngContext& ctx, uint8_t gray, int localX, int outX, int outY) {
+  (void)ctx;
+  (void)localX;
+  return applyBayerDither4Level(gray, outX, outY);
+}
+#endif
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
@@ -272,7 +291,9 @@ int pngDrawCallback(PNGDRAW* pDraw) {
     cw.beginRow(outY, ctx->config->y);
   }
 
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
   prepareDitherRow(*ctx, dstY);
+#endif
 
   int srcX = 0;
   int error = 0;
@@ -435,6 +456,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   }
 
   if (config.useDithering) {
+#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
     switch (config.ditherMode) {
       case ImageDitherMode::Atkinson:
         ctx.atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(ctx.dstWidth);
@@ -453,6 +475,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
       default:
         break;
     }
+#endif
   }
 
   unsigned long decodeStart = millis();
