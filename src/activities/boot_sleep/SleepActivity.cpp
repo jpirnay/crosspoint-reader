@@ -10,6 +10,7 @@
 #include <Txt.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <new>
 
 #include "../reader/EpubReaderActivity.h"
@@ -158,6 +159,70 @@ int pngOverlayDraw(PNGDRAW* pDraw) {
   return 1;
 }
 
+// Collects full paths of valid image files from /.sleep and /sleep, with no preference between
+// the two directories. BMP files are validated by parsing their headers; invalid BMPs are skipped.
+// When allowPng is true, .png files are also accepted (PNG validation happens later at decode time).
+std::vector<std::string> collectSleepImages(bool allowPng) {
+  std::vector<std::string> files;
+  for (const char* sleepDir : {"/.sleep", "/sleep"}) {
+    auto dir = Storage.open(sleepDir);
+    if (!dir || !dir.isDirectory()) {
+      if (dir) dir.close();
+      continue;
+    }
+    char name[500];
+    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+      if (file.isDirectory()) {
+        file.close();
+        continue;
+      }
+      file.getName(name, sizeof(name));
+      auto filename = std::string(name);
+      if (filename[0] == '.') {
+        file.close();
+        continue;
+      }
+      const bool isBmp = FsHelpers::hasBmpExtension(filename);
+      const bool isPng = allowPng && FsHelpers::hasPngExtension(filename);
+      if (!isBmp && !isPng) {
+        file.close();
+        continue;
+      }
+      if (isBmp) {
+        Bitmap bmp(file);
+        if (bmp.parseHeaders() != BmpReaderError::Ok) {
+          LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
+          file.close();
+          continue;
+        }
+      }
+      files.emplace_back(std::string(sleepDir) + "/" + filename);
+      file.close();
+    }
+    dir.close();
+  }
+  // Sort by full path so the order is deterministic across reboots — required for sequential
+  // pick mode, harmless for random pick mode.
+  std::sort(files.begin(), files.end());
+  return files;
+}
+
+// Picks the next file index based on the user's pick mode.
+// RANDOM: uniform random with single reroll to avoid immediate repeats.
+// SEQUENTIAL: advances from APP_STATE.lastSleepImage, wrapping at numFiles.
+size_t pickSleepImageIndex(size_t numFiles) {
+  if (SETTINGS.sleepImagePickMode == CrossPointSettings::SLEEP_IMAGE_PICK_MODE::PICK_SEQUENTIAL) {
+    const uint8_t last = APP_STATE.lastSleepImage;
+    if (last == UINT8_MAX || last >= numFiles) return 0;
+    return (static_cast<size_t>(last) + 1) % numFiles;
+  }
+  size_t idx = random(numFiles);
+  while (numFiles > 1 && APP_STATE.lastSleepImage != UINT8_MAX && idx == APP_STATE.lastSleepImage) {
+    idx = random(numFiles);
+  }
+  return idx;
+}
+
 }  // namespace
 
 void SleepActivity::onEnter() {
@@ -202,78 +267,29 @@ void SleepActivity::renderCustomSleepScreen() const {
     explicitSleepFile.close();
   }
 
-  // Check if we have a /.sleep (preferred) or /sleep directory
-  const char* sleepDir = nullptr;
-  auto dir = Storage.open("/.sleep");
-  if (dir && dir.isDirectory()) {
-    sleepDir = "/.sleep";
-  } else {
-    if (dir) dir.close();
-    dir = Storage.open("/sleep");
-    if (dir && dir.isDirectory()) {
-      sleepDir = "/sleep";
-    }
-  }
-
-  if (sleepDir) {
-    std::vector<std::string> files;
-    char name[500];
-    // collect all valid BMP files
-    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
-      if (file.isDirectory()) {
+  // Collect valid BMP files from both /.sleep and /sleep directories (no preference between them)
+  const auto files = collectSleepImages(/*allowPng=*/false);
+  const auto numFiles = files.size();
+  if (numFiles > 0) {
+    const auto pickedIndex = pickSleepImageIndex(numFiles);
+    APP_STATE.lastSleepImage = pickedIndex;
+    APP_STATE.saveToFile();
+    const auto& filename = files[pickedIndex];
+    FsFile file;
+    if (Storage.openFileForRead("SLP", filename, file)) {
+      LOG_DBG("SLP", "Loading sleep image: %s", filename.c_str());
+      delay(100);
+      Bitmap bitmap(file, true);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+        const BookOverlayInfo resolvedOverlayInfo =
+            shouldLoadOverlayInfo ? getBookOverlayInfo(APP_STATE.openEpubPath) : overlayInfo;
+        renderBitmapSleepScreen(bitmap, resolvedOverlayInfo);
         file.close();
-        continue;
+        return;
       }
-      file.getName(name, sizeof(name));
-      auto filename = std::string(name);
-      if (filename[0] == '.') {
-        file.close();
-        continue;
-      }
-
-      if (!FsHelpers::hasBmpExtension(filename)) {
-        LOG_DBG("SLP", "Skipping non-.bmp file name: %s", name);
-        file.close();
-        continue;
-      }
-      Bitmap bitmap(file);
-      if (bitmap.parseHeaders() != BmpReaderError::Ok) {
-        LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
-        file.close();
-        continue;
-      }
-      files.emplace_back(filename);
       file.close();
     }
-    const auto numFiles = files.size();
-    if (numFiles > 0) {
-      // Generate a random number between 1 and numFiles
-      auto randomFileIndex = random(numFiles);
-      // If we picked the same image as last time, reroll
-      while (numFiles > 1 && APP_STATE.lastSleepImage != UINT8_MAX && randomFileIndex == APP_STATE.lastSleepImage) {
-        randomFileIndex = random(numFiles);
-      }
-      APP_STATE.lastSleepImage = randomFileIndex;
-      APP_STATE.saveToFile();
-      const auto filename = std::string(sleepDir) + "/" + files[randomFileIndex];
-      FsFile file;
-      if (Storage.openFileForRead("SLP", filename, file)) {
-        LOG_DBG("SLP", "Randomly loading: %s/%s", sleepDir, files[randomFileIndex].c_str());
-        delay(100);
-        Bitmap bitmap(file, true);
-        if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          const BookOverlayInfo resolvedOverlayInfo =
-              shouldLoadOverlayInfo ? getBookOverlayInfo(APP_STATE.openEpubPath) : overlayInfo;
-          renderBitmapSleepScreen(bitmap, resolvedOverlayInfo);
-          file.close();
-          dir.close();
-          return;
-        }
-        file.close();
-      }
-    }
   }
-  if (dir) dir.close();
 
   renderDefaultSleepScreen();
 }
@@ -769,67 +785,22 @@ void SleepActivity::renderOverlaySleepScreen() const {
     return rc == PNG_SUCCESS;
   };
 
-  // Try /.sleep/ (preferred) or /sleep/ directory (random selection, same as renderCustomSleepScreen).
+  // Collect images from both /.sleep and /sleep directories (no preference between them).
   // Accepts both .bmp and .png files; .bmp headers are validated during the scan.
   bool overlayDrawn = false;
-  const char* sleepDir = nullptr;
-  auto dir = Storage.open("/.sleep");
-  if (dir && dir.isDirectory()) {
-    sleepDir = "/.sleep";
-  } else {
-    if (dir) dir.close();
-    dir = Storage.open("/sleep");
-    if (dir && dir.isDirectory()) {
-      sleepDir = "/sleep";
+  const auto files = collectSleepImages(/*allowPng=*/true);
+  const auto numFiles = files.size();
+  if (numFiles > 0) {
+    const auto pickedIndex = pickSleepImageIndex(numFiles);
+    APP_STATE.lastSleepImage = pickedIndex;
+    APP_STATE.saveToFile();
+    const std::string& selected = files[pickedIndex];
+    if (FsHelpers::hasPngExtension(selected)) {
+      overlayDrawn = tryDrawPngOverlay(selected);
+    } else {
+      overlayDrawn = tryDrawOverlay(selected);
     }
   }
-  if (sleepDir) {
-    std::vector<std::string> files;
-    char name[500];
-    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
-      if (file.isDirectory()) {
-        file.close();
-        continue;
-      }
-      file.getName(name, sizeof(name));
-      auto filename = std::string(name);
-      if (filename[0] == '.') {
-        file.close();
-        continue;
-      }
-      const bool isBmp = FsHelpers::checkFileExtension(filename, ".bmp");
-      const bool isPng = FsHelpers::checkFileExtension(filename, ".png");
-      if (!isBmp && !isPng) {
-        file.close();
-        continue;
-      }
-      if (isBmp) {
-        Bitmap bmp(file);
-        if (bmp.parseHeaders() != BmpReaderError::Ok) {
-          file.close();
-          continue;
-        }
-      }
-      files.emplace_back(filename);
-      file.close();
-    }
-    const auto numFiles = files.size();
-    if (numFiles > 0) {
-      auto randomFileIndex = random(numFiles);
-      while (numFiles > 1 && randomFileIndex == APP_STATE.lastSleepImage) {
-        randomFileIndex = random(numFiles);
-      }
-      APP_STATE.lastSleepImage = randomFileIndex;
-      APP_STATE.saveToFile();
-      const std::string selected = std::string(sleepDir) + "/" + files[randomFileIndex];
-      if (FsHelpers::checkFileExtension(selected, ".png")) {
-        overlayDrawn = tryDrawPngOverlay(selected);
-      } else {
-        overlayDrawn = tryDrawOverlay(selected);
-      }
-    }
-  }
-  if (dir) dir.close();
 
   if (!overlayDrawn) {
     overlayDrawn = tryDrawOverlay("/sleep.bmp");

@@ -28,6 +28,7 @@ class CrossPointSettings {
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
+  enum SLEEP_IMAGE_PICK_MODE { PICK_RANDOM = 0, PICK_SEQUENTIAL = 1, SLEEP_IMAGE_PICK_MODE_COUNT };
   enum SLEEP_SCREEN_COVER_FILTER {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
@@ -177,6 +178,8 @@ class CrossPointSettings {
   uint8_t sleepScreenCoverFilter = NO_FILTER;
   // Apply information overlay with reading progress on sleep cover
   uint8_t sleepCoverOverlay = 0;
+  // Sleep image pick mode (random vs sequential walk-through)
+  uint8_t sleepImagePickMode = PICK_RANDOM;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
