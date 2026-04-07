@@ -127,7 +127,15 @@ void KOReaderSyncActivity::performSync() {
       statusMessage = tr(STR_MAPPING_LOCAL);
     }
     requestUpdateAndWait();
-    computeLocalProgressAndChapter();
+    if (!computeLocalProgressAndChapter()) {
+      {
+        RenderLock lock(*this);
+        state = SYNC_FAILED;
+        statusMessage = tr(STR_SYNC_FAILED_MSG);
+      }
+      requestUpdate(true);
+      return;
+    }
   }
 
   // Drop EPUB state before HTTPS to maximize contiguous heap for TLS.
@@ -221,19 +229,14 @@ void KOReaderSyncActivity::performSync() {
   // Defer remote EPUB mapping until user chooses Apply. Upload only needs the
   // precomputed local XPath, so this avoids post-fetch inflate churn and keeps
   // the GET session reusable for PUT.
-  hasRemoteProgress = true;
+  hasRemoteProgress = false;
   remotePositionMapped = false;
-  remotePosition.spineIndex = currentSpineIndex;
-  remotePosition.pageNumber = 0;
+  remotePosition.spineIndex = -1;
+  remotePosition.pageNumber = -1;
   remotePosition.totalPages = 0;
   remotePosition.paragraphIndex = 0;
   remotePosition.hasParagraphIndex = false;
-  int xpathSpineIndex = -1;
-  if (ChapterXPathIndexer::tryExtractSpineIndexFromXPath(remoteProgress.progress, xpathSpineIndex) &&
-      xpathSpineIndex >= 0) {
-    remotePosition.spineIndex = xpathSpineIndex;
-  }
-  remoteChapterLabel = tr(STR_UNNAMED);
+  remoteChapterLabel.clear();
 
   if (syncIntent == SyncIntent::PULL_REMOTE) {
     // Pull intent applies immediately and exits. We bypass chooser UI to keep
@@ -291,7 +294,15 @@ void KOReaderSyncActivity::performUpload() {
   // If sync reached this screen without cached local progress, compute it now.
   // This keeps upload robust when UI flow changes or retries happen.
   if (localProgress.xpath.empty()) {
-    computeLocalProgressAndChapter();
+    if (!computeLocalProgressAndChapter()) {
+      {
+        RenderLock lock(*this);
+        state = SYNC_FAILED;
+        statusMessage = tr(STR_SYNC_FAILED_MSG);
+      }
+      requestUpdate(true);
+      return;
+    }
     releaseEpubForMapping();
   }
 
@@ -431,13 +442,15 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
     // Remote progress - chapter and page
     renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 160, tr(STR_REMOTE_LABEL), true);
-    char remoteChapterStr[128];
-    snprintf(remoteChapterStr, sizeof(remoteChapterStr), "  %s", remoteChapter.c_str());
-    renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 185, remoteChapterStr);
-    char remotePageStr[64];
-    snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_PAGE_OVERALL_FORMAT), remotePosition.pageNumber + 1,
-             remoteProgress.percentage * 100);
-    renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 210, remotePageStr);
+    if (hasRemoteProgress) {
+      char remoteChapterStr[128];
+      snprintf(remoteChapterStr, sizeof(remoteChapterStr), "  %s", remoteChapter.c_str());
+      renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 185, remoteChapterStr);
+      char remotePageStr[64];
+      snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_PAGE_OVERALL_FORMAT), remotePosition.pageNumber + 1,
+               remoteProgress.percentage * 100);
+      renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 210, remotePageStr);
+    }
 
     if (!remoteProgress.device.empty()) {
       char deviceStr[64];
@@ -556,15 +569,18 @@ bool KOReaderSyncActivity::ensureRemotePositionMapped() {
   remotePosition = ProgressMapper::toCrossPoint(epub, koPos, currentSpineIndex, totalPagesInSpine);
   computeRemoteChapter();
   releaseEpubForMapping();
+  hasRemoteProgress = true;
   remotePositionMapped = true;
   return true;
 }
 
 void KOReaderSyncActivity::releaseEpubForMapping() { epub.reset(); }
 
-void KOReaderSyncActivity::computeLocalProgressAndChapter() {
+bool KOReaderSyncActivity::computeLocalProgressAndChapter() {
   if (!ensureEpubLoadedForMapping()) {
-    return;
+    localProgress = KOReaderPosition{};
+    localChapterLabel.clear();
+    return false;
   }
 
   CrossPointPosition localPos = {currentSpineIndex, currentPage, totalPagesInSpine, localParagraphIndex,
@@ -575,6 +591,7 @@ void KOReaderSyncActivity::computeLocalProgressAndChapter() {
   localChapterLabel = (localTocIndex >= 0)
                           ? epub->getTocItem(localTocIndex).title
                           : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
+  return true;
 }
 
 void KOReaderSyncActivity::computeRemoteChapter() {

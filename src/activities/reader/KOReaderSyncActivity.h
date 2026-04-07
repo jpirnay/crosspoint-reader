@@ -113,7 +113,7 @@ class KOReaderSyncActivity final : public Activity {
   void closeCancelled();
   bool ensureEpubLoadedForMapping();
   void releaseEpubForMapping();
-  void computeLocalProgressAndChapter();
+  bool computeLocalProgressAndChapter();
   void computeRemoteChapter();
   bool ensureRemotePositionMapped();
 };

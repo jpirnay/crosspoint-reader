@@ -86,7 +86,17 @@ ResponseBuffer g_sessionResponseBuf;
 void clearResponseBuffer(ResponseBuffer* buf) {
   if (!buf) return;
   if (buf->data) {
-    buf->len = 0;
+    free(buf->data);
+    buf->data = nullptr;
+  }
+  buf->len = 0;
+  buf->capacity = 0;
+}
+
+void resetResponseBuffer(ResponseBuffer* buf) {
+  if (!buf) return;
+  buf->len = 0;
+  if (buf->data) {
     buf->data[0] = '\0';
   }
 }
@@ -272,7 +282,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::registerUser() {
 
   ResponseBuffer buf;
   ResponseBuffer* activeBuf = effectiveResponseBuffer(&buf);
-  clearResponseBuffer(activeBuf);
+  resetResponseBuffer(activeBuf);
   esp_http_client_handle_t client = createClient(url.c_str(), &buf, HTTP_METHOD_POST);
   if (!client) {
     lastEspError = ESP_ERR_NO_MEM;
@@ -334,7 +344,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 
   ResponseBuffer buf;
   ResponseBuffer* activeBuf = effectiveResponseBuffer(&buf);
-  clearResponseBuffer(activeBuf);
+  resetResponseBuffer(activeBuf);
   esp_http_client_handle_t client = createClient(url.c_str(), &buf);
   if (!client) {
     lastEspError = ESP_ERR_NO_MEM;
@@ -385,7 +395,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
       return NETWORK_ERROR;
     }
 
-    clearResponseBuffer(activeBuf);
+    resetResponseBuffer(activeBuf);
 
     esp_http_client_handle_t client = createClient(url.c_str(), &buf);
     if (!client) {
@@ -487,7 +497,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
       return NETWORK_ERROR;
     }
 
-    clearResponseBuffer(activeBuf);
+    resetResponseBuffer(activeBuf);
 
     esp_http_client_handle_t client = createClient(url.c_str(), &buf, HTTP_METHOD_PUT);
     if (!client) {
