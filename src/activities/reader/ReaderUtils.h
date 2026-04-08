@@ -29,6 +29,33 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   }
 }
 
+// Suppresses input processing on activity entry until the user has released all buttons and a
+// clean frame (no pending press/release events) has been observed. Without this, the power-button
+// hold used to wake the device leaks into detectPageTurn() and triggers a page turn or, with
+// longPressChapterSkip enabled, a chapter skip (the wake-hold easily exceeds skipChapterMs).
+// Each reader holds an instance, calls arm() in onEnter(), and calls shouldDrain() at the top
+// of loop() — returning early when it returns true.
+struct InputDrainGuard {
+  bool active = false;
+
+  void arm() { active = true; }
+
+  bool shouldDrain(const MappedInputManager& input) {
+    if (!active) {
+      return false;
+    }
+    using B = MappedInputManager::Button;
+    const bool anyHeld = input.isPressed(B::Back) || input.isPressed(B::Confirm) || input.isPressed(B::Left) ||
+                         input.isPressed(B::Right) || input.isPressed(B::Up) || input.isPressed(B::Down) ||
+                         input.isPressed(B::Power) || input.isPressed(B::PageBack) || input.isPressed(B::PageForward);
+    if (anyHeld || input.wasAnyPressed() || input.wasAnyReleased()) {
+      return true;
+    }
+    active = false;
+    return false;
+  }
+};
+
 struct PageTurnResult {
   bool prev;
   bool next;
