@@ -1,8 +1,8 @@
 #include "Logging.h"
 
 #include <HalClock.h>
-#include <algorithm>
 
+#include <algorithm>
 #include <string>
 
 #define MAX_ENTRY_LEN 256
