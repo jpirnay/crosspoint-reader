@@ -226,8 +226,7 @@ void XtcReaderActivity::renderPage() {
       size_t colBytes;
     };
     XtcGrayCtx xtcCtx{plane1, plane2, pageWidth, pageHeight, colBytes};
-    // cppcheck-suppress constParameterReference
-    const auto xtcGrayFn = [](GfxRenderer& r, const void* raw) {
+    const auto xtcGrayFn = [](const GfxRenderer& r, const void* raw) {
       const auto* c = static_cast<const XtcGrayCtx*>(raw);
       const auto mode = r.getRenderMode();
       for (uint16_t y = 0; y < c->pageHeight; y++) {

@@ -1170,7 +1170,8 @@ void GfxRenderer::displayGrayBuffer(const unsigned char* lut, bool factoryMode) 
   display.displayGrayBuffer(fadingFix, lut, factoryMode);
 }
 
-void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(GfxRenderer&, const void*), const void* ctx) {
+void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*),
+                                  const void* ctx) {
   if (mode == GrayscaleMode::FactoryFast || mode == GrayscaleMode::FactoryQuality) {
     // Pre-flash to white so the factory LUT can drive particles reliably from any prior state.
     // Without this, particles stranded at intermediate grays may not complete their transition:

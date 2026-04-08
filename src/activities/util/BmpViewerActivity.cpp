@@ -63,20 +63,23 @@ void BmpViewerActivity::onEnter() {
           MappedInputManager::Labels labels;
         };
         BmpGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, labels};
+        renderer.storeBwBuffer();
         renderer.renderGrayscale(
             GfxRenderer::GrayscaleMode::FactoryQuality,
-            // cppcheck-suppress constParameterReference
-            [](GfxRenderer& r, const void* raw) {
+            [](const GfxRenderer& r, const void* raw) {
               const auto* c = static_cast<const BmpGrayCtx*>(raw);
               if (c->bitmap->rewindToData() != BmpReaderError::Ok) {
                 LOG_ERR("BMP", "rewindToData failed in grayscale pass");
-                GUI.drawButtonHints(r, c->labels.btn1, c->labels.btn2, c->labels.btn3, c->labels.btn4);
+                GUI.drawButtonHints(const_cast<GfxRenderer&>(r), c->labels.btn1, c->labels.btn2, c->labels.btn3,
+                                    c->labels.btn4);
                 return;
               }
               r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, 0, 0);
-              GUI.drawButtonHints(r, c->labels.btn1, c->labels.btn2, c->labels.btn3, c->labels.btn4);
+              GUI.drawButtonHints(const_cast<GfxRenderer&>(r), c->labels.btn1, c->labels.btn2, c->labels.btn3,
+                                  c->labels.btn4);
             },
             &grayCtx);
+        renderer.restoreBwBuffer();
       } else {
         renderer.displayBuffer(HalDisplay::FULL_REFRESH);
       }

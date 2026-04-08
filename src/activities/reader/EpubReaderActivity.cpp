@@ -744,8 +744,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       const EpubReaderActivity* activity;
     };
     PageRenderCtx grayCtx{page.get(), SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, this};
-    // cppcheck-suppress constParameterReference
-    const auto grayFn = [](GfxRenderer& r, const void* raw) {
+    const auto grayFn = [](const GfxRenderer& r, const void* raw) {
       const auto* c = static_cast<const PageRenderCtx*>(raw);
       c->page->render(const_cast<GfxRenderer&>(r), c->fontId, c->left, c->top);
       c->activity->renderStatusBar();

@@ -168,8 +168,7 @@ class GfxRenderer {
   // handles pre-flash (FactoryFast only), clearScreen, setRenderMode, buffer copies,
   // displayGrayBuffer, and resets renderMode to BW on completion.
   // storeBwBuffer / restoreBwBuffer remain the caller's responsibility.
-  // cppcheck-suppress constParameterCallback
-  void renderGrayscale(GrayscaleMode mode, void (*renderFn)(GfxRenderer&, const void*), const void* ctx);
+  void renderGrayscale(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*), const void* ctx);
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
