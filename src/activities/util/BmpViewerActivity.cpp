@@ -53,15 +53,33 @@ void BmpViewerActivity::onEnter() {
       GUI.fillPopupProgress(renderer, popupRect, 50);
 
       renderer.clearScreen();
-      // Assuming drawBitmap defaults to 0,0 crop if omitted, or pass explicitly: drawBitmap(bitmap, x, y, pageWidth,
-      // pageHeight, 0, 0)
       renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
-
-      // Draw UI hints on the base layer
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-      // Single pass for non-grayscale images
 
-      renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+      if (bitmap.hasGreyscale()) {
+        struct BmpGrayCtx {
+          Bitmap* bitmap;
+          int x, y, maxWidth, maxHeight;
+          MappedInputManager::Labels labels;
+        };
+        BmpGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, labels};
+        renderer.renderGrayscale(
+            GfxRenderer::GrayscaleMode::FactoryQuality,
+            // cppcheck-suppress constParameterReference
+            [](GfxRenderer& r, const void* raw) {
+              const auto* c = static_cast<const BmpGrayCtx*>(raw);
+              if (c->bitmap->rewindToData() != BmpReaderError::Ok) {
+                LOG_ERR("BMP", "rewindToData failed in grayscale pass");
+                GUI.drawButtonHints(r, c->labels.btn1, c->labels.btn2, c->labels.btn3, c->labels.btn4);
+                return;
+              }
+              r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, 0, 0);
+              GUI.drawButtonHints(r, c->labels.btn1, c->labels.btn2, c->labels.btn3, c->labels.btn4);
+            },
+            &grayCtx);
+      } else {
+        renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+      }
 
     } else {
       // Handle file parsing error
