@@ -1207,6 +1207,71 @@ void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(const Gfx
   setRenderMode(BW);
 }
 
+void GfxRenderer::displayXtchPlanes(const uint8_t* plane1, const uint8_t* plane2, const uint16_t pageWidth,
+                                    const uint16_t pageHeight) {
+  const size_t colBytes = (pageHeight + 7) / 8;
+  const uint16_t fbStride = panelWidthBytes;
+
+  // Pass 1: plane1 → BW RAM (LSB). bit=1 where pv>=2 (LightGrey or Black).
+  clearScreen(0x00);
+  for (uint16_t c = 0; c < pageWidth; c++) {
+    const uint8_t* srcCol = plane1 + static_cast<uint32_t>(c) * colBytes;
+    uint8_t* dstRow = frameBuffer + static_cast<uint32_t>(c) * fbStride;
+    for (uint16_t b = 0; b < colBytes; b++) {
+      dstRow[b] = srcCol[b];
+    }
+  }
+  copyGrayscaleLsbBuffers();
+
+  // Pass 2: plane2 → RED RAM (MSB). bit=1 where pv&1 (DarkGrey or Black).
+  clearScreen(0x00);
+  for (uint16_t c = 0; c < pageWidth; c++) {
+    const uint8_t* srcCol = plane2 + static_cast<uint32_t>(c) * colBytes;
+    uint8_t* dstRow = frameBuffer + static_cast<uint32_t>(c) * fbStride;
+    for (uint16_t b = 0; b < colBytes; b++) {
+      dstRow[b] = srcCol[b];
+    }
+  }
+  copyGrayscaleMsbBuffers();
+
+  displayGrayBuffer(lut_factory_fast, true);
+  setRenderMode(BW);
+
+  // Re-render BW approximation into framebuffer so the controller's RED RAM reflects a coherent
+  // BW state for subsequent page turns (prevents fading/ghosting from residual gray RAM data).
+  clearScreen();
+  for (uint16_t y = 0; y < pageHeight; y++) {
+    for (uint16_t x = 0; x < pageWidth; x++) {
+      const size_t colIndex = pageWidth - 1 - x;
+      const size_t byteInCol = y / 8;
+      const size_t bitInByte = 7 - (y % 8);
+      const size_t byteOffset = colIndex * colBytes + byteInCol;
+      const uint8_t bit1 = (plane1[byteOffset] >> bitInByte) & 1;
+      const uint8_t bit2 = (plane2[byteOffset] >> bitInByte) & 1;
+      if (((bit1 << 1) | bit2) >= 1) {
+        drawPixel(x, y, true);
+      }
+    }
+  }
+  cleanupGrayscaleWithFrameBuffer();
+}
+
+void GfxRenderer::displayXtcBwPage(const uint8_t* pageBuffer, const uint16_t pageWidth, const uint16_t pageHeight) {
+  const size_t srcRowBytes = (pageWidth + 7) / 8;
+
+  // 1-bit content has no AA — render as plain BW and use the standard differential fast-refresh
+  // LUT (same as menus/EPUB). No factory LUT needed; avoids all GRAY2 convention complexity.
+  clearScreen();
+  for (uint16_t y = 0; y < pageHeight; y++) {
+    for (uint16_t x = 0; x < pageWidth; x++) {
+      if (!((pageBuffer[y * srcRowBytes + x / 8] >> (7 - (x % 8))) & 1)) {
+        drawPixel(x, y, true);
+      }
+    }
+  }
+  displayBuffer(HalDisplay::FAST_REFRESH);
+}
+
 void GfxRenderer::freeBwBufferChunks() {
   for (auto& bwBufferChunk : bwBufferChunks) {
     if (bwBufferChunk) {

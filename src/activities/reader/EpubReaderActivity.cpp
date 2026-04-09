@@ -758,6 +758,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     fcm->logStats(useFactoryGray ? "gray_factory" : "gray");
 
     renderer.restoreBwBuffer();
+    if (useFactoryGray) {
+      // Factory LUT leaves RED RAM in gray-encoded state; sync controller to the
+      // restored BW framebuffer so subsequent BW page turns render cleanly.
+      renderer.cleanupGrayscaleWithFrameBuffer();
+    }
     const auto tBwRestore = millis();
 
     const auto tEnd = millis();
