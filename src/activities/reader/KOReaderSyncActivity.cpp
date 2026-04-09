@@ -226,9 +226,7 @@ void KOReaderSyncActivity::performSync() {
     return;
   }
 
-  // Defer remote EPUB mapping until user chooses Apply. Upload only needs the
-  // precomputed local XPath, so this avoids post-fetch inflate churn and keeps
-  // the GET session reusable for PUT.
+  // Prepare remote mapping state for the next step.
   hasRemoteProgress = false;
   remotePositionMapped = false;
   remotePosition.spineIndex = -1;
@@ -266,6 +264,18 @@ void KOReaderSyncActivity::performSync() {
 
   // Compare intent keeps the legacy chooser flow (apply vs upload), which is
   // still useful for manual conflict decisions.
+  // Pre-map remote progress now so compare UI always shows concrete chapter/
+  // page data. The mapped result is cached and reused if Apply is chosen.
+  if (!ensureRemotePositionMapped()) {
+    {
+      RenderLock lock(*this);
+      state = SYNC_FAILED;
+      statusMessage = tr(STR_SYNC_FAILED_MSG);
+    }
+    requestUpdate(true);
+    return;
+  }
+
   // Local progress was precomputed before network; keep using the cached value.
   releaseEpubForMapping();
 
@@ -442,15 +452,13 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
     // Remote progress - chapter and page
     renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 160, tr(STR_REMOTE_LABEL), true);
-    if (hasRemoteProgress) {
-      char remoteChapterStr[128];
-      snprintf(remoteChapterStr, sizeof(remoteChapterStr), "  %s", remoteChapter.c_str());
-      renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 185, remoteChapterStr);
-      char remotePageStr[64];
-      snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_PAGE_OVERALL_FORMAT), remotePosition.pageNumber + 1,
-               remoteProgress.percentage * 100);
-      renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 210, remotePageStr);
-    }
+    char remoteChapterStr[128];
+    snprintf(remoteChapterStr, sizeof(remoteChapterStr), "  %s", remoteChapter.c_str());
+    renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 185, remoteChapterStr);
+    char remotePageStr[64];
+    snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_PAGE_OVERALL_FORMAT), remotePosition.pageNumber + 1,
+             remoteProgress.percentage * 100);
+    renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, 210, remotePageStr);
 
     if (!remoteProgress.device.empty()) {
       char deviceStr[64];
