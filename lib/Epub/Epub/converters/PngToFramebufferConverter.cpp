@@ -24,8 +24,18 @@ struct PngContext {
   const RenderConfig* config{nullptr};
   int screenWidth{0};
   int screenHeight{0};
+  GfxRenderer* renderer{nullptr};
+  const RenderConfig* config{nullptr};
+  int screenWidth{0};
+  int screenHeight{0};
 
   // Scaling state
+  float scale{1.f};
+  int srcWidth{0};
+  int srcHeight{0};
+  int dstWidth{0};
+  int dstHeight{0};
+  int lastDstY{-1};  // Track last rendered destination Y to avoid duplicates
   float scale{1.f};
   int srcWidth{0};
   int srcHeight{0};

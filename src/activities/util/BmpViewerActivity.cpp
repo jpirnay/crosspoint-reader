@@ -150,25 +150,37 @@ bool BmpViewerActivity::renderBmpImage(const bool showControls) {
 
   GUI.fillPopupProgress(renderer, popupRect, 50);
 
-  bmpHasGreyscale = bitmap.hasGreyscale();
-  // Only render in grayscale when the bitmap actually carries greyscale data AND the user has it enabled.
-  const bool renderGrayscale = bmpHasGreyscale && grayscaleDisplay;
+      renderer.clearScreen();
+      renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  // Draw control hints. btn2 only shows the BW/Gray toggle when the bitmap supports greyscale —
-  // pure 1-bit BMPs have nothing to toggle. The label shows the *target* mode (what pressing it switches to).
-  const auto drawHints = [&]() {
-    if (!showControls) return;
-    const char* modeLabel =
-        bmpHasGreyscale ? (grayscaleDisplay ? tr(STR_IMAGE_DISPLAY_BW) : tr(STR_IMAGE_DISPLAY_GRAYSCALE)) : "";
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), modeLabel, "", tr(STR_SET_SLEEP_SCREEN));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  };
-
-  renderer.setRenderMode(GfxRenderer::BW);
-  renderer.clearScreen();
-  renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
-  drawHints();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      if (bitmap.hasGreyscale()) {
+        struct BmpGrayCtx {
+          Bitmap* bitmap;
+          int x, y, maxWidth, maxHeight;
+          MappedInputManager::Labels labels;
+        };
+        BmpGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, labels};
+        renderer.storeBwBuffer();
+        renderer.renderGrayscale(
+            GfxRenderer::GrayscaleMode::FactoryQuality,
+            [](const GfxRenderer& r, const void* raw) {
+              const auto* c = static_cast<const BmpGrayCtx*>(raw);
+              if (c->bitmap->rewindToData() != BmpReaderError::Ok) {
+                LOG_ERR("BMP", "rewindToData failed in grayscale pass");
+                GUI.drawButtonHints(const_cast<GfxRenderer&>(r), c->labels.btn1, c->labels.btn2, c->labels.btn3,
+                                    c->labels.btn4);
+                return;
+              }
+              r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, 0, 0);
+              GUI.drawButtonHints(const_cast<GfxRenderer&>(r), c->labels.btn1, c->labels.btn2, c->labels.btn3,
+                                  c->labels.btn4);
+            },
+            &grayCtx);
+        renderer.restoreBwBuffer();
+      } else {
+        renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+      }
 
   if (renderGrayscale) {
     // Multi-pass 4-level grayscale render — mirrors SleepActivity::renderBitmapSleepScreen.

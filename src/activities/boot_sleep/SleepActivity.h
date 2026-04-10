@@ -1,5 +1,4 @@
 #pragma once
-
 #include <string>
 
 #include "../Activity.h"
@@ -25,6 +24,7 @@ class SleepActivity final : public Activity {
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap, const BookOverlayInfo& overlayInfo) const;
+  void renderPxcSleepScreen(const std::string& path) const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;
   BookOverlayInfo getBookOverlayInfo(const std::string& bookPath) const;

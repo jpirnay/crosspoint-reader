@@ -33,7 +33,9 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
     const EpdGlyph* glyph = getGlyph(cp);
     if (!glyph) {
       lastBaseX += fp4::toPixel(prevAdvanceFP);  // flush pending advance before resetting
+      lastBaseX += fp4::toPixel(prevAdvanceFP);  // flush pending advance before resetting
       prevCp = 0;
+      prevAdvanceFP = 0;
       prevAdvanceFP = 0;
       continue;
     }
@@ -41,6 +43,8 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
     const int raiseBy = isCombining ? combiningMark::raiseAboveBase(glyph->top, glyph->height, lastBaseTop) : 0;
 
     if (!isCombining && prevCp != 0) {
+      const auto kernFP = getKerning(prevCp, cp);  // 4.4 fixed-point kern
+      lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);
       const auto kernFP = getKerning(prevCp, cp);  // 4.4 fixed-point kern
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);
     }
@@ -60,6 +64,7 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
       lastBaseWidth = glyph->width;
       lastBaseAdvanceFP = glyph->advanceX;  // 12.4 fixed-point
       lastBaseTop = glyph->top;
+      prevAdvanceFP = lastBaseAdvanceFP;
       prevAdvanceFP = lastBaseAdvanceFP;
       prevCp = cp;
     }

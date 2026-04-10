@@ -19,7 +19,13 @@ enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 
 
 class GfxRenderer {
  public:
-  enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
+  enum RenderMode {
+    BW,             // 1-bit black/white
+    GRAYSCALE_LSB,  // Differential gray: mark pixels for LSB plane (clearScreen(0x00) + drawPixel(false))
+    GRAYSCALE_MSB,  // Differential gray: mark pixels for MSB plane (clearScreen(0x00) + drawPixel(false))
+    GRAY2_LSB,      // Factory absolute gray: encode BW RAM = bit0 (clearScreen(0x00) + drawPixel(false))
+    GRAY2_MSB,      // Factory absolute gray: encode RED RAM = bit1 (clearScreen(0x00) + drawPixel(false))
+  };
 
   // Logical screen orientation from the perspective of callers
   enum Orientation {
@@ -27,6 +33,13 @@ class GfxRenderer {
     LandscapeClockwise,        // 800x480 logical coordinates, rotated 180° (swap top/bottom)
     PortraitInverted,          // 480x800 logical coordinates, inverted
     LandscapeCounterClockwise  // 800x480 logical coordinates, native panel orientation
+  };
+
+  // Selects LUT, pixel-plane encoding, and pre-flash behavior for renderGrayscale().
+  enum class GrayscaleMode {
+    FactoryFast,     // Factory absolute 2-bit (lut_factory_fast); HALF_REFRESH pre-flash to white
+    FactoryQuality,  // Factory absolute 2-bit (lut_factory_quality); HALF_REFRESH pre-flash to white
+    Differential,    // Differential 2-bit overlay (no LUT); no pre-flash, requires prior BW state
   };
 
  private:
@@ -184,10 +197,25 @@ class GfxRenderer {
   uint8_t getTextDarkness() const { return static_cast<uint8_t>(textDarkness.load(std::memory_order_relaxed)); }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
-  void displayGrayBuffer() const;
+  void displayGrayBuffer(const unsigned char* lut = nullptr, bool factoryMode = false) const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;
+  // Two-pass grayscale render. renderFn is called twice: once with the LSB render mode set
+  // (writes BW RAM plane), then with the MSB mode set (writes RED RAM plane). The method
+  // handles pre-flash (FactoryFast only), clearScreen, setRenderMode, buffer copies,
+  // displayGrayBuffer, and resets renderMode to BW on completion.
+  // storeBwBuffer / restoreBwBuffer remain the caller's responsibility.
+  void renderGrayscale(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*), const void* ctx);
+
+  // Direct 2-bit XTCH plane blit using factory LUT. Caller supplies the two decoded bit planes
+  // (plane1 = BW RAM / LSB, plane2 = RED RAM / MSB) in column-major order matching XTCH encoding.
+  // Handles pre-flash, both RAM writes, factory LUT fire, and BW controller sync internally.
+  void displayXtchPlanes(const uint8_t* plane1, const uint8_t* plane2, uint16_t pageWidth, uint16_t pageHeight);
+
+  // 1-bit XTC page via the same grayscale LUT pipeline. Row-major pageBuffer (XTC: 0=black, 1=white).
+  // BW and RED RAM receive identical data since there are no intermediate gray levels.
+  void displayXtcBwPage(const uint8_t* pageBuffer, uint16_t pageWidth, uint16_t pageHeight);
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;

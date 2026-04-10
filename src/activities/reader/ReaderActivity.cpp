@@ -15,6 +15,7 @@
 #include "activities/util/FullScreenMessageActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "activities/util/PxcViewerActivity.h"
 
 std::string ReaderActivity::extractFolderPath(const std::string& filePath) {
   const auto lastSlash = filePath.find_last_of('/');
@@ -34,6 +35,8 @@ bool ReaderActivity::isTxtFile(const std::string& path) {
 bool ReaderActivity::isImageFile(const std::string& path) {
   return FsHelpers::hasBmpExtension(path) || FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path);
 }
+
+bool ReaderActivity::isPxcFile(const std::string& path) { return FsHelpers::hasPxcExtension(path); }
 
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
@@ -99,6 +102,10 @@ void ReaderActivity::onGoToBmpViewer(const std::string& path) {
                          [this](const ActivityResult&) { finish(); });
 }
 
+void ReaderActivity::onGoToPxcViewer(const std::string& path) {
+  activityManager.replaceActivity(std::make_unique<PxcViewerActivity>(renderer, mappedInput, path));
+}
+
 void ReaderActivity::onGoToXtcReader(std::unique_ptr<Xtc> xtc) {
   const auto xtcPath = xtc->getPath();
   currentBookPath = xtcPath;
@@ -124,6 +131,8 @@ void ReaderActivity::onEnter() {
   currentBookPath = initialBookPath;
   if (isImageFile(initialBookPath)) {
     onGoToBmpViewer(initialBookPath);
+  } else if (isPxcFile(initialBookPath)) {
+    onGoToPxcViewer(initialBookPath);
   } else if (isXtcFile(initialBookPath)) {
     {
       RenderLock lock(*this);

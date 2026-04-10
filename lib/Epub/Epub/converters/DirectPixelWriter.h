@@ -27,7 +27,7 @@ struct DirectPixelWriter {
   // Row-precomputed: the Y-dependent portion of the physical coords
   int rowPhyXBase, rowPhyYBase;
 
-  void init(GfxRenderer& renderer) {
+  void init(const GfxRenderer& renderer) {
     fb = renderer.getFrameBuffer();
     mode = renderer.getRenderMode();
     displayWidthBytes = renderer.getDisplayWidthBytes();
@@ -109,6 +109,16 @@ struct DirectPixelWriter {
         break;
       case GfxRenderer::GRAYSCALE_LSB:
         draw = (pixelValue == 1);
+        state = false;
+        break;
+      case GfxRenderer::GRAY2_LSB:
+        // Factory absolute BW RAM: set bit=1 for Black(0) and LightGrey(2)
+        draw = !(pixelValue & 1);
+        state = false;
+        break;
+      case GfxRenderer::GRAY2_MSB:
+        // Factory absolute RED RAM: set bit=1 for Black(0) and DarkGrey(1)
+        draw = (pixelValue < 2);
         state = false;
         break;
       default:

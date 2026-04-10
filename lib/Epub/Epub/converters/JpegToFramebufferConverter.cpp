@@ -24,16 +24,26 @@ struct JpegContext {
   const RenderConfig* config{nullptr};
   int screenWidth{0};
   int screenHeight{0};
+  GfxRenderer* renderer{nullptr};
+  const RenderConfig* config{nullptr};
+  int screenWidth{0};
+  int screenHeight{0};
 
   // Source dimensions after JPEGDEC's built-in scaling
+  int scaledSrcWidth{0};
+  int scaledSrcHeight{0};
   int scaledSrcWidth{0};
   int scaledSrcHeight{0};
 
   // Final output dimensions
   int dstWidth{0};
   int dstHeight{0};
+  int dstWidth{0};
+  int dstHeight{0};
 
   // Fine scale in 16.16 fixed-point (ESP32-C3 has no FPU)
+  int32_t fineScaleFP{1 << 16};  // src -> dst mapping
+  int32_t invScaleFP{1 << 16};   // dst -> src mapping
   int32_t fineScaleFP{1 << 16};  // src -> dst mapping
   int32_t invScaleFP{1 << 16};   // dst -> src mapping
 

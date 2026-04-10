@@ -59,9 +59,9 @@ uint8_t quantizeSimple(int gray) {
   // (slightly brighter to compensate for quantization)
   if (gray < 45) {
     return 0;
-  } else if (gray < 70) {
+  } else if (gray < 128) {
     return 1;
-  } else if (gray < 140) {
+  } else if (gray < 213) {
     return 2;
   } else {
     return 3;

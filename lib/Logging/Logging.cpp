@@ -59,6 +59,11 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
     }
     // clamp c to be in buffer range
     c += std::min(len, MAX_ENTRY_LEN);
+      va_end(args);
+      return;
+    }
+    // clamp c to be in buffer range
+    c += std::min(len, MAX_ENTRY_LEN);
   }
   // add the user message
   {
