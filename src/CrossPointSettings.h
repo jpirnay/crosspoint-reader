@@ -147,16 +147,7 @@ class CrossPointSettings {
     DARKNESS_MAXIMUM = 3,     // skip grayscale passes — AA pixels stay solid black from BW pass
     TEXT_DARKNESS_COUNT
   };
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  enum IMAGE_DITHERING {
-    IMAGE_DITHER_BAYER = 0,
-    IMAGE_DITHER_ATKINSON = 1,
-    IMAGE_DITHER_DIFFUSED_BAYER = 2,
-    IMAGE_DITHERING_COUNT
-  };
-#else
   enum IMAGE_DITHERING { IMAGE_DITHER_BAYER = 0, IMAGE_DITHERING_COUNT };
-#endif
 
   // Timezone options (POSIX TZ rules for DST support)
   enum TIMEZONE {

@@ -1,6 +1,5 @@
 #include "JpegToFramebufferConverter.h"
 
-#include <BitmapHelpers.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -39,99 +38,7 @@ struct JpegContext {
 
   PixelCache cache;
   bool caching{false};
-
-  // See PngContext for the rationale: monochromeOutput requests a 1-bit Atkinson dither
-  // emitting only 0/3 so the BW DirectPixelWriter (`pixelValue < 3` rule) maps cleanly.
-  int oneBitDitherRow{-1};
-  Atkinson1BitDitherer* atkinson1BitDitherer{nullptr};
-
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  int currentDitherRow{-1};
-  AtkinsonDitherer* atkinsonDitherer{nullptr};
-  DiffusedBayerDitherer* diffusedBayerDitherer{nullptr};
-#endif
-
-  ~JpegContext() {
-    delete atkinson1BitDitherer;
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    delete atkinsonDitherer;
-    delete diffusedBayerDitherer;
-#endif
-  }
 };
-
-// Advance the 1-bit Atkinson ditherer to the requested destination row.
-// Handles non-monotonic row walks (block-based JPEG decode) by reset+replay.
-void prepareOneBitDitherRow(JpegContext& ctx, int dstY) {
-  if (!ctx.atkinson1BitDitherer) return;
-
-  if (ctx.oneBitDitherRow == -1 || dstY < ctx.oneBitDitherRow) {
-    ctx.atkinson1BitDitherer->reset();
-    ctx.oneBitDitherRow = dstY;
-    return;
-  }
-
-  while (ctx.oneBitDitherRow < dstY) {
-    ctx.atkinson1BitDitherer->nextRow();
-    ctx.oneBitDitherRow++;
-  }
-}
-
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-void prepareDitherRow(JpegContext& ctx, int dstY) {
-  if (!ctx.config || !ctx.config->useDithering) return;
-
-  if (ctx.currentDitherRow == -1 || dstY < ctx.currentDitherRow) {
-    if (ctx.atkinsonDitherer) ctx.atkinsonDitherer->reset();
-    if (ctx.diffusedBayerDitherer) ctx.diffusedBayerDitherer->reset();
-    ctx.currentDitherRow = dstY;
-    return;
-  }
-
-  while (ctx.currentDitherRow < dstY) {
-    if (ctx.atkinsonDitherer) ctx.atkinsonDitherer->nextRow();
-    if (ctx.diffusedBayerDitherer) ctx.diffusedBayerDitherer->nextRow();
-    ctx.currentDitherRow++;
-  }
-}
-
-uint8_t ditherGray(JpegContext& ctx, uint8_t gray, int localX, int outX, int outY) {
-  if (ctx.atkinson1BitDitherer) {
-    return ctx.atkinson1BitDitherer->processPixel(gray, localX) ? 3 : 0;
-  }
-
-  if (!ctx.config || !ctx.config->useDithering) {
-    return quantizeGray4Level(gray);
-  }
-
-  switch (ctx.config->ditherMode) {
-    case ImageDitherMode::Atkinson:
-      if (ctx.atkinsonDitherer) {
-        return ctx.atkinsonDitherer->processPixel(gray, localX);
-      }
-      break;
-    case ImageDitherMode::DiffusedBayer:
-      if (ctx.diffusedBayerDitherer) {
-        return ctx.diffusedBayerDitherer->processPixel(gray, localX, outX, outY);
-      }
-      break;
-    case ImageDitherMode::Bayer:
-    case ImageDitherMode::COUNT:
-    default:
-      break;
-  }
-
-  return applyBayerDither4Level(gray, outX, outY);
-}
-#else
-uint8_t ditherGray(JpegContext& ctx, uint8_t gray, int localX, int outX, int outY) {
-  if (ctx.atkinson1BitDitherer) {
-    return ctx.atkinson1BitDitherer->processPixel(gray, localX) ? 3 : 0;
-  }
-  (void)localX;
-  return applyBayerDither4Level(gray, outX, outY);
-}
-#endif
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
@@ -216,6 +123,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
   if (stride <= 0 || blockH <= 0 || validW <= 0) return 1;
 
+  const bool useDithering = ctx->config->useDithering;
   const bool caching = ctx->caching;
   const int32_t fineScaleFP = ctx->fineScaleFP;
   const int32_t invScaleFP = ctx->invScaleFP;
@@ -260,17 +168,19 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   if (fineScaleFP == FP_ONE) {
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
-      prepareOneBitDitherRow(*ctx, dstY);
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-      prepareDitherRow(*ctx, dstY);
-#endif
       pw.beginRow(outY);
       if (caching) cw.beginRow(outY, ctx->config->y);
       const uint8_t* row = &pixels[(dstY - blockY) * stride];
       for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
         const int outX = cfgX + dstX;
         uint8_t gray = row[dstX - blockX];
-        uint8_t dithered = ditherGray(*ctx, gray, dstX, outX, outY);
+        uint8_t dithered;
+        if (useDithering) {
+          dithered = applyBayerDither4Level(gray, outX, outY);
+        } else {
+          dithered = gray / 85;
+          if (dithered > 3) dithered = 3;
+        }
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -292,10 +202,6 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
-      prepareOneBitDitherRow(*ctx, dstY);
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-      prepareDitherRow(*ctx, dstY);
-#endif
       pw.beginRow(outY);
       if (caching) cw.beginRow(outY, ctx->config->y);
       const int32_t srcFyFP = dstY * invScaleFP;
@@ -327,7 +233,13 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
         uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
-        uint8_t dithered = ditherGray(*ctx, gray, dstX, outX, outY);
+        uint8_t dithered;
+        if (useDithering) {
+          dithered = applyBayerDither4Level(gray, outX, outY);
+        } else {
+          dithered = gray / 85;
+          if (dithered > 3) dithered = 3;
+        }
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -344,7 +256,13 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx0 + 1] * fx) >> FP_SHIFT;
         uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
-        uint8_t dithered = ditherGray(*ctx, gray, dstX, outX, outY);
+        uint8_t dithered;
+        if (useDithering) {
+          dithered = applyBayerDither4Level(gray, outX, outY);
+        } else {
+          dithered = gray / 85;
+          if (dithered > 3) dithered = 3;
+        }
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -364,7 +282,13 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
         uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
-        uint8_t dithered = ditherGray(*ctx, gray, dstX, outX, outY);
+        uint8_t dithered;
+        if (useDithering) {
+          dithered = applyBayerDither4Level(gray, outX, outY);
+        } else {
+          dithered = gray / 85;
+          if (dithered > 3) dithered = 3;
+        }
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -375,10 +299,6 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   // === Nearest-neighbor (downscale: fineScale < 1.0) ===
   for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
     const int outY = cfgY + dstY;
-    prepareOneBitDitherRow(*ctx, dstY);
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    prepareDitherRow(*ctx, dstY);
-#endif
     pw.beginRow(outY);
     if (caching) cw.beginRow(outY, ctx->config->y);
     const int32_t srcFyFP = dstY * invScaleFP;
@@ -395,7 +315,13 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
       if (lx >= validW) lx = validW - 1;
       uint8_t gray = row[lx];
 
-      uint8_t dithered = ditherGray(*ctx, gray, dstX, outX, outY);
+      uint8_t dithered;
+      if (useDithering) {
+        dithered = applyBayerDither4Level(gray, outX, outY);
+      } else {
+        dithered = gray / 85;
+        if (dithered > 3) dithered = 3;
+      }
       pw.writePixel(outX, dithered);
       if (caching) cw.writePixel(outX, dithered);
     }
@@ -538,38 +464,6 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
       LOG_ERR("JPG", "Failed to allocate cache buffer, continuing without caching");
       ctx.caching = false;
     }
-  }
-
-  // See PngToFramebufferConverter for rationale: BW-only display needs a 1-bit
-  // dither so mid-grays don't collapse to black under DirectPixelWriter's `< 3` rule.
-  if (config.monochromeOutput) {
-    ctx.atkinson1BitDitherer = new (std::nothrow) Atkinson1BitDitherer(destWidth);
-    if (!ctx.atkinson1BitDitherer) {
-      LOG_ERR("JPG", "Failed to allocate 1-bit Atkinson ditherer, falling back to 4-level dither");
-    }
-  }
-
-  if (config.useDithering && !ctx.atkinson1BitDitherer) {
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    switch (config.ditherMode) {
-      case ImageDitherMode::Atkinson:
-        ctx.atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(destWidth);
-        if (!ctx.atkinsonDitherer) {
-          LOG_ERR("JPG", "Failed to allocate Atkinson ditherer, falling back to Bayer");
-        }
-        break;
-      case ImageDitherMode::DiffusedBayer:
-        ctx.diffusedBayerDitherer = new (std::nothrow) DiffusedBayerDitherer(destWidth);
-        if (!ctx.diffusedBayerDitherer) {
-          LOG_ERR("JPG", "Failed to allocate diffused Bayer ditherer, falling back to Bayer");
-        }
-        break;
-      case ImageDitherMode::Bayer:
-      case ImageDitherMode::COUNT:
-      default:
-        break;
-    }
-#endif
   }
 
   unsigned long decodeStart = millis();

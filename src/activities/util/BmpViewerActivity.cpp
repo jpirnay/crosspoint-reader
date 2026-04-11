@@ -20,10 +20,6 @@ constexpr const char* SLEEP_BMP_PATH = "/sleep.bmp";
 constexpr const char* SLEEP_BMP_TMP_PATH = "/sleep.bmp.tmp";
 constexpr const char* SLEEP_BMP_BACKUP_PATH = "/sleep.bmp.bak";
 
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-uint8_t normalizeImageDitherModeValue(uint8_t mode) { return static_cast<uint8_t>(imageDitherModeFromSetting(mode)); }
-#endif
-
 bool isBmpFile(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
 
 bool isSupportedImageFile(const std::string& path) {
@@ -88,18 +84,7 @@ bool replaceSleepBmpFromTemp() {
 }  // namespace
 
 BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path)
-    : Activity("BmpViewer", renderer, mappedInput),
-      filePath(std::move(path))
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-      ,
-      imageDitherMode(normalizeImageDitherModeValue(SETTINGS.imageDithering)),
-      initialImageDitherMode(imageDitherMode),
-      imageDitherSettingsDirty(false) {
-}
-#else
-{
-}
-#endif
+    : Activity("BmpViewer", renderer, mappedInput), filePath(std::move(path)) {}
 
 bool BmpViewerActivity::renderCurrentImage(const bool showControls) {
   return isBmpFile(filePath) ? renderBmpImage(showControls) : renderDecodedImage(showControls);
@@ -119,9 +104,6 @@ void BmpViewerActivity::onEnter() {
 }
 
 void BmpViewerActivity::onExit() {
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  saveDitherSettingsIfNeeded();
-#endif
   Activity::onExit();
   ReaderUtils::enforceExitFullRefresh(renderer);
 }
@@ -222,23 +204,14 @@ bool BmpViewerActivity::renderDecodedImage(const bool showControls) {
   config.useExactDimensions = true;
   config.useGrayscale = true;
   config.useDithering = true;
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  config.ditherMode = imageDitherModeFromSetting(imageDitherMode);
-#else
   config.ditherMode = ImageDitherMode::Bayer;
-#endif
 
   // Helper to draw the on-screen control hints. The btn3 label shows the *other* mode
   // (i.e. what pressing it would switch to).
   const auto drawHints = [&]() {
     if (!showControls) return;
     const char* modeLabel = grayscaleDisplay ? tr(STR_IMAGE_DISPLAY_BW) : tr(STR_IMAGE_DISPLAY_GRAYSCALE);
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    const char* btn3Label = grayscaleDisplay ? I18N.get(getCurrentDitherModeLabel()) : "";
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), modeLabel, btn3Label, tr(STR_SET_SLEEP_SCREEN));
-#else
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), modeLabel, "", tr(STR_SET_SLEEP_SCREEN));
-#endif
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   };
 
@@ -302,42 +275,6 @@ void BmpViewerActivity::toggleDisplayMode() {
     renderError(tr(STR_COULD_NOT_RENDER_IMAGE));
   }
 }
-
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-StrId BmpViewerActivity::getCurrentDitherModeLabel() const {
-  switch (imageDitherModeFromSetting(imageDitherMode)) {
-    case ImageDitherMode::Atkinson:
-      return StrId::STR_IMAGE_DITHER_ATKINSON;
-    case ImageDitherMode::DiffusedBayer:
-      return StrId::STR_IMAGE_DITHER_DIFFUSED_BAYER;
-    case ImageDitherMode::Bayer:
-    case ImageDitherMode::COUNT:
-    default:
-      return StrId::STR_IMAGE_DITHER_BAYER;
-  }
-}
-
-void BmpViewerActivity::cycleDitherMode() {
-  imageDitherMode = (imageDitherMode + 1) % CrossPointSettings::IMAGE_DITHERING_COUNT;
-  SETTINGS.imageDithering = imageDitherMode;
-  imageDitherSettingsDirty = (imageDitherMode != initialImageDitherMode);
-
-  if (!renderCurrentImage()) {
-    renderError(tr(STR_COULD_NOT_RENDER_IMAGE));
-  }
-}
-
-void BmpViewerActivity::saveDitherSettingsIfNeeded() {
-  if (!imageDitherSettingsDirty) {
-    return;
-  }
-
-  SETTINGS.imageDithering = imageDitherMode;
-  SETTINGS.saveToFile();
-  initialImageDitherMode = imageDitherMode;
-  imageDitherSettingsDirty = false;
-}
-#endif
 
 void BmpViewerActivity::renderError(const char* message) {
   RenderLock lock(*this);
@@ -415,13 +352,6 @@ void BmpViewerActivity::loop() {
     toggleDisplayMode();
     return;
   }
-
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  if (!isBmpFile(filePath) && grayscaleDisplay && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-    cycleDitherMode();
-    return;
-  }
-#endif
 
   // Next/Right button: set this image as the sleep screen
   if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {

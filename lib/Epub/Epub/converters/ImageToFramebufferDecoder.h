@@ -13,38 +13,16 @@ struct ImageDimensions {
 
 enum class ImageDitherMode : uint8_t {
   Bayer = 0,
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  Atkinson = 1,
-  DiffusedBayer = 2,
-#endif
   COUNT,
 };
 
 inline ImageDitherMode imageDitherModeFromSetting(uint8_t value) {
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  switch (static_cast<ImageDitherMode>(value)) {
-    case ImageDitherMode::Bayer:
-    case ImageDitherMode::Atkinson:
-    case ImageDitherMode::DiffusedBayer:
-      return static_cast<ImageDitherMode>(value);
-    case ImageDitherMode::COUNT:
-    default:
-      return ImageDitherMode::Bayer;
-  }
-#else
   (void)value;
   return ImageDitherMode::Bayer;
-#endif
 }
 
 inline const char* getImageDitherCacheSuffix(ImageDitherMode mode) {
   switch (mode) {
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    case ImageDitherMode::Atkinson:
-      return ".atkinson";
-    case ImageDitherMode::DiffusedBayer:
-      return ".diffused-bayer";
-#endif
     case ImageDitherMode::Bayer:
     case ImageDitherMode::COUNT:
     default:
