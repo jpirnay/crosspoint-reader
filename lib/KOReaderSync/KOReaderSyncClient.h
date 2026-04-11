@@ -39,7 +39,8 @@ class KOReaderSyncClient {
     JSON_ERROR,
     NOT_FOUND,
     USER_EXISTS,
-    REGISTRATION_DISABLED
+    REGISTRATION_DISABLED,
+    REDIRECT_ERROR
   };
 
   /**

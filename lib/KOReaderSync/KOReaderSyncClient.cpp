@@ -117,6 +117,13 @@ esp_err_t httpEventHandler(esp_http_client_event_t* evt) {
       LOG_ERR("KOSync", "Response buffer allocation failed (%d bytes)", evt->data_len);
     }
   }
+  if (evt->event_id == HTTP_EVENT_REDIRECT && buf) {
+    // A redirect is about to be followed. Clear any body already accumulated from
+    // the redirect response (e.g. Werkzeug HTML page) so the final response body
+    // accumulates cleanly without being prefixed by intermediate content.
+    buf->len = 0;
+    if (buf->data) buf->data[0] = '\0';
+  }
   return ESP_OK;
 }
 
@@ -223,6 +230,10 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
   config.buffer_size_tx = HTTP_BUF_SIZE;
   config.crt_bundle_attach = esp_crt_bundle_attach;
   config.keep_alive_enable = g_keepSessionOpen;
+  // Follow up to 3 redirects (e.g. HTTP→HTTPS, path normalization, DuckDNS proxy).
+  // HTTP_EVENT_REDIRECT in httpEventHandler clears the buffer between hops so the
+  // intermediate HTML bodies don't contaminate the final JSON response.
+  config.max_redirection_count = 3;
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (!client) return nullptr;
@@ -307,6 +318,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::registerUser() {
     return NETWORK_ERROR;
   }
 
+  if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
+
   if (httpCode == 201) {
     return OK;
   } else if (httpCode == 200) {
@@ -362,7 +375,16 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   LOG_DBG("KOSync", "Auth response: %d (err: %s)", httpCode, esp_err_to_name(err));
 
   if (err != ESP_OK) return NETWORK_ERROR;
-  if (httpCode == 200) return OK;
+  if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
+  if (httpCode == 200) {
+    // The kosync auth response is always a JSON object. Guard against a reverse
+    // proxy returning HTTP 200 + HTML (e.g. a login wall that followed all
+    // redirects and landed on an auth page instead of the API endpoint).
+    if (!activeBuf->data || activeBuf->data[0] != '{') {
+      return SERVER_ERROR;
+    }
+    return OK;
+  }
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
 }
@@ -431,6 +453,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   }
 
   if (err != ESP_OK) return NETWORK_ERROR;
+  if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
 
   if (httpCode == 200 && activeBuf->data) {
     JsonDocument doc;
@@ -543,6 +566,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   }
 
   if (err != ESP_OK) return NETWORK_ERROR;
+  if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
   if (httpCode == 200 || httpCode == 202) return OK;
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
@@ -597,6 +621,8 @@ const char* KOReaderSyncClient::errorString(Error error) {
       return "Username is already taken";
     case REGISTRATION_DISABLED:
       return "Registration is disabled on this server";
+    case REDIRECT_ERROR:
+      return "Server redirected (check server URL)";
     default:
       return "Unknown error";
   }
