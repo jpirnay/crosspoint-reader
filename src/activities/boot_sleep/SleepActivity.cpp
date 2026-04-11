@@ -48,7 +48,8 @@ struct PngOverlayCtx {
 
 // PNGdec file I/O callbacks — mirror the pattern in PngToFramebufferConverter.cpp.
 void* pngSleepOpen(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transferred via void* to PNGdec callbacks
+  FsFile* f =
+      new FsFile();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transferred via void* to PNGdec callbacks
   if (!Storage.openFileForRead("SLP", std::string(filename), *f)) {
     delete f;  // NOLINT(cppcoreguidelines-owning-memory)
     return nullptr;
@@ -901,7 +902,7 @@ void SleepActivity::renderOverlaySleepScreen() const {
     ctx.yScale = yScale;
     ctx.lastDstY = -1;
     ctx.transparentColor = -2;  // will be resolved on first draw callback (after tRNS is parsed)
-    ctx.pngObj = png;
+    ctx.pngObj = png.get();
 
     rc = png->decode(&ctx, 0);
     png->close();

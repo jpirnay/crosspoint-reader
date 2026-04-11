@@ -129,7 +129,8 @@ uint8_t ditherGray(JpegContext& ctx, uint8_t gray, int localX, int outX, int out
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* jpegOpen(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transferred via void* to JPEGDEC callbacks
+  FsFile* f =
+      new FsFile();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transferred via void* to JPEGDEC callbacks
   if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {
     delete f;  // NOLINT(cppcoreguidelines-owning-memory)
     return nullptr;
