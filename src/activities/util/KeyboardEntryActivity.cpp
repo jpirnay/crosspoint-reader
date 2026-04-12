@@ -311,7 +311,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   bottomKeys.push_back({KeyboardKeyType::Shift, symMode ? shiftString[0] : shiftString[shiftState]});
   bottomKeys.push_back({KeyboardKeyType::Mode, symMode ? "abc" : "#@!"});
   if (isPassword) {
-    bottomKeys.push_back({KeyboardKeyType::Normal, passwordVisible ? tr(STR_HIDE) : tr(STR_SHOW)});
+    bottomKeys.push_back({KeyboardKeyType::Reveal, passwordVisible ? tr(STR_HIDE) : tr(STR_SHOW)});
   }
   bottomKeys.push_back({KeyboardKeyType::Space, nullptr});
   bottomKeys.push_back({KeyboardKeyType::Del, nullptr});

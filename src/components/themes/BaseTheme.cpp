@@ -884,8 +884,9 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
                                 const char* secondaryLabel, const KeyboardKeyType keyType) const {
   if (isSelected) {
     renderer.fillRect(rect.x, rect.y, rect.width, rect.height, true);
-  } else if (keyType == KeyboardKeyType::Shift || keyType == KeyboardKeyType::Mode || keyType == KeyboardKeyType::Del ||
-             keyType == KeyboardKeyType::Space || keyType == KeyboardKeyType::Ok) {
+  } else if (keyType == KeyboardKeyType::Shift || keyType == KeyboardKeyType::Mode ||
+             keyType == KeyboardKeyType::Reveal || keyType == KeyboardKeyType::Space ||
+             keyType == KeyboardKeyType::Del || keyType == KeyboardKeyType::Ok) {
     renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
   }
 
