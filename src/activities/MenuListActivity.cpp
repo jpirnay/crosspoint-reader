@@ -33,7 +33,7 @@ void MenuListActivity::handleNavigation() {
 
 void MenuListActivity::toggleCurrentItem() {
   if (selectedIndex < 0 || selectedIndex >= static_cast<int>(menuItems.size())) return;
-  auto& item = menuItems[selectedIndex];
+  const auto& item = menuItems[selectedIndex];
   if (item.isSeparator) return;
 
   if (item.type == SettingType::ACTION) {
@@ -41,7 +41,7 @@ void MenuListActivity::toggleCurrentItem() {
     return;
   }
 
-  item.toggleValue();
+  menuItems[selectedIndex].toggleValue();
   onSettingToggled(selectedIndex);
   requestUpdate();
 }
