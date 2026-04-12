@@ -280,30 +280,60 @@ def find_used_string_keys(
                 text = f.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+            in_block_comment = False
             for line in text.splitlines():
                 quote_char = None
                 escaped = False
-                comment_index = None
-                for idx, ch in enumerate(line):
+                processed_line = []
+                idx = 0
+                while idx < len(line):
+                    ch = line[idx]
                     if escaped:
                         escaped = False
+                        if not in_block_comment:
+                            processed_line.append(ch)
+                        idx += 1
                         continue
+
                     if quote_char is None:
+                        if in_block_comment:
+                            if (
+                                ch == "*"
+                                and idx + 1 < len(line)
+                                and line[idx + 1] == "/"
+                            ):
+                                in_block_comment = False
+                                idx += 2
+                                continue
+                            idx += 1
+                            continue
                         if ch in ['"', "'"]:
                             quote_char = ch
+                            processed_line.append(ch)
+                            idx += 1
                             continue
-                        if ch == "/" and idx + 1 < len(line) and line[idx + 1] == "/":
-                            comment_index = idx
-                            break
-                    else:
-                        if ch == "\\":
-                            escaped = True
-                            continue
-                        if ch == quote_char:
-                            quote_char = None
-                            continue
-                if comment_index is not None:
-                    line = line[:comment_index]
+                        if ch == "/" and idx + 1 < len(line):
+                            if line[idx + 1] == "/":
+                                break
+                            if line[idx + 1] == "*":
+                                in_block_comment = True
+                                idx += 2
+                                continue
+                        processed_line.append(ch)
+                        idx += 1
+                        continue
+
+                    if ch == "\\":
+                        escaped = True
+                        processed_line.append(ch)
+                        idx += 1
+                        continue
+                    if ch == quote_char:
+                        quote_char = None
+                    processed_line.append(ch)
+                    idx += 1
+
+                line = "".join(processed_line)
                 for m in pattern.finditer(line):
                     used.add(m.group(0))
 
