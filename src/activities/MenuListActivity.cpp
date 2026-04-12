@@ -46,9 +46,7 @@ void MenuListActivity::toggleCurrentItem() {
   requestUpdate();
 }
 
-std::string MenuListActivity::getItemValueString(int index) const {
-  return menuItems[index].getDisplayValue();
-}
+std::string MenuListActivity::getItemValueString(int index) const { return menuItems[index].getDisplayValue(); }
 
 void MenuListActivity::drawMenuList(const Rect& rect) {
   const int count = static_cast<int>(menuItems.size());

@@ -62,24 +62,20 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes) {
   // Image rendering: cycles default(-1) -> display(0) -> placeholder(1) -> suppress(2)
   menuItems.push_back(SettingInfo::DynamicEnum(
       StrId::STR_IMAGES,
-      {StrId::STR_DEFAULT_VALUE, StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
-       StrId::STR_IMAGES_SUPPRESS},
+      {StrId::STR_DEFAULT_VALUE, StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
       [this]() -> uint8_t { return (pendingImageRenderingOverride < 0) ? 0 : (pendingImageRenderingOverride + 1); },
       [this](uint8_t v) { pendingImageRenderingOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1); }));
 
   // Text darkness: straightforward 0-3 cycle
   menuItems.push_back(SettingInfo::DynamicEnum(
-      StrId::STR_TEXT_DARKNESS,
-      {StrId::STR_NORMAL, StrId::STR_DARK, StrId::STR_EXTRA_DARK, StrId::STR_MAX_DARK},
-      [this]() -> uint8_t { return pendingTextDarkness; },
-      [this](uint8_t v) { pendingTextDarkness = v; }));
+      StrId::STR_TEXT_DARKNESS, {StrId::STR_NORMAL, StrId::STR_DARK, StrId::STR_EXTRA_DARK, StrId::STR_MAX_DARK},
+      [this]() -> uint8_t { return pendingTextDarkness; }, [this](uint8_t v) { pendingTextDarkness = v; }));
 
   // Orientation: straightforward 0-3 cycle
   menuItems.push_back(SettingInfo::DynamicEnum(
       StrId::STR_ORIENTATION,
       {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW},
-      [this]() -> uint8_t { return pendingOrientation; },
-      [this](uint8_t v) { pendingOrientation = v; }));
+      [this]() -> uint8_t { return pendingOrientation; }, [this](uint8_t v) { pendingOrientation = v; }));
 
   // --- Synchronisation (only if credentials are set) ---
   if (KOREADER_STORE.hasCredentials()) {
@@ -158,8 +154,12 @@ void EpubReaderMenuActivity::onSettingToggled(int /*index*/) {
 void EpubReaderMenuActivity::onBackPressed() {
   ActivityResult result;
   result.isCancelled = true;
-  result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption, pendingEmbeddedStyleOverride,
-                           pendingImageRenderingOverride, pendingTextDarkness};
+  result.data = MenuResult{-1,
+                           pendingOrientation,
+                           selectedPageTurnOption,
+                           pendingEmbeddedStyleOverride,
+                           pendingImageRenderingOverride,
+                           pendingTextDarkness};
   setResult(std::move(result));
   finish();
 }
@@ -180,9 +180,7 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
   return MenuListActivity::getItemValueString(index);
 }
 
-void EpubReaderMenuActivity::onEnter() {
-  MenuListActivity::onEnter();
-}
+void EpubReaderMenuActivity::onEnter() { MenuListActivity::onEnter(); }
 
 void EpubReaderMenuActivity::render(RenderLock&&) {
   renderer.clearScreen();

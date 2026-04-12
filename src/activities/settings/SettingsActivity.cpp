@@ -255,9 +255,7 @@ void SettingsActivity::render(RenderLock&&) {
            contentRect.height -
                (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 2)},
       settingsCount, selectedSettingIndex - 1, [&settings](int index) { return settings[index].getTitle(); }, nullptr,
-      nullptr,
-      [&settings](int i) { return settings[i].getDisplayValue(); },
-      true);
+      nullptr, [&settings](int i) { return settings[i].getDisplayValue(); }, true);
 
   // Draw help text
   const auto confirmLabel = (selectedSettingIndex == 0)
