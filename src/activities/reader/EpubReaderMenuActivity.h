@@ -45,11 +45,10 @@ class EpubReaderMenuActivity final : public Activity {
     MenuAction action;
     StrId labelId;
     bool isSeparator = false;
+    static MenuItem separator(StrId label) { return {MenuAction::NONE, label, true}; }
   };
 
   static std::vector<MenuItem> buildMenuItems(bool hasFootnotes);
-
-  std::function<bool(int)> buildSelectablePredicate() const;
 
   // Fixed menu layout
   const std::vector<MenuItem> menuItems;

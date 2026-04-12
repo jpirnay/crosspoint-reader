@@ -29,7 +29,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   std::vector<MenuItem> items;
   items.reserve(18);
   // Navigation
-  items.push_back({MenuAction::NONE, StrId::STR_READER_NAVIGATION, true});
+  items.push_back(MenuItem::separator(StrId::STR_READER_NAVIGATION));
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   if (hasFootnotes) {
@@ -38,7 +38,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
 
   // Appearance
-  items.push_back({MenuAction::NONE, StrId::STR_READER_APPEARANCE, true});
+  items.push_back(MenuItem::separator(StrId::STR_READER_APPEARANCE));
   items.push_back({MenuAction::EMBEDDED_STYLE, StrId::STR_EMBEDDED_STYLE});
   items.push_back({MenuAction::IMAGE_RENDERING, StrId::STR_IMAGES});
   items.push_back({MenuAction::TEXT_DARKNESS, StrId::STR_TEXT_DARKNESS});
@@ -46,13 +46,13 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
 
   // Synchronisation (only if credentials are set, to avoid confusion)
   if (KOREADER_STORE.hasCredentials()) {
-    items.push_back({MenuAction::NONE, StrId::STR_KOREADER_SYNC, true});
+    items.push_back(MenuItem::separator(StrId::STR_KOREADER_SYNC));
     items.push_back({MenuAction::PULL_REMOTE, StrId::STR_PULL_PROGRESS_FROM_OTHER_DEVICES});
     items.push_back({MenuAction::PUSH_LOCAL, StrId::STR_PUSH_PROGRESS_FROM_THIS_DEVICE});
   }
 
   // Tools
-  items.push_back({MenuAction::NONE, StrId::STR_READER_TOOLS, true});
+  items.push_back(MenuItem::separator(StrId::STR_READER_TOOLS));
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
   items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
   items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
@@ -60,17 +60,16 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   return items;
 }
 
-std::function<bool(int)> EpubReaderMenuActivity::buildSelectablePredicate() const {
-  return [this](int index) {
-    return index >= 0 && index < static_cast<int>(menuItems.size()) && !menuItems[index].isSeparator;
-  };
-}
-
 void EpubReaderMenuActivity::onEnter() {
   Activity::onEnter();
-  const auto selectablePredicate = buildSelectablePredicate();
-  buttonNavigator.setSelectablePredicate(selectablePredicate, static_cast<int>(menuItems.size()));
-  if (!selectablePredicate(selectedIndex)) {
+  const auto pred = UITheme::makeSelectablePredicate(
+      static_cast<int>(menuItems.size()), [this](int i) {
+        const auto& item = menuItems[i];
+        const auto t = I18N.get(item.labelId);
+        return item.isSeparator ? UITheme::makeSeparatorTitle(t) : t;
+      });
+  buttonNavigator.setSelectablePredicate(pred, static_cast<int>(menuItems.size()));
+  if (!pred(selectedIndex)) {
     selectedIndex = buttonNavigator.nextIndex(selectedIndex);
   }
   requestUpdate();

@@ -14,6 +14,7 @@ class ClockSettingsActivity final : public Activity {
     Action action;
     StrId labelId;
     bool isSeparator = false;
+    static MenuItem separator(StrId label) { return {Action::NONE, label, true}; }
   };
 
   ButtonNavigator buttonNavigator;
@@ -22,7 +23,6 @@ class ClockSettingsActivity final : public Activity {
 
   static std::vector<MenuItem> buildMenuItems();
   void handleSelection();
-  std::function<bool(int)> buildSelectablePredicate() const;
 
  public:
   explicit ClockSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
