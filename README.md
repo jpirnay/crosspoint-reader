@@ -28,7 +28,7 @@ Therefore this branch focuses on real fixes and real improvements while trying t
 
 Your usecase might be completely different from mine, so I try to give an overview of the different reader flavors to my best knowledge. If you know of more variants / have more information, then let me know
 
-Last update: April, 8th, 2026
+Last update: April, 12th, 2026
 
 | Reader                               | Visual appeal | Functionality | Formats | Pros | Cons | Custom fonts | CJK | Bluetooth |
 | ------------------------------------ | ------------- | ------------- | ------- | ---- | ---- | ------------ | --- | --- |
@@ -40,3 +40,4 @@ Last update: April, 8th, 2026
 | [Inx](https://github.com/obijuankenobiii/inx) | Nice | mainly crosspoint functionality plus reading statistics | EPUB, XTC, TXT | Good reading stats | Small team | No | No | No |
 | [vCodex](https://github.com/franssjz/cpr-vcodex) | Nice | mainly crosspoint functionality plus reading statistics | EPUB, XTC, TXT | Good reading stats | Small team | No | No | No |
 | [PlusPoint](https://github.com/ngxson/pluspoint-reader) | Okay | Experimental | EPUB, TXT, JS Apps | Support for custom JS apps; better RTC | Based on older code, small team | Yes | Yes | No |
+| [SUMI](https://github.com/psychoplath9450/SUMI) | Nice | Lua custom apps; Bluetooth keyboard support for notes; Game Boy emulator; Bluetooth Transfer | EPUB, TXT, Markdown, XTC | Many apps, customizable, Papyrix fork | Single Contributor, **No Wi-Fi** | Yes | Yes | Yes |
