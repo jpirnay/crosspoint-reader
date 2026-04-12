@@ -18,6 +18,11 @@
 //                 previous item's, SettingsActivity::onEnter() automatically inserts a separator
 //                 row before it.  Add with .withSubcategory(StrId::STR_MY_SECTION).
 //                 Items without a subcategory (STR_NONE_OPT) never trigger a separator.
+//   submenu     — optional submenu grouping.  Items with the same submenu StrId are hidden from
+//                 the main list and collected behind a single placeholder entry.  Selecting that
+//                 entry launches SettingsSubmenuActivity with those items.  withSubcategory()
+//                 works inside a submenu exactly as it does in the parent tab.
+//                 Add with .withSubmenu(StrId::STR_MY_SUBMENU).
 //   key         — JSON property name used by the web settings API (nullptr = device-only).
 //
 // ACTION-type entries and entries without a key are device-only and are added directly

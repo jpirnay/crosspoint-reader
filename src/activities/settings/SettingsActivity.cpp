@@ -15,6 +15,7 @@
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
 #include "SettingsList.h"
+#include "SettingsSubmenuActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "SyncTimeActivity.h"
 #include "SystemInformationActivity.h"
@@ -45,13 +46,27 @@ void SettingsActivity::onEnter() {
   readerSettings.clear();
   controlsSettings.clear();
   systemSettings.clear();
+  submenuData.clear();
 
   StrId lastDisplaySub = StrId::STR_NONE_OPT;
   StrId lastReaderSub = StrId::STR_NONE_OPT;
   StrId lastControlsSub = StrId::STR_NONE_OPT;
   StrId lastSystemSub = StrId::STR_NONE_OPT;
 
-  auto addTo = [](std::vector<SettingInfo>& vec, StrId& lastSub, SettingInfo s) {
+  auto addTo = [this](std::vector<SettingInfo>& vec, StrId& lastSub, SettingInfo s) {
+    if (s.submenu != StrId::STR_NONE_OPT) {
+      // Item belongs to a submenu — collect it and insert a placeholder in the main
+      // list the first time this submenu ID is encountered.
+      auto it = std::find_if(submenuData.begin(), submenuData.end(),
+                             [&s](const SubmenuData& d) { return d.id == s.submenu; });
+      if (it == submenuData.end()) {
+        vec.push_back(SettingInfo::SubmenuEntry(s.submenu));
+        submenuData.push_back({s.submenu, {}});
+        it = submenuData.end() - 1;
+      }
+      it->items.push_back(std::move(s));
+      return;
+    }
     if (s.subcategory != StrId::STR_NONE_OPT && s.subcategory != lastSub) {
       vec.push_back(SettingInfo::Separator(s.subcategory));
       lastSub = s.subcategory;
@@ -267,6 +282,16 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::DetectTimezone:
         startActivityForResult(std::make_unique<DetectTimezoneActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::Submenu: {
+        const auto it = std::find_if(submenuData.cbegin(), submenuData.cend(),
+                                     [&setting](const SubmenuData& d) { return d.id == setting.nameId; });
+        if (it != submenuData.cend()) {
+          startActivityForResult(
+              std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, setting.nameId, it->items),
+              resultHandler);
+        }
+        break;
+      }
       case SettingAction::None:
         // Do nothing
         break;

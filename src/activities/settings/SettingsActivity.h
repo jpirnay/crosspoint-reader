@@ -26,6 +26,7 @@ enum class SettingAction {
   DetectTimezone,
   SyncTime,
   Weather,
+  Submenu,
 };
 
 struct SettingInfo {
@@ -152,12 +153,30 @@ struct SettingInfo {
   }
 
   bool isSeparator = false;
-  StrId subcategory = StrId::STR_NONE_OPT;
+  StrId subcategory = StrId::STR_NONE_OPT;  // Triggers a separator row on first use and on change
+  StrId submenu = StrId::STR_NONE_OPT;      // Routes item into a submenu; hidden from main list
   [[nodiscard]] std::string getTitle() const;
 
+  // Inserts a separator row in the parent tab when this item's subcategory first appears or changes.
   SettingInfo& withSubcategory(StrId sub) {
     subcategory = sub;
     return *this;
+  }
+
+  // Hides this item from the parent tab and places it inside a SettingsSubmenuActivity instead.
+  // All items sharing the same submenu StrId are grouped under one placeholder entry.
+  SettingInfo& withSubmenu(StrId sub) {
+    submenu = sub;
+    return *this;
+  }
+
+  // For internal use by SettingsActivity: placeholder entry that launches the submenu.
+  static SettingInfo SubmenuEntry(StrId titleId) {
+    SettingInfo s;
+    s.nameId = titleId;
+    s.type = SettingType::ACTION;
+    s.action = SettingAction::Submenu;
+    return s;
   }
 };
 
@@ -177,6 +196,12 @@ class SettingsActivity final : public Activity {
 
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
+
+  struct SubmenuData {
+    StrId id;
+    std::vector<SettingInfo> items;
+  };
+  std::vector<SubmenuData> submenuData;
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
