@@ -53,6 +53,11 @@ void KOReaderAuthActivity::performAuthentication() {
     } else {
       state = FAILED;
       errorMessage = KOReaderSyncClient::errorString(result);
+      const char* detail = KOReaderSyncClient::lastFailureDetail();
+      if (detail && detail[0]) {
+        errorMessage += " — ";
+        errorMessage += detail;
+      }
     }
   }
   requestUpdate();
@@ -72,6 +77,11 @@ void KOReaderAuthActivity::performRegistration() {
     } else {
       state = FAILED;
       errorMessage = KOReaderSyncClient::errorString(result);
+      const char* detail = KOReaderSyncClient::lastFailureDetail();
+      if (detail && detail[0]) {
+        errorMessage += " — ";
+        errorMessage += detail;
+      }
     }
   }
   requestUpdate();
@@ -120,7 +130,12 @@ void KOReaderAuthActivity::render(RenderLock&&) {
   } else if (state == FAILED) {
     const char* failedMsg = (mode == Mode::REGISTER) ? tr(STR_REGISTER_FAILED) : tr(STR_AUTH_FAILED);
     renderer.drawCenteredText(UI_10_FONT_ID, top, failedMsg, true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + 10, errorMessage.c_str());
+    const auto lines = renderer.wrappedText(UI_10_FONT_ID, errorMessage.c_str(), contentRect.width - 20, 4);
+    int y = top + height + 10;
+    for (const auto& line : lines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += height;
+    }
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

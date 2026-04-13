@@ -77,8 +77,17 @@ bool ChapterXPathIndexer::tryExtractParagraphIndexFromXPath(const std::string& x
   }
 
   const std::string pKey = "/p[";
-  const size_t pos = normalized.find(pKey, secondBody != std::string::npos ? secondBody : 0);
+  const size_t searchStart = secondBody != std::string::npos ? secondBody : 0;
+  const size_t pos = normalized.find(pKey, searchStart);
   if (pos == std::string::npos) {
+    return false;
+  }
+
+  // Only accept p[...] that is a direct child of the /body segment — reject
+  // paths with intermediate ancestor segments (e.g. /body/.../div[4]/p[1])
+  // which would collapse structurally different locations to the same index.
+  const size_t bodyEnd = (secondBody != std::string::npos ? secondBody : 0) + bodyKey.size();
+  if (pos != bodyEnd) {
     return false;
   }
 

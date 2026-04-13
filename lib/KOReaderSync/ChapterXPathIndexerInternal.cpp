@@ -342,9 +342,9 @@ size_t countTotalTextBytes(const std::string& tmpPath) {
   XML_SetElementHandler(parser, bcStart, bcEnd);
   XML_SetCharacterDataHandler(parser, bcChar);
   XML_SetDefaultHandlerExpand(parser, bcDefault);
-  runParse(parser, tmpPath);
+  const bool ok = runParse(parser, tmpPath);
   XML_ParserFree(parser);
-  return state.totalTextBytes;
+  return ok ? state.totalTextBytes : 0;
 }
 
 }  // namespace ChapterXPathIndexerInternal

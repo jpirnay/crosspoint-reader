@@ -529,7 +529,15 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   if (state == SYNC_FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, 280, tr(STR_SYNC_FAILED_MSG), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, 320, statusMessage.c_str());
+
+    // Word-wrap the detail message so long TLS/network diagnostics aren't clipped.
+    const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    const auto lines = renderer.wrappedText(UI_10_FONT_ID, statusMessage.c_str(), contentRect.width - 20, 4);
+    int y = 320;
+    for (const auto& line : lines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += lineHeight;
+    }
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

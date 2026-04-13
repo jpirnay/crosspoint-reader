@@ -42,6 +42,21 @@ void beginRequest(const char* operation) {
   KOReaderSyncClient::lastContigHeapAtFailure = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
 }
 
+// Skip a leading UTF-8 BOM (EF BB BF) and ASCII whitespace, returning a pointer
+// to the first content character.  Used by response-body checks that verify the
+// payload starts with '{' (JSON) rather than '<' (HTML captive-portal page).
+const char* skipBomAndWhitespace(const char* p) {
+  // UTF-8 BOM
+  if (static_cast<unsigned char>(p[0]) == 0xEF && static_cast<unsigned char>(p[1]) == 0xBB &&
+      static_cast<unsigned char>(p[2]) == 0xBF) {
+    p += 3;
+  }
+  while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+    p++;
+  }
+  return p;
+}
+
 // Device identifier for CrossPoint reader
 constexpr char DEVICE_NAME[] = "CrossPoint";
 constexpr char DEVICE_ID[] = "crosspoint-reader";
@@ -377,20 +392,9 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   if (err != ESP_OK) return NETWORK_ERROR;
   if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
   if (httpCode == 200) {
-    // The kosync auth response is always a JSON object. Guard against a reverse
-    // proxy returning HTTP 200 + HTML (e.g. a login wall that followed all
-    // redirects and landed on an auth page instead of the API endpoint).
-    // Skip leading whitespace before checking for '{' so servers that emit
-    // a BOM or indent their JSON don't get incorrectly rejected.
-    if (!activeBuf->data) {
-      return SERVER_ERROR;
-    }
-    const char* p = activeBuf->data;
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
-      p++;
-    }
-    if (*p != '{') {
-      return SERVER_ERROR;
+    // Guard against a reverse proxy or captive portal returning HTTP 200 + HTML.
+    if (!activeBuf->data || *skipBomAndWhitespace(activeBuf->data) != '{') {
+      return INVALID_RESPONSE;
     }
     return OK;
   }
@@ -576,7 +580,16 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 
   if (err != ESP_OK) return NETWORK_ERROR;
   if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
-  if (httpCode == 200 || httpCode == 202) return OK;
+  if (httpCode == 200 || httpCode == 202) {
+    // Guard against a reverse proxy or captive portal returning HTTP 200 + HTML.
+    if (activeBuf->data) {
+      const char c = *skipBomAndWhitespace(activeBuf->data);
+      if (c != '\0' && c != '{') {
+        return INVALID_RESPONSE;
+      }
+    }
+    return OK;
+  }
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
 }
@@ -596,8 +609,24 @@ const char* KOReaderSyncClient::lastFailureDetail() {
   }
   // Network/TLS case: esp_http_client_perform() failed before getting a status code.
   if (lastHttpCode == 0 && lastEspError != 0) {
-    snprintf(g_failureDetailBuf, sizeof(g_failureDetailBuf), "%s: %s (heap %u/%u contig)", lastOperation,
-             esp_err_to_name(lastEspError), lastHeapAtFailure, lastContigHeapAtFailure);
+    // HTTPS connect failures can be TLS version issues (ESP32 only supports up
+    // to TLS 1.2), but also DNS, cert, or plain network problems. Include the
+    // error name and heap stats so the user/bug-report has enough to triage.
+    if (lastEspError == ESP_ERR_HTTP_CONNECT && KOREADER_STORE.getBaseUrl().rfind("https", 0) == 0) {
+      snprintf(g_failureDetailBuf, sizeof(g_failureDetailBuf),
+               "%s: connect failed — check network, DNS, certs, or TLS 1.2 compat (heap %u/%u contig)", lastOperation,
+               lastHeapAtFailure, lastContigHeapAtFailure);
+    } else {
+      snprintf(g_failureDetailBuf, sizeof(g_failureDetailBuf), "%s: %s (heap %u/%u contig)", lastOperation,
+               esp_err_to_name(lastEspError), lastHeapAtFailure, lastContigHeapAtFailure);
+    }
+    return g_failureDetailBuf;
+  }
+  // Invalid-response case: HTTP 200/202 but body was not JSON (e.g. captive portal HTML).
+  // On real success callers never reach lastFailureDetail(), so a 2xx here means INVALID_RESPONSE.
+  if ((lastHttpCode == 200 || lastHttpCode == 202) && lastEspError == ESP_OK) {
+    snprintf(g_failureDetailBuf, sizeof(g_failureDetailBuf),
+             "%s: expected JSON but received HTML (captive portal or proxy?)", lastOperation);
     return g_failureDetailBuf;
   }
   // Server case: got an HTTP status the client didn't recognize as success.
@@ -632,6 +661,8 @@ const char* KOReaderSyncClient::errorString(Error error) {
       return "Registration is disabled on this server";
     case REDIRECT_ERROR:
       return "Server redirected (check server URL)";
+    case INVALID_RESPONSE:
+      return "Unexpected response (check server URL)";
     default:
       return "Unknown error";
   }
