@@ -440,7 +440,10 @@ void KOReaderSyncActivity::resumeReader(const KOReaderSyncOutcomeState outcome, 
     sync.resultPage = appliedResult->page;
     sync.resultParagraphIndex = appliedResult->paragraphIndex;
     sync.resultHasParagraphIndex = appliedResult->hasParagraphIndex;
-  } else {
+  } else if (outcome != KOReaderSyncOutcomeState::APPLIED_REMOTE) {
+    // Only zero the result fields when not resuming an already-applied remote
+    // position. The PULL_REMOTE path pre-saves the mapped result into APP_STATE
+    // before entering APPLY_COMPLETE; zeroing here would overwrite it.
     sync.resultSpineIndex = 0;
     sync.resultPage = 0;
     sync.resultParagraphIndex = 0;
