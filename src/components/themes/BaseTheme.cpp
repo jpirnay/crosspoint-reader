@@ -884,8 +884,8 @@ void BaseTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int 
   const int bracketHeight = lineHeight;
   const int fieldLeft = rect.x + 10;
   const int fieldRight = rect.x + rect.width - 15;
-  const int topY = rect.y;
-  const int bottomY = rect.y + rect.height + lineHeight;
+  const int topY = rect.y - 5;
+  const int bottomY = rect.y + rect.height + lineHeight + 5;
   const int tickLen = bracketHeight / 2;
 
   renderer.drawLine(fieldLeft, topY, fieldLeft, bottomY);
@@ -937,10 +937,11 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
   const int itemWidth = renderer.getTextWidth(fontId, label);
   const int textX = rect.x + (rect.width - itemWidth) / 2;
   const int textY = rect.y + (rect.height - renderer.getLineHeight(fontId)) / 2 + primaryOffset;
-  renderer.drawText(fontId, textX, textY, label, !isSelected);
 
   if (hasSecondary) {
     const int secWidth = renderer.getTextWidth(SMALL_FONT_ID, secondaryLabel);
-    renderer.drawText(SMALL_FONT_ID, rect.x + rect.width - secWidth - 1, rect.y - 3, secondaryLabel, !isSelected);
+    renderer.drawText(SMALL_FONT_ID, rect.x + rect.width - secWidth - 1, rect.y, secondaryLabel, !isSelected);
   }
+
+  renderer.drawText(fontId, textX, textY, label, !isSelected);
 }

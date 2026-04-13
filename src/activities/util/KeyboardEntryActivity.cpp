@@ -261,13 +261,16 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   GUI.drawTextField(renderer, Rect{contentRect.x, inputStartY, contentRect.width, inputHeight}, textWidth);
 
   const int keyHeight = metrics.keyboardKeyHeight;
+  const int bottomKeyHeight = metrics.keyboardBottomKeyHeight;
   const int keySpacing = metrics.keyboardKeySpacing;
   const int keyWidth = (pageWidth * 95 / 100 - (COLS - 1) * keySpacing) / COLS;
   const int leftMargin = (pageWidth - (COLS * keyWidth + (COLS - 1) * keySpacing)) / 2;
 
+  const int bottomRowGap = metrics.keyboardBottomKeySpacing > 0 ? 4 : 0;
   const int keyboardStartY = metrics.keyboardBottomAligned
                                  ? pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing -
-                                       (keyHeight + keySpacing) * getTotalRowCount() + metrics.keyboardVerticalOffset
+                                       (keyHeight + keySpacing) * getContentRowCount() - bottomKeyHeight -
+                                       bottomRowGap + metrics.keyboardVerticalOffset
                                  : inputStartY + inputHeight + lineHeight + metrics.verticalSpacing;
   const KeyDef(*layout)[COLS] = symMode ? symLayout : abcLayout;
   const int contentRows = getContentRowCount();
@@ -297,7 +300,6 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     }
   }
 
-  const int bottomRowGap = metrics.keyboardBottomKeySpacing > 0 ? 4 : 0;
   const int bottomRowY = keyboardStartY + contentRows * (keyHeight + keySpacing) + bottomRowGap;
   const int bkSpacing = metrics.keyboardBottomKeySpacing;
   const int contentTotalWidth = COLS * keyWidth + (COLS - 1) * keySpacing;
@@ -325,8 +327,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     const int keyX = leftMargin + i * (bottomKeyWidth + bkSpacing);
     const bool isSelected = bottomSelected && i == selectedCol;
 
-    GUI.drawKeyboardKey(renderer, Rect{keyX, bottomRowY, bottomKeyWidth, keyHeight}, bottomKeys[i].label, isSelected,
-                        nullptr, bottomKeys[i].themeType);
+    GUI.drawKeyboardKey(renderer, Rect{keyX, bottomRowY, bottomKeyWidth, bottomKeyHeight}, bottomKeys[i].label,
+                        isSelected, nullptr, bottomKeys[i].themeType);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));

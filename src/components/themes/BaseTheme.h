@@ -60,6 +60,7 @@ struct ThemeMetrics {
   int keyboardKeyWidth;
   int keyboardKeyHeight;
   int keyboardKeySpacing;
+  int keyboardBottomKeyHeight;
   int keyboardBottomKeySpacing;
   bool keyboardBottomAligned;
   bool keyboardCenteredText;
@@ -100,12 +101,13 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .statusBarHorizontalMargin = 5,
                                  .statusBarVerticalMargin = 19,
                                  .keyboardKeyWidth = 22,
-                                 .keyboardKeyHeight = 30,
-                                 .keyboardKeySpacing = 10,
-                                 .keyboardBottomKeySpacing = 0,
+                                 .keyboardKeyHeight = 40,
+                                 .keyboardKeySpacing = 0,
+                                 .keyboardBottomKeyHeight = 35,
+                                 .keyboardBottomKeySpacing = 5,
                                  .keyboardBottomAligned = true,
                                  .keyboardCenteredText = false,
-                                 .keyboardVerticalOffset = -10};
+                                 .keyboardVerticalOffset = -13};
 }
 
 class BaseTheme {
