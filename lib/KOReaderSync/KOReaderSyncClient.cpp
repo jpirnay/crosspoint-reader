@@ -576,7 +576,20 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 
   if (err != ESP_OK) return NETWORK_ERROR;
   if (httpCode >= 300 && httpCode < 400) return REDIRECT_ERROR;
-  if (httpCode == 200 || httpCode == 202) return OK;
+  if (httpCode == 200 || httpCode == 202) {
+    // Guard against a reverse proxy or captive portal returning HTTP 200 + HTML
+    // instead of the real API response, consistent with authenticate()'s check.
+    if (activeBuf->data) {
+      const char* p = activeBuf->data;
+      while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+        p++;
+      }
+      if (*p != '\0' && *p != '{') {
+        return SERVER_ERROR;
+      }
+    }
+    return OK;
+  }
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
 }
