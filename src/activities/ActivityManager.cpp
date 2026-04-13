@@ -54,7 +54,26 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
-  if (currentActivity) {
+  // Drain leftover input after an activity transition so that the button press/release
+  // used to leave one activity cannot bleed into the next.  We consume events until
+  // every button is released and no press/release edges remain.
+  if (drainInput) {
+    if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() ||
+        mappedInput.isPressed(MappedInputManager::Button::Back) ||
+        mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+        mappedInput.isPressed(MappedInputManager::Button::Left) ||
+        mappedInput.isPressed(MappedInputManager::Button::Right) ||
+        mappedInput.isPressed(MappedInputManager::Button::Up) ||
+        mappedInput.isPressed(MappedInputManager::Button::Down)) {
+      // Still have pending input — skip the activity loop but continue with
+      // the rest (pending-action processing, render flushing) so that
+      // transitions and screen updates are not delayed.
+    } else {
+      drainInput = false;
+    }
+  }
+
+  if (!drainInput && currentActivity) {
     // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
     currentActivity->loop();
   }
@@ -109,6 +128,10 @@ void ActivityManager::loop() {
           handler(pendingResult);
         }
 
+        // Arm input drain so the button that triggered the pop doesn't bleed into the
+        // restored activity (or into a new activity the handler just pushed).
+        drainInput = true;
+
         // Request an update to ensure the popped activity gets re-rendered
         if (pendingAction == PendingAction::None) {
           requestUpdate();
@@ -140,6 +163,10 @@ void ActivityManager::loop() {
 
       lock.unlock();  // onEnter may acquire its own lock
       currentActivity->onEnter();
+
+      // Arm input drain so the button that triggered the transition doesn't bleed
+      // into the new activity.
+      drainInput = true;
 
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;

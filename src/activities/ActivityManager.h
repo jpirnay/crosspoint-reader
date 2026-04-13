@@ -62,6 +62,12 @@ class ActivityManager {
   // This variable must only be set by the main loop, to avoid race conditions
   bool requestedUpdate = false;
 
+  // When true, input events are consumed (discarded) until all buttons are released
+  // and no press/release events remain.  Armed automatically on activity transitions
+  // (push / pop / replace) so that the button used to leave one activity cannot bleed
+  // into the next one.
+  bool drainInput = false;
+
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
