@@ -240,9 +240,9 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
   config.event_handler = httpEventHandler;
   config.user_data = activeBuf;
   config.method = method;
-  config.timeout_ms = 15000;
+  config.timeout_ms = 5000;
   config.buffer_size = HTTP_BUF_SIZE;
-  config.buffer_size_tx = HTTP_BUF_SIZE;
+  config.buffer_size_tx = 512;
   config.crt_bundle_attach = esp_crt_bundle_attach;
   config.keep_alive_enable = g_keepSessionOpen;
   // Follow up to 3 redirects (e.g. HTTP→HTTPS, path normalization, DuckDNS proxy).
