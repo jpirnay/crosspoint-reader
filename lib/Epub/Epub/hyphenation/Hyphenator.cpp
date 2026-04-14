@@ -12,11 +12,24 @@ const LanguageHyphenator* Hyphenator::cachedHyphenator_ = nullptr;
 
 namespace {
 
-// Maps a BCP-47 language tag to a language-specific hyphenator.
+// Normalize ISO 639-2 (three-letter) codes to ISO 639-1 (two-letter) codes used by the
+// hyphenation registry.  EPUBs may use either form in their dc:language metadata (e.g.
+// "eng" instead of "en").  Both the bibliographic ("fre"/"ger") and terminological
+// ("fra"/"deu") ISO 639-2 variants are mapped.
+struct Iso639Mapping {
+  const char* iso639_2;
+  const char* iso639_1;
+};
+static constexpr Iso639Mapping kIso639Mappings[] = {
+    {"eng", "en"}, {"fra", "fr"}, {"fre", "fr"}, {"deu", "de"}, {"ger", "de"},
+    {"rus", "ru"}, {"spa", "es"}, {"ita", "it"}, {"ukr", "uk"},
+};
+
+// Maps a BCP-47 or ISO 639-2 language tag to a language-specific hyphenator.
 const LanguageHyphenator* hyphenatorForLanguage(const std::string& langTag) {
   if (langTag.empty()) return nullptr;
 
-  // Extract primary subtag and normalize to lowercase (e.g., "en-US" -> "en").
+  // Extract primary subtag and normalize to lowercase (e.g., "en-US" -> "en", "ENG" -> "en").
   std::string primary;
   primary.reserve(langTag.size());
   for (char c : langTag) {
@@ -25,6 +38,14 @@ const LanguageHyphenator* hyphenatorForLanguage(const std::string& langTag) {
     primary.push_back(c);
   }
   if (primary.empty()) return nullptr;
+
+  // Normalize ISO 639-2 three-letter codes to two-letter equivalents.
+  for (const auto& mapping : kIso639Mappings) {
+    if (primary == mapping.iso639_2) {
+      primary = mapping.iso639_1;
+      break;
+    }
+  }
 
   return getLanguageHyphenatorForPrimaryTag(primary);
 }
@@ -102,7 +123,7 @@ void appendSegmentPatternBreaks(const std::vector<CodepointInfo>& cps, const Lan
 void appendApostropheContractionBreaks(const std::vector<CodepointInfo>& cps,
                                        std::vector<Hyphenator::BreakInfo>& outBreaks) {
   constexpr size_t kMinLeftSegmentLen = 3;
-  constexpr size_t kMinRightSegmentLen = 2;
+  constexpr size_t kMinRightSegmentLen = 3;
   size_t segmentStart = 0;
 
   for (size_t i = 0; i < cps.size(); ++i) {
@@ -123,7 +144,7 @@ void appendApostropheContractionBreaks(const std::vector<CodepointInfo>& cps,
           }
         }
 
-        // Avoid stranding short clitics like "l'"/"d'" or tiny suffixes like "'t".
+        // Avoid stranding short clitics like "l'"/"d'" or contraction tails like "'ve"/"'re"/"'ll".
         if (leftPrefixLen >= kMinLeftSegmentLen && rightSuffixLen >= kMinRightSegmentLen) {
           outBreaks.push_back({cps[i + 1].byteOffset, false});
         }
