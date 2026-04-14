@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "BookmarkStore.h"
 #include "CrossPointSettings.h"
 #include "ReaderUtils.h"
 #include "activities/Activity.h"
@@ -15,6 +16,9 @@ class TxtReaderActivity final : public Activity {
   int totalPages = 1;
   int pagesUntilFullRefresh = 0;
   ReaderUtils::InputDrainGuard inputDrainGuard;
+
+  // Bookmarks (starred pages)
+  BookmarkStore bookmarkStore;
 
   // Streaming text reader - stores file offsets for each page
   std::vector<size_t> pageOffsets;  // File offset for start of each page

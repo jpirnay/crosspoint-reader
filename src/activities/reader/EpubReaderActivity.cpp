@@ -23,6 +23,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "StarredPagesActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
@@ -118,6 +119,9 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
+  // Load bookmarks for this book
+  bookmarkStore.load(epub->getCachePath());
+
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
@@ -138,6 +142,9 @@ void EpubReaderActivity::onEnter() {
 void EpubReaderActivity::onExit() {
   Activity::onExit();
   logReaderMemSnapshot("onExit_before_release");
+
+  // Save bookmarks before exit
+  bookmarkStore.save();
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -212,7 +219,7 @@ void EpubReaderActivity::loop() {
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
                                SETTINGS.orientation, !currentPageFootnotes.empty(), bookEmbeddedStyleOverride,
-                               bookImageRenderingOverride, SETTINGS.textDarkness),
+                               bookImageRenderingOverride, SETTINGS.textDarkness, !bookmarkStore.isEmpty()),
                            [this](const ActivityResult& result) {
                              // Always apply orientation/darkness change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -261,6 +268,16 @@ void EpubReaderActivity::loop() {
                                }
                                requestUpdate();
                              });
+    }
+    return;
+  }
+
+  // Star page toggle via short power button press
+  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::STAR_PAGE &&
+      mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+    if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
+      bookmarkStore.toggle(static_cast<uint16_t>(currentSpineIndex), static_cast<uint16_t>(section->currentPage));
+      requestUpdate();
     }
     return;
   }
@@ -499,6 +516,22 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       requestUpdate();
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::STARRED_PAGES: {
+      startActivityForResult(
+          std::make_unique<StarredPagesActivity>(renderer, mappedInput, bookmarkStore.getAll(), epub),
+          [this](const ActivityResult& result) {
+            if (!result.isCancelled) {
+              const auto& starred = std::get<StarredPageResult>(result.data);
+              if (currentSpineIndex != starred.spineIndex || !section || section->currentPage != starred.pageNumber) {
+                RenderLock lock(*this);
+                currentSpineIndex = starred.spineIndex;
+                nextPageNumber = starred.pageNumber;
+                section.reset();
+              }
+            }
+          });
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
       onGoHome();
       return;
@@ -514,6 +547,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           epub->clearCache();
           epub->setupCacheDir();
           saveProgress(backupSpine, backupPage, backupPageCount);
+          if (!bookmarkStore.isEmpty()) {
+            bookmarkStore.markDirty();
+            bookmarkStore.save();
+          }
         }
       }
       onGoHome();
@@ -1144,7 +1181,9 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub->getTitle();
   }
 
-  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset);
+  const bool isStarred = section && bookmarkStore.has(static_cast<uint16_t>(currentSpineIndex),
+                                                      static_cast<uint16_t>(section->currentPage));
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, isStarred);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

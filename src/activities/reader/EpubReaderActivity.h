@@ -5,6 +5,7 @@
 
 #include <optional>
 
+#include "BookmarkStore.h"
 #include "EpubReaderMenuActivity.h"
 #include "ReaderUtils.h"
 #include "activities/Activity.h"
@@ -51,6 +52,9 @@ class EpubReaderActivity final : public Activity {
   // -1 means use global SETTINGS value.
   int8_t bookEmbeddedStyleOverride = -1;
   int8_t bookImageRenderingOverride = -1;
+
+  // Bookmarks (starred pages)
+  BookmarkStore bookmarkStore;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;

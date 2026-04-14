@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "StarredPagesActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -99,6 +100,9 @@ void TxtReaderActivity::onEnter() {
 
   txt->setupCacheDir();
 
+  // Load bookmarks for this file
+  bookmarkStore.load(txt->getCachePath());
+
   // Save current txt as last opened file and add to recent books
   auto filePath = txt->getPath();
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
@@ -112,6 +116,9 @@ void TxtReaderActivity::onEnter() {
 
 void TxtReaderActivity::onExit() {
   Activity::onExit();
+
+  // Save bookmarks before exit
+  bookmarkStore.save();
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -140,6 +147,29 @@ void TxtReaderActivity::loop() {
       mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
     ReaderUtils::enforceExitFullRefresh(renderer);
     finish();
+    return;
+  }
+
+  // Star page toggle via short power button press
+  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::STAR_PAGE &&
+      mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+    bookmarkStore.toggle(0, static_cast<uint16_t>(currentPage));
+    requestUpdate();
+    return;
+  }
+
+  // Open starred pages list via Confirm button
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !bookmarkStore.isEmpty()) {
+    startActivityForResult(std::make_unique<StarredPagesActivity>(renderer, mappedInput, bookmarkStore.getAll()),
+                           [this](const ActivityResult& result) {
+                             if (!result.isCancelled) {
+                               const auto& starred = std::get<StarredPageResult>(result.data);
+                               currentPage = starred.pageNumber;
+                               if (currentPage >= totalPages) currentPage = totalPages - 1;
+                               if (currentPage < 0) currentPage = 0;
+                             }
+                             requestUpdate();
+                           });
     return;
   }
 
@@ -373,7 +403,8 @@ void TxtReaderActivity::renderStatusBar() const {
   if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
     title = txt->getTitle();
   }
-  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title);
+  const bool isStarred = bookmarkStore.has(0, static_cast<uint16_t>(currentPage));
+  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title, 0, 0, isStarred);
 }
 
 void TxtReaderActivity::saveProgress() const {

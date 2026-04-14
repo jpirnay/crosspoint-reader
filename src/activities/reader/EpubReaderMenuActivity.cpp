@@ -13,7 +13,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const int bookProgressPercent, const uint8_t currentOrientation,
                                                const bool hasFootnotes, const int8_t initialEmbeddedStyleOverride,
                                                const int8_t initialImageRenderingOverride,
-                                               const uint8_t initialTextDarkness)
+                                               const uint8_t initialTextDarkness, const bool hasStarredPages)
     : MenuListActivity("EpubReaderMenu", renderer, mappedInput),
       pendingOrientation(currentOrientation),
       pendingEmbeddedStyleOverride(initialEmbeddedStyleOverride),
@@ -23,16 +23,19 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {
-  buildMenuItems(hasFootnotes);
+  buildMenuItems(hasFootnotes, hasStarredPages);
 }
 
-void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes) {
-  menuItems.reserve(18);
+void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPages) {
+  menuItems.reserve(19);
 
   // --- Navigation ---
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_NAVIGATION));
   menuItems.push_back(SettingInfo::Action(StrId::STR_SELECT_CHAPTER, SettingAction::None));
   menuItems.push_back(SettingInfo::Action(StrId::STR_GO_TO_PERCENT, SettingAction::None));
+  if (hasStarredPages) {
+    menuItems.push_back(SettingInfo::Action(StrId::STR_STARRED_PAGES, SettingAction::None));
+  }
   if (hasFootnotes) {
     menuItems.push_back(SettingInfo::Action(StrId::STR_FOOTNOTES, SettingAction::None));
   }
@@ -98,6 +101,8 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId
       return MenuAction::SELECT_CHAPTER;
     case StrId::STR_GO_TO_PERCENT:
       return MenuAction::GO_TO_PERCENT;
+    case StrId::STR_STARRED_PAGES:
+      return MenuAction::STARRED_PAGES;
     case StrId::STR_FOOTNOTES:
       return MenuAction::FOOTNOTES;
     case StrId::STR_AUTO_TURN_PAGES_PER_MIN:
