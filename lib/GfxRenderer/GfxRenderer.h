@@ -50,10 +50,10 @@ class GfxRenderer {
   // rendering. See drawMaskFor2BitMode() in GfxRenderer.cpp for the per-level
   // pixel breakdown and a worked example glyph.
   uint8_t* frameBuffer = nullptr;
-  uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
-  uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
-  uint16_t panelWidthBytes = HalDisplay::DISPLAY_WIDTH_BYTES;
-  uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
+  uint16_t panelWidth = 0;       // set in begin()
+  uint16_t panelHeight = 0;      // set in begin()
+  uint16_t panelWidthBytes = 0;  // set in begin()
+  uint32_t frameBufferSize = 0;  // set in begin()
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
 
