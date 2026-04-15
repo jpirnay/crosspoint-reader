@@ -25,7 +25,7 @@ void KeyboardEntryActivity::onExit() { Activity::onExit(); }
 
 int KeyboardEntryActivity::getContentRowCount() const {
   if (urlMode) return 3;
-  return symMode ? SYM_ROWS : ABC_ROWS;
+  return ABC_ROWS;
 }
 
 int KeyboardEntryActivity::getContentColCount() const {
