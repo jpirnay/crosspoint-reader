@@ -72,62 +72,30 @@ void KOReaderSettingsActivity::onActionSelected(int index) {
                              }
                            });
   } else if (item.nameId == StrId::STR_PASSWORD) {
-    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_KOREADER_PASSWORD),
-                                                                   KOREADER_STORE.getPassword(), 64, InputType::Password),
-                           [this](const ActivityResult& result) {
-                             if (!result.isCancelled) {
-                               const auto& kb = std::get<KeyboardResult>(result.data);
-                               KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), kb.text);
-                               KOREADER_STORE.saveToFile();
-                             }
-                           });
-  } else if (item.nameId == StrId::STR_SYNC_SERVER_URL) {
-    const std::string currentUrl = KOREADER_STORE.getServerUrl();
-    const std::string prefillUrl = currentUrl.empty() ? "https://" : currentUrl;
     startActivityForResult(
-        std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SYNC_SERVER_URL), prefillUrl, 128, InputType::Url),
+        std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_KOREADER_PASSWORD),
+                                                KOREADER_STORE.getPassword(), 64, InputType::Password),
         [this](const ActivityResult& result) {
           if (!result.isCancelled) {
             const auto& kb = std::get<KeyboardResult>(result.data);
-            const std::string urlToSave = (kb.text == "https://" || kb.text == "http://") ? "" : kb.text;
-            KOREADER_STORE.setServerUrl(urlToSave);
+            KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), kb.text);
             KOREADER_STORE.saveToFile();
           }
         });
-  } else if (item.nameId == StrId::STR_AUTHENTICATE) {
-    if (!KOREADER_STORE.hasCredentials()) return;
-    startActivityForResult(
-        std::make_unique<KOReaderAuthActivity>(renderer, mappedInput, KOReaderAuthActivity::Mode::LOGIN),
-        [](const ActivityResult&) {});
-  } else if (item.nameId == StrId::STR_REGISTER) {
-    if (!KOREADER_STORE.hasCredentials()) return;
-    startActivityForResult(
-        std::make_unique<KOReaderAuthActivity>(renderer, mappedInput, KOReaderAuthActivity::Mode::REGISTER),
-        [](const ActivityResult&) {});
-  }
-}
-
-                                                                   KOREADER_STORE.getPassword(), 64, true),
-                           [this](const ActivityResult& result) {
-                             if (!result.isCancelled) {
-                               const auto& kb = std::get<KeyboardResult>(result.data);
-                               KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), kb.text);
-                               KOREADER_STORE.saveToFile();
-                             }
-                           });
   } else if (item.nameId == StrId::STR_SYNC_SERVER_URL) {
     const std::string currentUrl = KOREADER_STORE.getServerUrl();
     const std::string prefillUrl = currentUrl.empty() ? "https://" : currentUrl;
-    startActivityForResult(
-        std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SYNC_SERVER_URL), prefillUrl, 128, InputType::Url),
-        [this](const ActivityResult& result) {
-          if (!result.isCancelled) {
-            const auto& kb = std::get<KeyboardResult>(result.data);
-            const std::string urlToSave = (kb.text == "https://" || kb.text == "http://") ? "" : kb.text;
-            KOREADER_STORE.setServerUrl(urlToSave);
-            KOREADER_STORE.saveToFile();
-          }
-        });
+    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SYNC_SERVER_URL),
+                                                                   prefillUrl, 128, InputType::Url),
+                           [this](const ActivityResult& result) {
+                             if (!result.isCancelled) {
+                               const auto& kb = std::get<KeyboardResult>(result.data);
+                               const std::string urlToSave =
+                                   (kb.text == "https://" || kb.text == "http://") ? "" : kb.text;
+                               KOREADER_STORE.setServerUrl(urlToSave);
+                               KOREADER_STORE.saveToFile();
+                             }
+                           });
   } else if (item.nameId == StrId::STR_AUTHENTICATE) {
     if (!KOREADER_STORE.hasCredentials()) return;
     startActivityForResult(
