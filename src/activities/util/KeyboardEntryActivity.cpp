@@ -20,6 +20,12 @@ void KeyboardEntryActivity::onEnter() {
   shiftState = 0;
   selectedRow = 0;
   selectedCol = 0;
+  confirmHeld = false;
+  confirmLongHandled = false;
+  upHeld = false;
+  upLongHandled = false;
+  downHeld = false;
+  downLongHandled = false;
   requestUpdate();
 }
 
@@ -265,7 +271,7 @@ void KeyboardEntryActivity::loop() {
   }
 
   if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+      mappedInput.getHeldTime() > LONG_PRESS_MS && !cursorMode && inputType == InputType::Text && !urlMode) {
     char alt = getAlternativeChar();
     if (alt != '\0') {
       insertChar(alt);
