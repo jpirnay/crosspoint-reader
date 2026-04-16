@@ -58,6 +58,14 @@ void QmiTestActivity::loop() {
 
       float gx = (rawGyroX - gyroBiasX) * gyroScale;
       float gy = (rawGyroY - gyroBiasY) * gyroScale;
+      float gz = rawGyroZ * gyroScale;
+
+      accX = ax;
+      accY = ay;
+      accZ = az;
+      gyroX = gx;
+      gyroY = gy;
+      gyroZ = gz;
 
       // Zeitberechnung
       uint32_t now = micros();
@@ -77,9 +85,8 @@ void QmiTestActivity::loop() {
       float stableRoll = kalmanRoll.update(accRoll, gx, dt);
       float stablePitch = kalmanPitch.update(accPitch, gy, dt);
 
-      // --- Gesture-check
-      float rollVelocity = (stableRoll - lastRoll) / dt;
-      float pitchVelocity = (stablePitch - lastPitch) / dt;
+      rollVelocity = (stableRoll - lastRoll) / dt;
+      pitchVelocity = (stablePitch - lastPitch) / dt;
 
       lastRoll = stableRoll;
       lastPitch = stablePitch;
