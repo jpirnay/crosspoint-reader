@@ -250,30 +250,37 @@ void DetectTimezoneActivity::performDetect() {
 
 void DetectTimezoneActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  const int headerBottom = contentRect.y + metrics.topPadding + metrics.headerHeight;
+  const Rect bodyRect = Rect(contentRect.x, headerBottom, contentRect.width,
+                             contentRect.height - (metrics.topPadding + metrics.headerHeight));
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DETECT_TIMEZONE));
+  GUI.drawHeader(renderer,
+                 Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
+                 tr(STR_DETECT_TIMEZONE));
 
   if (state == CONNECTING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_CONNECTING), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2, tr(STR_CONNECTING), true,
+                              EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
 
   if (state == DETECTING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_DETECTING_TIMEZONE), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2, tr(STR_DETECTING_TIMEZONE), true,
+                              EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
 
   if (state == SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_TIMEZONE_DETECTED), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2 - 20, tr(STR_TIMEZONE_DETECTED), true,
+                              EpdFontFamily::BOLD);
 
     if (!detectedTimezone.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 5, detectedTimezone.c_str());
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 25, dstStatusLabel());
+      renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2 + 5, detectedTimezone.c_str());
+      renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2 + 25, dstStatusLabel());
     }
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
@@ -283,7 +290,8 @@ void DetectTimezoneActivity::render(RenderLock&&) {
   }
 
   if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_TIMEZONE_DETECT_FAILED), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2, tr(STR_TIMEZONE_DETECT_FAILED), true,
+                              EpdFontFamily::BOLD);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

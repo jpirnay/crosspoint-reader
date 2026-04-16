@@ -108,20 +108,25 @@ void SyncTimeActivity::performSync() {
 
 void SyncTimeActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  const int headerBottom = contentRect.y + metrics.topPadding + metrics.headerHeight;
+  const Rect bodyRect = Rect(contentRect.x, headerBottom, contentRect.width,
+                             contentRect.height - (metrics.topPadding + metrics.headerHeight));
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SYNC_TIME));
+  GUI.drawHeader(renderer,
+                 Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
+                 tr(STR_SYNC_TIME));
 
   if (state == SYNCING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_SYNCING_CLOCK), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2, tr(STR_SYNCING_CLOCK), true,
+                              EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
 
   if (state == SUCCESS) {
-    int y = pageHeight / 2 - 40;
+    int y = bodyRect.y + bodyRect.height / 2 - 40;
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_TIME_SYNCED), true, EpdFontFamily::BOLD);
 
     time_t now = HalClock::now();
@@ -179,7 +184,8 @@ void SyncTimeActivity::render(RenderLock&&) {
   }
 
   if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_TIME_SYNC_FAILED), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, bodyRect.y + bodyRect.height / 2, tr(STR_TIME_SYNC_FAILED), true,
+                              EpdFontFamily::BOLD);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

@@ -207,23 +207,24 @@ void WeatherSettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
   if (showingSearchResults) {
     // Display search results
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
+    GUI.drawHeader(renderer,
+                   Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
                    tr(STR_WEATHER_SEARCH_RESULTS));
 
-    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int contentTop = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight =
+        contentRect.height - (metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 2);
 
     if (searchResults.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NO_ENTRIES));
+      renderer.drawCenteredText(UI_10_FONT_ID, contentTop + contentHeight / 2, tr(STR_NO_ENTRIES));
     } else {
       GUI.drawList(
-          renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(searchResults.size()),
-          static_cast<int>(selectedIndex),
+          renderer, Rect(contentRect.x, contentTop, contentRect.width, contentHeight),
+          static_cast<int>(searchResults.size()), static_cast<int>(selectedIndex),
           [this](int index) {
             const auto& r = searchResults[index];
             std::string label = r.name;
@@ -241,14 +242,18 @@ void WeatherSettingsActivity::render(RenderLock&&) {
   }
 
   // Main settings menu
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_WEATHER_SETTINGS));
+  GUI.drawHeader(renderer,
+                 Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
+                 tr(STR_WEATHER_SETTINGS));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  const int contentTop = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight =
+      contentRect.height - (metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 2);
 
   GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, MENU_ITEMS, static_cast<int>(selectedIndex),
-      [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr, nullptr,
+      renderer, Rect(contentRect.x, contentTop, contentRect.width, contentHeight), MENU_ITEMS,
+      static_cast<int>(selectedIndex), [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr,
+      nullptr,
       [this](int index) -> std::string {
         switch (index) {
           case 0: {

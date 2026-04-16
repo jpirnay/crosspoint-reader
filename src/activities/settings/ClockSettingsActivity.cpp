@@ -114,19 +114,24 @@ void ClockSettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CLOCK_SETTINGS));
-  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+  GUI.drawHeader(renderer,
+                 Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
+                 tr(STR_CLOCK_SETTINGS));
+  GUI.drawSubHeader(renderer,
+                    Rect(contentRect.x, contentRect.y + metrics.topPadding + metrics.headerHeight, contentRect.width,
+                         metrics.tabBarHeight),
                     tr(STR_CLOCK_SETTINGS_WARNING));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  const int contentTop =
+      contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+  const int contentHeight = contentRect.height - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                                                  metrics.verticalSpacing * 2);
 
   GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(menuItems.size()), selectedIndex,
-      [this](int index) { return menuItems[index].getTitle(); }, nullptr, nullptr,
+      renderer, Rect(contentRect.x, contentTop, contentRect.width, contentHeight), static_cast<int>(menuItems.size()),
+      selectedIndex, [this](int index) { return menuItems[index].getTitle(); }, nullptr, nullptr,
       [this](int index) {
         const auto action = menuItems[index].action;
         switch (action) {
