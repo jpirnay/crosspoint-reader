@@ -105,6 +105,12 @@ inline const std::vector<SettingInfo> list = {
     SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                       {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                       "imageRendering", StrId::STR_CAT_READER),
+    SettingInfo::Toggle(StrId::STR_READING_RULER, &CrossPointSettings::readingRulerEnabled, "readingRulerEnabled",
+                        StrId::STR_CAT_READER),
+    SettingInfo::Enum(StrId::STR_RULER_AUTO_PROGRESS, &CrossPointSettings::rulerAutoProgressSeconds,
+                      {StrId::STR_STATE_OFF, StrId::STR_SEC_3, StrId::STR_SEC_5, StrId::STR_SEC_8, StrId::STR_SEC_10,
+                       StrId::STR_SEC_15},
+                      "rulerAutoProgressSeconds", StrId::STR_CAT_READER),
     SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
                        StrId::STR_CAT_READER)
         .withSubmenu(StrId::STR_MENU_READER_SPACING),

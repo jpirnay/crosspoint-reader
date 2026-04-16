@@ -56,6 +56,23 @@ class EpubReaderActivity final : public Activity {
   // Bookmarks (starred pages)
   BookmarkStore bookmarkStore;
 
+  // Reading ruler
+  bool readingRulerActive = false;
+  int16_t rulerLineIndex = 0;
+  int16_t rulerLineCount = 0;
+  unsigned long rulerLastInteraction = 0;
+  unsigned long rulerLastAutoMove = 0;
+  struct LineGeometry {
+    int16_t y;
+    int16_t height;
+  };
+  std::vector<LineGeometry> currentPageLines;
+  int16_t cachedContentLeft = 0;
+  int16_t cachedContentRight = 0;
+  bool refreshReadingRulerFast(int16_t previousLineIndex);
+  bool drawReadingRulerLine(int16_t lineIndex, bool state) const;
+  void moveRuler(int direction);
+
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
   struct SavedPosition {

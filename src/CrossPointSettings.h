@@ -273,6 +273,10 @@ class CrossPointSettings {
   uint8_t useClock = 0;
   // Show the Weather home screen menu item (1 = enabled, 0 = hidden)
   uint8_t useWeather = 1;
+  // Reading ruler (0 = off, 1 = on in settings)
+  uint8_t readingRulerEnabled = 0;
+  // Reading ruler auto-progress interval (0=off, 1=3s, 2=5s, 3=8s, 4=10s, 5=15s)
+  uint8_t rulerAutoProgressSeconds = 0;
 
   ~CrossPointSettings() = default;
 
@@ -296,6 +300,10 @@ class CrossPointSettings {
   bool loadFromBinaryFile();
 
  public:
+  unsigned long getRulerAutoProgressMs() const {
+    constexpr unsigned long ms[] = {0, 3000, 5000, 8000, 10000, 15000};
+    return rulerAutoProgressSeconds < sizeof(ms) / sizeof(ms[0]) ? ms[rulerAutoProgressSeconds] : 0;
+  }
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;

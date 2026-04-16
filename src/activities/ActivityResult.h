@@ -25,6 +25,8 @@ struct MenuResult {
   int8_t embeddedStyleOverride = -1;
   int8_t imageRenderingOverride = -1;
   uint8_t textDarkness = 1;
+  bool readingRulerToggled = false;
+  bool pageTurnChanged = false;
 };
 
 struct ChapterResult {

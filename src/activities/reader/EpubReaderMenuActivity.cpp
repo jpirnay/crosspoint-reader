@@ -14,22 +14,25 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const bool hasFootnotes, const int8_t initialEmbeddedStyleOverride,
                                                const int8_t initialImageRenderingOverride,
                                                const uint8_t initialTextDarkness, const bool hasStarredPages,
-                                               const bool isCurrentPageStarred)
+                                               const bool isCurrentPageStarred, const bool readingRulerActive,
+                                               const bool readingRulerEnabled)
     : MenuListActivity("EpubReaderMenu", renderer, mappedInput),
       currentPageStarred(isCurrentPageStarred),
       pendingOrientation(currentOrientation),
       pendingEmbeddedStyleOverride(initialEmbeddedStyleOverride),
       pendingImageRenderingOverride(initialImageRenderingOverride),
       pendingTextDarkness(initialTextDarkness),
+      pendingReadingRulerActive(readingRulerActive),
+      initialRulerActive(readingRulerActive),
       title(title),
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {
-  buildMenuItems(hasFootnotes, hasStarredPages);
+  buildMenuItems(hasFootnotes, hasStarredPages, readingRulerEnabled);
 }
 
-void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPages) {
-  menuItems.reserve(19);
+void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPages, bool readingRulerEnabled) {
+  menuItems.reserve(20);
 
   // --- Navigation ---
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_NAVIGATION));
@@ -81,6 +84,13 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
 
   // Helper functions, reading ruler, auto page turn, orientation
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_UTILS));
+  // Reading ruler: per-book toggle. Only surfaced when the global setting is enabled.
+  if (readingRulerEnabled) {
+    menuItems.push_back(SettingInfo::DynamicEnum(
+        StrId::STR_READING_RULER, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+        [this]() -> uint8_t { return pendingReadingRulerActive ? 1 : 0; },
+        [this](uint8_t v) { pendingReadingRulerActive = (v != 0); }));
+  }
   // Auto page turn: ACTION type with custom cycling in onActionSelected
   menuItems.push_back(SettingInfo::Action(StrId::STR_AUTO_TURN_PAGES_PER_MIN, SettingAction::None));
   // Orientation: straightforward 0-3 cycle
@@ -124,6 +134,8 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId
       return MenuAction::IMAGE_RENDERING;
     case StrId::STR_TEXT_DARKNESS:
       return MenuAction::TEXT_DARKNESS;
+    case StrId::STR_READING_RULER:
+      return MenuAction::READING_RULER;
     case StrId::STR_ORIENTATION:
       return MenuAction::ROTATE_SCREEN;
     case StrId::STR_PULL_PROGRESS_FROM_OTHER_DEVICES:
@@ -144,8 +156,10 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId
 }
 
 void EpubReaderMenuActivity::finishWithAction(MenuAction action) {
+  const bool rulerToggled = (pendingReadingRulerActive != initialRulerActive);
   setResult(MenuResult{static_cast<int>(action), pendingOrientation, selectedPageTurnOption,
-                       pendingEmbeddedStyleOverride, pendingImageRenderingOverride, pendingTextDarkness});
+                       pendingEmbeddedStyleOverride, pendingImageRenderingOverride, pendingTextDarkness, rulerToggled,
+                       /*pageTurnChanged=*/false});
   finish();
 }
 
@@ -168,6 +182,7 @@ void EpubReaderMenuActivity::onSettingToggled(int /*index*/) {
 }
 
 void EpubReaderMenuActivity::onBackPressed() {
+  const bool rulerToggled = (pendingReadingRulerActive != initialRulerActive);
   ActivityResult result;
   result.isCancelled = true;
   result.data = MenuResult{-1,
@@ -175,7 +190,9 @@ void EpubReaderMenuActivity::onBackPressed() {
                            selectedPageTurnOption,
                            pendingEmbeddedStyleOverride,
                            pendingImageRenderingOverride,
-                           pendingTextDarkness};
+                           pendingTextDarkness,
+                           rulerToggled,
+                           /*pageTurnChanged=*/false};
   setResult(std::move(result));
   finish();
 }
