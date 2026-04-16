@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "BitmapHelpers.h"
+
 // ============================================================================
 // IMAGE PROCESSING OPTIONS
 // ============================================================================
@@ -191,18 +193,19 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
 
   // Helper lambda to pack 2bpp color into the output stream
   auto packPixel = [&](const uint8_t lum) {
+    const uint8_t adjusted = adjustedLUT[lum];
     uint8_t color;
     if (atkinsonDitherer) {
-      color = atkinsonDitherer->processPixel(adjustPixel(lum), currentX);
+      color = atkinsonDitherer->processPixel(adjusted, currentX);
     } else if (fsDitherer) {
-      color = fsDitherer->processPixel(adjustPixel(lum), currentX);
+      color = fsDitherer->processPixel(adjusted, currentX);
     } else {
       if (nativePalette) {
         // Palette matches native gray levels: direct mapping (still apply brightness/contrast/gamma)
-        color = static_cast<uint8_t>(adjustPixel(lum) >> 6);
+        color = static_cast<uint8_t>(adjusted >> 6);
       } else {
         // Non-native palette with dithering disabled: simple quantization
-        color = quantize(adjustPixel(lum), currentX, prevRowY);
+        color = quantize(adjusted, currentX, prevRowY);
       }
     }
     currentOutByte |= (color << bitShift);

@@ -39,18 +39,38 @@ static inline int applyContrast(int gray) {
   if (adjusted > 255) adjusted = 255;
   return adjusted;
 }
+uint8_t adjustedLUT[256];
+static bool adjustedLUTInitialized = false;
+
+void precomputeLUT() {
+  for (int i = 0; i < 256; i++) {
+    int gray = i;
+    if (USE_BRIGHTNESS) {
+      gray = applyContrast(gray);
+      gray += BRIGHTNESS_BOOST;
+      if (gray > 255) gray = 255;
+      if (gray < 0) gray = 0;
+      gray = applyGamma(gray);
+    }
+    adjustedLUT[i] = static_cast<uint8_t>(gray);
+  }
+  adjustedLUTInitialized = true;
+}
+
+void Bitmap::precomputeLUT() { ::precomputeLUT(); }
+
+static void ensureAdjustedLUT() {
+  if (!adjustedLUTInitialized) {
+    precomputeLUT();
+  }
+}
+
 // Combined brightness/contrast/gamma adjustment
 int adjustPixel(int gray) {
-  if (!USE_BRIGHTNESS) return gray;
-
-  // Order: contrast first, then brightness, then gamma
-  gray = applyContrast(gray);
-  gray += BRIGHTNESS_BOOST;
-  if (gray > 255) gray = 255;
+  ensureAdjustedLUT();
   if (gray < 0) gray = 0;
-  gray = applyGamma(gray);
-
-  return gray;
+  if (gray > 255) gray = 255;
+  return adjustedLUT[gray];
 }
 // Simple quantization without dithering — evenly-spaced midpoint thresholds for factory LUT
 uint8_t quantizeSimple(int gray) {
@@ -97,7 +117,9 @@ uint8_t quantize(int gray, int x, int y) {
 // 1-bit noise dithering for fast home screen rendering
 // Uses hash-based noise for consistent dithering that works well at small sizes
 uint8_t quantize1bit(int gray, int x, int y) {
-  gray = adjustPixel(gray);
+  if (gray < 0) gray = 0;
+  if (gray > 255) gray = 255;
+  gray = adjustedLUT[gray];
 
   // Generate noise threshold using integer hash (no regular pattern to alias)
   uint32_t hash = static_cast<uint32_t>(x) * 374761393u + static_cast<uint32_t>(y) * 668265263u;

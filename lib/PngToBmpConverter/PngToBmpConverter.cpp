@@ -682,7 +682,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
 
       if (USE_8BIT_OUTPUT && !oneBit) {
         for (int x = 0; x < outWidth; x++) {
-          rowBuffer[x] = adjustPixel(grayRow[x]);
+          rowBuffer[x] = adjustedLUT[grayRow[x]];
         }
       } else if (oneBit) {
         for (int x = 0; x < outWidth; x++) {
@@ -695,7 +695,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
         if (atkinson1BitDitherer) atkinson1BitDitherer->nextRow();
       } else {
         for (int x = 0; x < outWidth; x++) {
-          const uint8_t gray = adjustPixel(grayRow[x]);
+          const uint8_t gray = adjustedLUT[grayRow[x]];
           uint8_t twoBit;
           if (atkinsonDitherer) {
             twoBit = atkinsonDitherer->processPixel(gray, x);
@@ -747,7 +747,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
         if (USE_8BIT_OUTPUT && !oneBit) {
           for (int x = 0; x < outWidth; x++) {
             const uint8_t gray = (rowCount[x] > 0) ? (rowAccum[x] / rowCount[x]) : 0;
-            rowBuffer[x] = adjustPixel(gray);
+            rowBuffer[x] = adjustedLUT[gray];
           }
         } else if (oneBit) {
           for (int x = 0; x < outWidth; x++) {
@@ -761,7 +761,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
           if (atkinson1BitDitherer) atkinson1BitDitherer->nextRow();
         } else {
           for (int x = 0; x < outWidth; x++) {
-            const uint8_t gray = adjustPixel((rowCount[x] > 0) ? (rowAccum[x] / rowCount[x]) : 0);
+            const uint8_t gray = adjustedLUT[(rowCount[x] > 0) ? (rowAccum[x] / rowCount[x]) : 0];
             uint8_t twoBit;
             if (atkinsonDitherer) {
               twoBit = atkinsonDitherer->processPixel(gray, x);

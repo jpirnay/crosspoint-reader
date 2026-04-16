@@ -66,6 +66,7 @@ class Bitmap {
 
   explicit Bitmap(FsFile& file, bool dithering = false) : file(file), dithering(dithering) {}
   ~Bitmap();
+  static void precomputeLUT();
   BmpReaderError parseHeaders();
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer) const;
   BmpReaderError rewindToData() const;

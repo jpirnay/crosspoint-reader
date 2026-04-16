@@ -1,10 +1,10 @@
 #include <Arduino.h>
+#include <Bitmap.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
-#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -242,6 +242,7 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   setupDisplayAndFonts();
+  Bitmap::precomputeLUT();
 
   activityManager.goToBoot();
 

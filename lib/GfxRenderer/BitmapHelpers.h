@@ -9,6 +9,8 @@ struct BmpHeader;
 uint8_t quantize(int gray, int x, int y);
 uint8_t quantizeSimple(int gray);
 uint8_t quantize1bit(int gray, int x, int y);
+extern uint8_t adjustedLUT[256];
+void precomputeLUT();
 int adjustPixel(int gray);
 
 enum class BmpRowOrder { BottomUp, TopDown };
