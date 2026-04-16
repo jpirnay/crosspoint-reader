@@ -51,6 +51,91 @@ bool readI2CReg16LE(uint8_t addr, uint8_t reg, uint16_t* outValue) {
   return true;
 }
 
+bool writeI2CReg8(uint8_t addr, uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission(true) == 0;
+}
+
+uint8_t resolveQMI8658Addr() {
+  uint8_t whoami = 0;
+  if (readI2CReg8(I2C_ADDR_QMI8658, QMI8658_WHO_AM_I_REG, &whoami) && whoami == QMI8658_WHO_AM_I_VALUE) {
+    return I2C_ADDR_QMI8658;
+  }
+  if (readI2CReg8(I2C_ADDR_QMI8658_ALT, QMI8658_WHO_AM_I_REG, &whoami) && whoami == QMI8658_WHO_AM_I_VALUE) {
+    return I2C_ADDR_QMI8658_ALT;
+  }
+  return 0;
+}
+
+uint8_t initQMI8658() {
+  const uint8_t addr = resolveQMI8658Addr();
+  if (!addr) {
+    LOG_ERR("HW", "QMI8658 not found for tilt init");
+    return 0;
+  }
+  writeI2CReg8(addr, QMI8658_CTRL1_REG, 0x40);
+  writeI2CReg8(addr, QMI8658_CTRL2_REG, QMI8658_CTRL2_2G_125HZ);
+  // CTRL3: Gyroscope Config (512DPS, 125Hz) ---
+  // 0x40 (512DPS) | 0x05 (125Hz) = 0x45
+  writeI2CReg8(addr, QMI8658_CTRL3_REG, 0x45);
+  writeI2CReg8(addr, QMI8658_CTRL7_REG, QMI8658_CTRL7_ACCEL_EN | QMI8658_CTRL7_GYRO_EN);
+  
+  LOG_INF("HW", "QMI8658 init ok (addr=0x%02X)", addr);
+  return addr;
+}
+
+bool readQMI8658AccelAxis(uint8_t addr, uint8_t reg, int16_t* outValue) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+  if (Wire.requestFrom(addr, static_cast<uint8_t>(2), static_cast<uint8_t>(true)) < 2) {
+    return false;
+  }
+  const uint8_t lo = Wire.read();
+  const uint8_t hi = Wire.read();
+  *outValue = static_cast<int16_t>((static_cast<uint16_t>(hi) << 8) | lo);
+  return true;
+}
+
+bool readQMI8658AccelY(uint8_t addr, int16_t* outY) {
+  return readQMI8658AccelAxis(addr, QMI8658_ACCEL_Y_L, outY);
+}
+
+bool readQMI8658GyroAxis(uint8_t addr, uint8_t reg, int16_t* outValue) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+  if (Wire.requestFrom(addr, static_cast<uint8_t>(2), static_cast<uint8_t>(true)) < 2) {
+    return false;
+  }
+  const uint8_t lo = Wire.read();
+  const uint8_t hi = Wire.read();
+  *outValue = static_cast<int16_t>((static_cast<uint16_t>(hi) << 8) | lo);
+  return true;
+}
+
+bool readQMI8658GyroX(uint8_t addr, int16_t* outX) {
+  return readQMI8658GyroAxis(addr, QMI8658_GYRO_X_L, outX);
+}
+
+bool readQMI8658GyroY(uint8_t addr, int16_t* outY) {
+  return readQMI8658GyroAxis(addr, QMI8658_GYRO_Y_L, outY);
+}
+
+bool readQMI8658GyroZ(uint8_t addr, int16_t* outZ) {
+  return readQMI8658GyroAxis(addr, QMI8658_GYRO_Z_L, outZ);
+}
+
+bool shutdownQMI8658(uint8_t addr) {
+  return writeI2CReg8(addr, QMI8658_CTRL7_REG, 0x00);
+}
+
 bool readBQ27220CurrentMA(int16_t* outCurrent) {
   uint16_t raw = 0;
   if (!readI2CReg16LE(I2C_ADDR_BQ27220, BQ27220_CUR_REG, &raw)) {

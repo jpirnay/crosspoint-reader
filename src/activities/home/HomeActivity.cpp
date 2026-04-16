@@ -1,4 +1,5 @@
 #include "HomeActivity.h"
+#include "QmiTestActivity.h"
 
 #include <Bitmap.h>
 #include <Epub.h>
@@ -100,7 +101,7 @@ int getHomeCoverRenderHeight(const HomeScreenLayout& layout) {
 }  // namespace
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Recents, File transfer, Settings
+  int count = 5;  // File Browser, Recents, File transfer, QMI test, Settings
   if (SETTINGS.useWeather) {
     count++;
   }
@@ -293,6 +294,7 @@ void HomeActivity::loop() {
     const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
     const int fileTransferIdx = idx++;
     const int weatherIdx = hasWeather ? idx++ : -1;
+    const int qmiTestIdx = idx++;
     const int settingsIdx = idx;
 
     if (selectorIndex < recentBooks.size()) {
@@ -305,10 +307,12 @@ void HomeActivity::loop() {
       onGlobalBookmarksOpen();
     } else if (menuSelectedIndex == opdsLibraryIdx) {
       onOpdsBrowserOpen();
-    } else if (menuSelectedIndex == weatherIdx) {
-      onWeatherOpen();
     } else if (menuSelectedIndex == fileTransferIdx) {
       onFileTransferOpen();
+    } else if (menuSelectedIndex == weatherIdx) {
+      onWeatherOpen();
+    } else if (menuSelectedIndex == qmiTestIdx) {
+      onQmiTestOpen();
     } else if (menuSelectedIndex == settingsIdx) {
       onSettingsOpen();
     }
@@ -325,29 +329,28 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.homeTopPadding}, nullptr);
 
   // Build menu items dynamically
-  const char* weatherMenuLabel = SETTINGS.useWeather ? tr(STR_WEATHER) : tr(STR_SETTINGS_TITLE);
-  const UIIcon weatherMenuIcon = SETTINGS.useWeather ? Weather : Settings;
+  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER)};
+  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer};
 
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
-                                        weatherMenuLabel, tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, weatherMenuIcon, Settings};
-
-  if (!SETTINGS.useWeather) {
-    menuItems.erase(menuItems.begin() + 3);
-    menuIcons.erase(menuIcons.begin() + 3);
-  }
-
-  int insertAfterRecents = 2;
   if (!GLOBAL_BOOKMARKS.isEmpty()) {
-    menuItems.insert(menuItems.begin() + insertAfterRecents, tr(STR_GLOBAL_BOOKMARKS));
-    menuIcons.insert(menuIcons.begin() + insertAfterRecents, Book);
-    insertAfterRecents++;
+    menuItems.push_back(tr(STR_GLOBAL_BOOKMARKS));
+    menuIcons.push_back(Book);
   }
 
   if (hasOpdsUrl) {
-    menuItems.insert(menuItems.begin() + insertAfterRecents, tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + insertAfterRecents, Library);
+    menuItems.push_back(tr(STR_OPDS_BROWSER));
+    menuIcons.push_back(Library);
   }
+
+  if (SETTINGS.useWeather) {
+    menuItems.push_back(tr(STR_WEATHER));
+    menuIcons.push_back(Weather);
+  }
+
+  menuItems.push_back("QMI8658 Test");
+  menuIcons.push_back(Hotspot);
+  menuItems.push_back(tr(STR_SETTINGS_TITLE));
+  menuIcons.push_back(Settings);
 
   const int totalItems = static_cast<int>(recentBooks.size() + menuItems.size());
   if (selectorIndex >= totalItems) {
@@ -394,5 +397,7 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onQmiTestOpen() { activityManager.pushActivity(std::make_unique<QmiTestActivity>(renderer, mappedInput)); }
 
 void HomeActivity::onWeatherOpen() { activityManager.goToWeather(); }

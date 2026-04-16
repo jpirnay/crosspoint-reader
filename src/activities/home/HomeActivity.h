@@ -29,6 +29,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onQmiTestOpen();
   void onWeatherOpen();
 
   int getMenuItemCount() const;

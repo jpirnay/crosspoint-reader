@@ -37,10 +37,37 @@
 #define I2C_ADDR_QMI8658_ALT 0x6A    // IMU I2C fallback address
 #define QMI8658_WHO_AM_I_REG 0x00    // WHO_AM_I command code
 #define QMI8658_WHO_AM_I_VALUE 0x05  // WHO_AM_I expected value
+#define QMI8658_CTRL1_REG 0x02       // SPI/auto-increment config
+#define QMI8658_CTRL2_REG 0x03       // Accel ODR + full-scale range
+#define QMI8658_CTRL3_REG 0x04       // Gyro Config (DPS + ODR)
+#define QMI8658_CTRL7_REG 0x08       // Sensor enable (aEN=bit0, gEN=bit1)
+#define QMI8658_ACCEL_X_L 0x35      // Accel X low byte (LE 16-bit, signed)
+#define QMI8658_ACCEL_Y_L 0x37      // Accel Y low byte (LE 16-bit, signed)
+#define QMI8658_ACCEL_Z_L 0x39      // Accel Z low byte (LE 16-bit, signed)
+#define QMI8658_GYRO_X_L  0x3B      // Gyro X low byte (LE 16-bit, signed)
+#define QMI8658_GYRO_Y_L  0x3D      // Gyro Y low byte (LE 16-bit, signed)
+#define QMI8658_GYRO_Z_L  0x3F      // Gyro Z low byte (LE 16-bit, signed)
+#define QMI8658_CTRL2_2G_125HZ 0x06  // CTRL2: ±2G full scale, 125 Hz ODR
+#define QMI8658_CTRL7_ACCEL_EN 0x01 // CTRL7: accel only
+#define QMI8658_CTRL7_GYRO_EN 0x02  // CTRL7: gyro only
 
 namespace X3GPIO {
 // Read a 16-bit little-endian I2C register. Returns false on bus error.
 bool readI2CReg16LE(uint8_t addr, uint8_t reg, uint16_t* outValue);
+
+bool readI2CReg8(uint8_t addr, uint8_t reg, uint8_t* outValue);
+bool writeI2CReg8(uint8_t addr, uint8_t reg, uint8_t value);
+
+uint8_t resolveQMI8658Addr();
+uint8_t initQMI8658();
+
+bool readQMI8658AccelAxis(uint8_t addr, uint8_t reg, int16_t* outValue);
+bool readQMI8658AccelY(uint8_t addr, int16_t* outY);
+bool readQMI8658GyroAxis(uint8_t addr, uint8_t reg, int16_t* outValue);
+bool readQMI8658GyroX(uint8_t addr, int16_t* outX);
+bool readQMI8658GyroY(uint8_t addr, int16_t* outY);
+bool readQMI8658GyroZ(uint8_t addr, int16_t* outZ);
+bool shutdownQMI8658(uint8_t addr);
 }  // namespace X3GPIO
 
 class HalGPIO {
