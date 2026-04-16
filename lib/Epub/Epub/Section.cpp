@@ -12,7 +12,7 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 20;
+constexpr uint8_t SECTION_FILE_VERSION = 21;  // v21: per-word tracking + fixed-point cursor accumulation
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) +   // SECTION_FILE_VERSION
                                  sizeof(int) +       // fontId
                                  sizeof(float) +     // lineCompression
