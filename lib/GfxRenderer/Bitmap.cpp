@@ -222,70 +222,60 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   uint8_t lum;
 
   switch (bpp) {
+    case 24:
     case 32: {
-      const uint8_t* p = rowBuffer;
-      for (int x = 0; x < width; x++) {
+      const uint8_t step = (bpp == 32) ? 4 : 3;
+      const uint8_t* __restrict p = rowBuffer;
+      uint8_t* __restrict oPtr = data;
+
+      // We use the ditherer once per row, so we can process pixels in a single pass without needing to store the entire
+      // row of errors.
+      auto process = [&](int x, uint8_t adj) {
+        if (atkinsonDitherer) return atkinsonDitherer->processPixel(adj, x);
+        if (fsDitherer) return fsDitherer->processPixel(adj, x);
+        if (nativePalette) return (uint8_t)(adj >> 6);
+        return quantize(adj, x, prevRowY);
+      };
+
+      // Main loop: process 4 pixels at a time (reduces loop overhead and allows packing into output byte on the fly)
+      int x = 0;
+      for (; x <= width - 4; x += 4) {
+        uint8_t outByte = 0;
+
+        // Pixel 1
+        uint8_t lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+        outByte |= (process(x, adjustedLUT[lum]) << 6);
+        p += step;
+
+        // Pixel 2
         lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-        packPixel(lum);
-        p += 4;
+        outByte |= (process(x + 1, adjustedLUT[lum]) << 4);
+        p += step;
+
+        // Pixel 3
+        lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+        outByte |= (process(x + 2, adjustedLUT[lum]) << 2);
+        p += step;
+
+        // Pixel 4
+        lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+        outByte |= process(x + 3, adjustedLUT[lum]);
+        p += step;
+
+        *oPtr++ = outByte;
       }
-      break;
-    }
-    case 24: {
-      const uint8_t* p = rowBuffer;
-      if (atkinsonDitherer) {
-        for (int x = 0; x < width; x += 4) {
-          uint8_t outByte = 0;
-          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
-          for (int i = 0; i < chunkWidth; i++) {
-            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-            const uint8_t adjusted = adjustedLUT[rawLum];
-            const uint8_t color = atkinsonDitherer->processPixel(adjusted, x + i);
-            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
-            p += 3;
-          }
-          *outPtr++ = outByte;
-        }
-      } else if (fsDitherer) {
-        for (int x = 0; x < width; x += 4) {
-          uint8_t outByte = 0;
-          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
-          for (int i = 0; i < chunkWidth; i++) {
-            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-            const uint8_t adjusted = adjustedLUT[rawLum];
-            const uint8_t color = fsDitherer->processPixel(adjusted, x + i);
-            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
-            p += 3;
-          }
-          *outPtr++ = outByte;
-        }
-      } else if (nativePalette) {
-        for (int x = 0; x < width; x += 4) {
-          uint8_t outByte = 0;
-          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
-          for (int i = 0; i < chunkWidth; i++) {
-            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-            const uint8_t adjusted = adjustedLUT[rawLum];
-            const uint8_t color = static_cast<uint8_t>(adjusted >> 6);
-            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
-            p += 3;
-          }
-          *outPtr++ = outByte;
-        }
-      } else {
-        for (int x = 0; x < width; x += 4) {
-          uint8_t outByte = 0;
-          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
-          for (int i = 0; i < chunkWidth; i++) {
-            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-            const uint8_t adjusted = adjustedLUT[rawLum];
-            const uint8_t color = quantize(adjusted, x + i, prevRowY);
-            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
-            p += 3;
-          }
-          *outPtr++ = outByte;
-        }
+
+      // The remaining 1-3 pixels at the edge (if any) are processed one at a time to avoid out-of-bounds access, but we
+      // can still pack them into the output byte on the fly.
+      uint8_t lastByte = 0;
+      int shift = 6;
+      for (; x < width; x++) {
+        uint8_t lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+        lastByte |= (process(x, adjustedLUT[lum]) << shift);
+        p += step;
+        shift -= 2;
       }
+      if (shift < 6) *oPtr = lastByte;
       break;
     }
     case 8: {
