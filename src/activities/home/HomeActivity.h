@@ -5,6 +5,7 @@
 
 #include "../Activity.h"
 #include "./FileBrowserActivity.h"
+#include "components/UITheme.h"
 #include "util/ButtonNavigator.h"
 
 struct RecentBook;
