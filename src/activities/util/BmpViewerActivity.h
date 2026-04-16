@@ -19,11 +19,6 @@ class BmpViewerActivity final : public Activity {
 
  private:
   std::string filePath;
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  uint8_t imageDitherMode;
-  uint8_t initialImageDitherMode;
-  bool imageDitherSettingsDirty;
-#endif
   // Per-session toggle: monochrome (1-bit Atkinson, single decode) vs grayscale (4-level dither, multipass).
   // Not persisted — defaults to grayscale every time the viewer opens.
   bool grayscaleDisplay = true;
@@ -34,11 +29,6 @@ class BmpViewerActivity final : public Activity {
   bool renderBmpImage(bool showControls = true);
   bool renderDecodedImage(bool showControls = true);
   void toggleDisplayMode();
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  void cycleDitherMode();
-  StrId getCurrentDitherModeLabel() const;
-  void saveDitherSettingsIfNeeded();
-#endif
   void renderError(const char* message);
   void setAsSleepScreen();
 };
