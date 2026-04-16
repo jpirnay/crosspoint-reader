@@ -233,10 +233,58 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
     }
     case 24: {
       const uint8_t* p = rowBuffer;
-      for (int x = 0; x < width; x++) {
-        lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-        packPixel(lum);
-        p += 3;
+      if (atkinsonDitherer) {
+        for (int x = 0; x < width; x += 4) {
+          uint8_t outByte = 0;
+          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
+          for (int i = 0; i < chunkWidth; i++) {
+            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+            const uint8_t adjusted = adjustedLUT[rawLum];
+            const uint8_t color = atkinsonDitherer->processPixel(adjusted, x + i);
+            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
+            p += 3;
+          }
+          *outPtr++ = outByte;
+        }
+      } else if (fsDitherer) {
+        for (int x = 0; x < width; x += 4) {
+          uint8_t outByte = 0;
+          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
+          for (int i = 0; i < chunkWidth; i++) {
+            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+            const uint8_t adjusted = adjustedLUT[rawLum];
+            const uint8_t color = fsDitherer->processPixel(adjusted, x + i);
+            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
+            p += 3;
+          }
+          *outPtr++ = outByte;
+        }
+      } else if (nativePalette) {
+        for (int x = 0; x < width; x += 4) {
+          uint8_t outByte = 0;
+          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
+          for (int i = 0; i < chunkWidth; i++) {
+            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+            const uint8_t adjusted = adjustedLUT[rawLum];
+            const uint8_t color = static_cast<uint8_t>(adjusted >> 6);
+            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
+            p += 3;
+          }
+          *outPtr++ = outByte;
+        }
+      } else {
+        for (int x = 0; x < width; x += 4) {
+          uint8_t outByte = 0;
+          const int chunkWidth = ((width - x) < 4) ? (width - x) : 4;
+          for (int i = 0; i < chunkWidth; i++) {
+            const uint8_t rawLum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+            const uint8_t adjusted = adjustedLUT[rawLum];
+            const uint8_t color = quantize(adjusted, x + i, prevRowY);
+            outByte |= static_cast<uint8_t>(color << (6 - i * 2));
+            p += 3;
+          }
+          *outPtr++ = outByte;
+        }
       }
       break;
     }
