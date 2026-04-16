@@ -67,19 +67,22 @@ void QmiTestActivity::loop() {
       gyroY = gy;
       gyroZ = gz;
 
+      // --- Angle calculation (Accelerometer) ---
+      // Roll: Rotation around the X-axis
+      // Pitch: Rotation around the Y-axis
+      float accRoll = atan2(ay, sqrt(ax * ax + az * az)) * 57.29578f;
+      float accPitch = atan2(-ax, sqrt(ay * ay + az * az)) * 57.29578f;
+
       // Zeitberechnung
       uint32_t now = micros();
       float dt = (float)(now - lastMicros) / 1000000.0f;
-      if (dt > 0.2f || lastMicros == 0) dt = 0.008f;
+      // Falls dt > 150ms (Display hat gerendert), Filter "resetten"
+      if (dt > 0.15f) {
+        dt = 0.008f;                   // Standard-Intervall simulieren
+        kalmanRoll.setAngle(accRoll);  // Filter hart auf Acc-Winkel setzen
+        kalmanPitch.setAngle(accPitch);
+      }
       lastMicros = now;
-
-      // --- Angle calculation (Accelerometer) ---
-      // Roll: Rotation around the X-axis
-      float accRoll = atan2(ay, az) * 57.29578f;
-
-      // Pitch: Rotation around the Y-axis
-      // We use sqrt(ay*ay + az*az) for a stable pitch angle
-      float accPitch = atan2(-ax, sqrt(ay * ay + az * az)) * 57.29578f;
 
       // --- Apply Kalman-filter ---
       float stableRoll = kalmanRoll.update(accRoll, gx, dt);
@@ -192,4 +195,8 @@ void QmiTestActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
+  // Lets avoid large dt values on the first few frames which can cause instability in the Kalman filter. We can also
+  // consider capping dt to a maximum value (e.g., 0.1s) to prevent extreme jumps after long pauses or debugging
+  // breakpoints.
+  lastMicros = micros();
 }
