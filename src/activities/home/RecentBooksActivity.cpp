@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+#include "../ActivityManager.h"
 #include "../util/ConfirmationActivity.h"
 #include "BookInfoActivity.h"
 #include "MappedInputManager.h"
@@ -35,6 +36,10 @@ void RecentBooksActivity::onEnter() {
   loadRecentBooks();
 
   selectorIndex = 0;
+  if (initialFocusIndex >= 0 && static_cast<size_t>(initialFocusIndex) < recentBooks.size()) {
+    selectorIndex = static_cast<size_t>(initialFocusIndex);
+  }
+  initialFocusIndex = -1;
   requestUpdate();
 }
 
@@ -49,7 +54,10 @@ void RecentBooksActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !recentBooks.empty() &&
       selectorIndex < static_cast<int>(recentBooks.size())) {
     LOG_DBG("RBA", "Selected recent book: %s", recentBooks[selectorIndex].path.c_str());
-    onSelectBook(recentBooks[selectorIndex].path);
+    ReturnHint hint;
+    hint.target = ReturnTo::RecentBooks;
+    hint.selectIndex = static_cast<int>(selectorIndex);
+    activityManager.replaceWithReader(recentBooks[selectorIndex].path, std::move(hint));
     return;
   }
 

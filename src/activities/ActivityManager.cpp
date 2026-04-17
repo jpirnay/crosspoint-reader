@@ -35,12 +35,8 @@ void ActivityManager::begin() {
 static void logActivityStackState(const char* stage, Activity* currentActivity, size_t stackSize) {
   const uint32_t freeHeap = esp_get_free_heap_size();
   const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
-  LOG_DBG("ACT", "%s: current=%s stackSize=%zu free=%lu contig=%lu",
-          stage,
-          currentActivity ? currentActivity->getName().c_str() : "<none>",
-          stackSize,
-          freeHeap,
-          contigHeap);
+  LOG_DBG("ACT", "%s: current=%s stackSize=%zu free=%lu contig=%lu", stage,
+          currentActivity ? currentActivity->getName().c_str() : "<none>", stackSize, freeHeap, contigHeap);
 }
 
 void ActivityManager::renderTaskTrampoline(void* param) {
@@ -125,10 +121,10 @@ void ActivityManager::loop() {
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
-        LOG_DBG("ACT", "No more activities on stack, going home");
-        lock.unlock();  // goHome may acquire its own lock
-        goHome();
-        continue;  // Will launch goHome immediately
+        LOG_DBG("ACT", "No more activities on stack, returning from child");
+        lock.unlock();  // returnFromChild may acquire its own lock via replaceActivity
+        returnFromChild();
+        continue;  // Will launch the target activity immediately
 
       } else {
         currentActivity = std::move(stackActivities.back());
@@ -219,8 +215,8 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   if (currentActivity) {
     // Defer launch if we're currently in an activity, to avoid deleting the current activity
     // leading to the "delete this" problem
-    LOG_DBG("ACT", "replaceActivity requested: current=%s stackSize=%zu",
-            currentActivity->getName().c_str(), stackActivities.size());
+    LOG_DBG("ACT", "replaceActivity requested: current=%s stackSize=%zu", currentActivity->getName().c_str(),
+            stackActivities.size());
     pendingActivity = std::move(newActivity);
     pendingAction = PendingAction::Replace;
   } else {
@@ -236,12 +232,14 @@ void ActivityManager::goToFileTransfer() {
 
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
 
-void ActivityManager::goToFileBrowser(std::string path) {
-  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
+void ActivityManager::goToFileBrowser(std::string path, std::string focusName) {
+  hasReturnHint = false;
+  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), std::move(focusName)));
 }
 
-void ActivityManager::goToRecentBooks() {
-  replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput));
+void ActivityManager::goToRecentBooks(int focusIndex) {
+  hasReturnHint = false;
+  replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput, focusIndex));
 }
 
 void ActivityManager::goToGlobalBookmarks() {
@@ -269,8 +267,45 @@ void ActivityManager::goToKOReaderSync() {
                                                          sync.hasParagraphIndex, sync.intent));
 }
 
-void ActivityManager::pushReader(std::string path) {
-  pushActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
+void ActivityManager::replaceWithReader(std::string path, ReturnHint hint) {
+  returnHint = std::move(hint);
+  hasReturnHint = true;
+  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
+}
+
+void ActivityManager::replaceWithFileBrowser(std::string path, ReturnHint hint, std::string focusName) {
+  returnHint = std::move(hint);
+  hasReturnHint = true;
+  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), std::move(focusName)));
+}
+
+void ActivityManager::replaceWithRecentBooks(ReturnHint hint) {
+  returnHint = std::move(hint);
+  hasReturnHint = true;
+  replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput, -1));
+}
+
+void ActivityManager::returnFromChild() {
+  if (!hasReturnHint) {
+    goHome();
+    return;
+  }
+  ReturnHint hint = std::move(returnHint);
+  returnHint = {};
+  hasReturnHint = false;
+
+  switch (hint.target) {
+    case ReturnTo::FileBrowser:
+      goToFileBrowser(std::move(hint.path), std::move(hint.selectName));
+      break;
+    case ReturnTo::RecentBooks:
+      goToRecentBooks(hint.selectIndex);
+      break;
+    case ReturnTo::Home:
+    default:
+      goHome(std::move(hint.selectName));
+      break;
+  }
 }
 
 void ActivityManager::goToSleep() {
@@ -286,7 +321,10 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 
 void ActivityManager::goToWeather() { replaceActivity(std::make_unique<WeatherActivity>(renderer, mappedInput)); }
 
-void ActivityManager::goHome() { replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput)); }
+void ActivityManager::goHome(std::string focusBookPath) {
+  hasReturnHint = false;
+  replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, std::move(focusBookPath)));
+}
 
 void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
   if (pendingActivity) {

@@ -44,6 +44,8 @@ class HomeActivity final : public Activity {
   std::vector<MenuEntry> menuEntries;
   bool menuEntriesDirty = true;
 
+  std::string focusBookPath;  // book path to re-select on first render, if present in recents
+
   void onSelectBook(const std::string& path);
   void dispatchMenuAction(MenuAction action);
 
@@ -55,8 +57,8 @@ class HomeActivity final : public Activity {
   void loadRecentCovers(int coverHeight);
 
  public:
-  explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Home", renderer, mappedInput) {}
+  explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string focusBookPath = {})
+      : Activity("Home", renderer, mappedInput), focusBookPath(std::move(focusBookPath)) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

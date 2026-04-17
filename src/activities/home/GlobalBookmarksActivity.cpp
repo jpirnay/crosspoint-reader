@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "../ActivityManager.h"
 #include "BookmarkStore.h"
 #include "CrossPointState.h"
 #include "GlobalBookmarkIndex.h"
@@ -124,7 +125,10 @@ void GlobalBookmarksActivity::openSelected() {
   APP_STATE.saveToFile();
 
   LOG_DBG("GBA", "Jumping to bookmark in %s at %u/%u", entry.sourcePath.c_str(), bm.spineIndex, bm.pageNumber);
-  onSelectBook(entry.sourcePath);
+  ReturnHint hint;
+  hint.target = ReturnTo::Home;
+  hint.selectName = entry.sourcePath;
+  activityManager.replaceWithReader(entry.sourcePath, std::move(hint));
 }
 
 template <typename Op>

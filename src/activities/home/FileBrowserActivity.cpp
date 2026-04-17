@@ -8,6 +8,7 @@
 
 #include <algorithm>
 
+#include "../ActivityManager.h"
 #include "../util/ConfirmationActivity.h"
 #include "BookInfoActivity.h"
 #include "CrossPointSettings.h"
@@ -113,6 +114,14 @@ void FileBrowserActivity::onEnter() {
   loadFiles();
   selectorIndex = 0;
 
+  if (!focusName.empty()) {
+    const size_t idx = findEntry(focusName);
+    if (idx < files.size()) {
+      selectorIndex = idx;
+    }
+    focusName.clear();
+  }
+
   requestUpdate();
 }
 
@@ -171,7 +180,12 @@ void FileBrowserActivity::loop() {
     } else {
       std::string fullPath = basepath;
       if (fullPath.back() != '/') fullPath += "/";
-      onSelectBook(fullPath + entry);
+      fullPath += entry;
+      ReturnHint hint;
+      hint.target = ReturnTo::FileBrowser;
+      hint.path = basepath;
+      hint.selectName = entry;
+      activityManager.replaceWithReader(std::move(fullPath), std::move(hint));
     }
     return;
   }

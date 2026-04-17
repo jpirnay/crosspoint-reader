@@ -211,6 +211,16 @@ void HomeActivity::onEnter() {
     recentsLoaded = true;
   }
 
+  if (!focusBookPath.empty()) {
+    for (size_t i = 0; i < recentBooks.size(); ++i) {
+      if (recentBooks[i].path == focusBookPath) {
+        selectorIndex = static_cast<int>(i);
+        break;
+      }
+    }
+    focusBookPath.clear();
+  }
+
   // Trigger first update
   menuEntriesDirty = true;
   requestUpdate();
@@ -348,7 +358,12 @@ void HomeActivity::render(RenderLock&&) {
   }
 }
 
-void HomeActivity::onSelectBook(const std::string& path) { activityManager.pushReader(path); }
+void HomeActivity::onSelectBook(const std::string& path) {
+  ReturnHint hint;
+  hint.target = ReturnTo::Home;
+  hint.selectName = path;  // used to re-focus the book in the recents strip after return
+  activityManager.replaceWithReader(path, std::move(hint));
+}
 
 void HomeActivity::dispatchMenuAction(MenuAction action) {
   switch (action) {
