@@ -42,6 +42,7 @@ class HomeActivity final : public Activity {
   uint8_t* coverBuffer = nullptr;  // HomeActivity's own buffer for cover image
   std::vector<RecentBook> recentBooks;
   std::vector<MenuEntry> menuEntries;
+  bool menuEntriesDirty = true;
 
   void onSelectBook(const std::string& path);
   void dispatchMenuAction(MenuAction action);

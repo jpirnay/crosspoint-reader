@@ -1,6 +1,7 @@
 #pragma once
 #include <I18n.h>
 
+#include <cassert>
 #include <string>
 #include <vector>
 
@@ -63,10 +64,22 @@ struct SettingInfo {
   StringGetterFn stringGetter = nullptr;
   StringSetterFn stringSetter = nullptr;
 
-  uint8_t callValueGetter() const { return valueGetter(accessorCtx); }
-  void callValueSetter(uint8_t v) const { valueSetter(accessorCtx, v); }
-  std::string callStringGetter() const { return stringGetter(accessorCtx); }
-  void callStringSetter(const std::string& v) const { stringSetter(accessorCtx, v); }
+  uint8_t callValueGetter() const {
+    assert(valueGetter && "SettingInfo::callValueGetter requires a non-null valueGetter");
+    return valueGetter(accessorCtx);
+  }
+  void callValueSetter(uint8_t v) const {
+    assert(valueSetter && "SettingInfo::callValueSetter requires a non-null valueSetter");
+    valueSetter(accessorCtx, v);
+  }
+  std::string callStringGetter() const {
+    assert(stringGetter && "SettingInfo::callStringGetter requires a non-null stringGetter");
+    return stringGetter(accessorCtx);
+  }
+  void callStringSetter(const std::string& v) const {
+    assert(stringSetter && "SettingInfo::callStringSetter requires a non-null stringSetter");
+    stringSetter(accessorCtx, v);
+  }
 
   SettingInfo& withObfuscated() {
     obfuscated = true;

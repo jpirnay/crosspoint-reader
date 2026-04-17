@@ -229,8 +229,7 @@ void SettingsActivity::toggleCurrentSetting() {
                              [&setting](const SubmenuData& d) { return d.id == setting.nameId; });
       if (it != submenuData.end()) {
         startActivityForResult(
-            std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, setting.nameId, std::move(it->items)),
-            resultHandler);
+            std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, setting.nameId, it->items), resultHandler);
       }
     } else {
       auto activity = createActivityForAction(setting.action, renderer, mappedInput);

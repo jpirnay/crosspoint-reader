@@ -211,6 +211,7 @@ void HomeActivity::onEnter() {
   }
 
   // Trigger first update
+  menuEntriesDirty = true;
   requestUpdate();
 }
 
@@ -308,7 +309,9 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.homeTopPadding}, nullptr);
 
-  rebuildMenuEntries();
+  if (menuEntriesDirty) {
+    rebuildMenuEntries();
+  }
 
   const int totalItems = static_cast<int>(recentBooks.size() + menuEntries.size());
   if (selectorIndex >= totalItems) {
@@ -366,6 +369,9 @@ void HomeActivity::dispatchMenuAction(MenuAction action) {
       break;
     case MenuAction::Settings:
       activityManager.goToSettings();
+      break;
+    default:
+      LOG_ERR("HOME", "Unexpected menu action: %d", static_cast<int>(action));
       break;
   }
 }
