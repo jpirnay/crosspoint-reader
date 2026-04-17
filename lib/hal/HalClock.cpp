@@ -281,8 +281,14 @@ static time_t readExternalRTC() {
 static float readExternalTemp() {
   Wire.beginTransmission(DS3231_ADDRESS);
   Wire.write(0x11);
-  Wire.endTransmission();
-  Wire.requestFrom(DS3231_ADDRESS, (uint8_t)2);
+  if (Wire.endTransmission() != 0) {
+    return 0.0f;
+  }
+
+  int count = Wire.requestFrom(DS3231_ADDRESS, (uint8_t)2);
+  if (count < 2) {
+    return 0.0f;
+  }
 
   int8_t msb = Wire.read();
   uint8_t lsb = Wire.read();
