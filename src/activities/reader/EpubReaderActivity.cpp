@@ -54,6 +54,7 @@ void logReaderMemSnapshot(const char* stage) {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
+  logReaderMemSnapshot("onEnter_begin");
 
   if (!epub) {
     return;
@@ -62,8 +63,10 @@ void EpubReaderActivity::onEnter() {
   // Configure screen orientation based on settings
   // NOTE: This affects layout math and must be applied before any render calls.
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  logReaderMemSnapshot("onEnter_after_orientation");
 
   epub->setupCacheDir();
+  logReaderMemSnapshot("onEnter_after_setupCacheDir");
 
   FsFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -89,6 +92,7 @@ void EpubReaderActivity::onEnter() {
       LOG_DBG("ERS", "Opened for first time, navigating to text reference at index %d", textSpineIndex);
     }
   }
+  logReaderMemSnapshot("onEnter_after_progress_load");
 
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
@@ -101,9 +105,12 @@ void EpubReaderActivity::onEnter() {
   const RecentBook currentBook = RECENT_BOOKS.getBookByPath(epub->getPath());
   bookEmbeddedStyleOverride = currentBook.embeddedStyleOverride;
   bookImageRenderingOverride = currentBook.imageRenderingOverride;
+  logReaderMemSnapshot("onEnter_after_recent_books");
 
   // Trigger first update
+  logReaderMemSnapshot("onEnter_before_request_update");
   requestUpdate();
+  logReaderMemSnapshot("onEnter_ready");
 }
 
 void EpubReaderActivity::onExit() {
