@@ -11,6 +11,12 @@
 struct RecentBook;
 struct Rect;
 
+struct HomeMenuEntry {
+  const char* label;
+  UIIcon icon;
+  std::function<void()> onSelect;
+};
+
 class HomeActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectorIndex = 0;
@@ -23,6 +29,7 @@ class HomeActivity final : public Activity {
   size_t nextRecentCoverIndex = 0;
   uint8_t* coverBuffer = nullptr;  // HomeActivity's own buffer for cover image
   std::vector<RecentBook> recentBooks;
+  std::vector<HomeMenuEntry> menuEntries;
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
   void onRecentsOpen();
@@ -33,10 +40,7 @@ class HomeActivity final : public Activity {
   void onQmiTestOpen();
   void onWeatherOpen();
 
-  std::vector<const char*> buildMenuItems(std::vector<UIIcon>& menuIcons,
-                                          std::vector<std::function<void()>>& menuCallbacks);
-
-  int getMenuItemCount() const;
+  void rebuildMenuEntries();
   bool storeCoverBuffer();    // Store frame buffer for cover image
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer

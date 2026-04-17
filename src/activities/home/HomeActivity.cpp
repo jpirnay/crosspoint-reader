@@ -100,60 +100,26 @@ int getHomeCoverRenderHeight(const HomeScreenLayout& layout) {
                                : std::max(120, layout.recentTileHeight - (isLyraFamilyTheme() ? 16 : 0));
 }
 
-std::vector<const char*> HomeActivity::buildMenuItems(std::vector<UIIcon>& menuIcons,
-                                                      std::vector<std::function<void()>>& menuCallbacks) {
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER)};
-  menuIcons = {Folder, Recent, Transfer};
-  menuCallbacks.clear();
-  menuCallbacks.push_back([this]() { onFileBrowserOpen(); });
-  menuCallbacks.push_back([this]() { onRecentsOpen(); });
-  menuCallbacks.push_back([this]() { onFileTransferOpen(); });
-
-  if (!GLOBAL_BOOKMARKS.isEmpty()) {
-    menuItems.push_back(tr(STR_GLOBAL_BOOKMARKS));
-    menuIcons.push_back(Book);
-    menuCallbacks.push_back([this]() { onGlobalBookmarksOpen(); });
-  }
-
-  if (hasOpdsUrl) {
-    menuItems.push_back(tr(STR_OPDS_BROWSER));
-    menuIcons.push_back(Library);
-    menuCallbacks.push_back([this]() { onOpdsBrowserOpen(); });
-  }
-
-  if (SETTINGS.useWeather) {
-    menuItems.push_back(tr(STR_WEATHER));
-    menuIcons.push_back(Weather);
-    menuCallbacks.push_back([this]() { onWeatherOpen(); });
-  }
-
-  menuItems.push_back("QMI8658 Test");
-  menuIcons.push_back(Hotspot);
-  menuCallbacks.push_back([this]() { onQmiTestOpen(); });
-  menuItems.push_back(tr(STR_SETTINGS_TITLE));
-  menuIcons.push_back(Settings);
-  menuCallbacks.push_back([this]() { onSettingsOpen(); });
-
-  return menuItems;
-}
-
 }  // namespace
 
-int HomeActivity::getMenuItemCount() const {
-  int count = 5;  // File Browser, Recents, File transfer, QMI test, Settings
-  if (SETTINGS.useWeather) {
-    count++;
-  }
-  if (!recentBooks.empty()) {
-    count += recentBooks.size();
+void HomeActivity::rebuildMenuEntries() {
+  menuEntries.clear();
+  menuEntries.push_back({tr(STR_BROWSE_FILES), Folder, [this]() { onFileBrowserOpen(); }});
+  menuEntries.push_back({tr(STR_MENU_RECENT_BOOKS), Recent, [this]() { onRecentsOpen(); }});
+  menuEntries.push_back({tr(STR_FILE_TRANSFER), Transfer, [this]() { onFileTransferOpen(); }});
+
+  if (!GLOBAL_BOOKMARKS.isEmpty()) {
+    menuEntries.push_back({tr(STR_GLOBAL_BOOKMARKS), Book, [this]() { onGlobalBookmarksOpen(); }});
   }
   if (hasOpdsUrl) {
-    count++;
+    menuEntries.push_back({tr(STR_OPDS_BROWSER), Library, [this]() { onOpdsBrowserOpen(); }});
   }
-  if (!GLOBAL_BOOKMARKS.isEmpty()) {
-    count++;
+  if (SETTINGS.useWeather) {
+    menuEntries.push_back({tr(STR_WEATHER), Weather, [this]() { onWeatherOpen(); }});
   }
-  return count;
+
+  menuEntries.push_back({"QMI8658 Test", Hotspot, [this]() { onQmiTestOpen(); }});
+  menuEntries.push_back({tr(STR_SETTINGS_TITLE), Settings, [this]() { onSettingsOpen(); }});
 }
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
@@ -246,6 +212,8 @@ void HomeActivity::onEnter() {
     recentsLoaded = true;
   }
 
+  rebuildMenuEntries();
+
   // Trigger first update
   requestUpdate();
 }
@@ -303,34 +271,32 @@ void HomeActivity::loop() {
   if (firstRenderDone && !recentsLoaded && !recentsLoading) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-    const int menuItemCount = getMenuItemCount();
-    const HomeScreenLayout layout = computeHomeScreenLayout(metrics, contentRect.height, menuItemCount);
+    const int totalItemCount = static_cast<int>(recentBooks.size() + menuEntries.size());
+    const HomeScreenLayout layout = computeHomeScreenLayout(metrics, contentRect.height, totalItemCount);
     loadRecentCovers(getHomeCoverRenderHeight(layout));
     return;
   }
 
-  const int menuCount = getMenuItemCount();
+  const int totalCount = static_cast<int>(recentBooks.size() + menuEntries.size());
 
-  buttonNavigator.onNext([this, menuCount] {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
+  buttonNavigator.onNext([this, totalCount] {
+    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalCount);
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this, menuCount] {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
+  buttonNavigator.onPrevious([this, totalCount] {
+    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalCount);
     requestUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    std::vector<UIIcon> menuIcons;
-    std::vector<std::function<void()>> menuCallbacks;
-    buildMenuItems(menuIcons, menuCallbacks);
-
-    if (selectorIndex < recentBooks.size()) {
+    if (selectorIndex < static_cast<int>(recentBooks.size())) {
       onSelectBook(recentBooks[selectorIndex].path);
-    } else if (menuSelectedIndex >= 0 && menuSelectedIndex < static_cast<int>(menuCallbacks.size())) {
-      menuCallbacks[menuSelectedIndex]();
+    } else {
+      const int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
+      if (menuSelectedIndex >= 0 && menuSelectedIndex < static_cast<int>(menuEntries.size())) {
+        menuEntries[menuSelectedIndex].onSelect();
+      }
     }
   }
 }
@@ -344,17 +310,12 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.homeTopPadding}, nullptr);
 
-  // Build menu items dynamically
-  std::vector<UIIcon> menuIcons;
-  std::vector<std::function<void()>> menuCallbacks;
-  std::vector<const char*> menuItems = buildMenuItems(menuIcons, menuCallbacks);
-
-  const int totalItems = static_cast<int>(recentBooks.size() + menuItems.size());
+  const int totalItems = static_cast<int>(recentBooks.size() + menuEntries.size());
   if (selectorIndex >= totalItems) {
     selectorIndex = std::max(0, totalItems - 1);
   }
 
-  const int menuCount = static_cast<int>(menuItems.size());
+  const int menuCount = static_cast<int>(menuEntries.size());
   const HomeScreenLayout layout = computeHomeScreenLayout(metrics, contentRect.height, menuCount);
 
   GUI.drawRecentBookCover(renderer,
@@ -367,8 +328,8 @@ void HomeActivity::render(RenderLock&&) {
       Rect{contentRect.x, metrics.homeTopPadding + layout.recentTileHeight + layout.recentToMenuGap, contentRect.width,
            layout.menuHeight},
       menuCount, selectorIndex - static_cast<int>(recentBooks.size()),
-      [&menuItems](int index) { return std::string(menuItems[index]); },
-      [&menuIcons](int index) { return menuIcons[index]; });
+      [this](int index) { return std::string(menuEntries[index].label); },
+      [this](int index) { return menuEntries[index].icon; });
 
   const auto labels = mappedInput.mapLabels("", tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
