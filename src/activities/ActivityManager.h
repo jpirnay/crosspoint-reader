@@ -15,6 +15,23 @@
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
+// Where a "child" activity (launched via one of the replaceWith* helpers) should route
+// control when it exits successfully. See ActivityManager::returnFromChild().
+enum class ReturnTo : uint8_t { Home, FileBrowser, RecentBooks, GlobalBookmarks };
+
+// Minimal state the returning parent needs to restore its previous view (directory,
+// focused item, list index, or bookmark selection). Kept as a plain struct stored by
+// value on the ActivityManager — single instance, overwritten per transition, no heap
+// churn beyond the small strings.
+struct ReturnHint {
+  ReturnTo target = ReturnTo::Home;
+  std::string path;              // FileBrowser directory to restore
+  std::string selectName;        // item to re-focus in a list (file name, book title)
+  int selectIndex = -1;          // e.g. Recents index
+  std::string selectionContext;  // optional activity-specific restore key
+  int selectBookmarkIndex = -1;  // optional bookmark index for GlobalBookmarks
+};
+
 /**
  * ActivityManager
  *
@@ -68,6 +85,15 @@ class ActivityManager {
   // into the next one.
   bool drainInput = false;
 
+  // Where returnFromChild() should route to. Set by replaceWith*() helpers and
+  // preserved across plain goTo*() chains so a chained navigation flow can still
+  // restore its original parent state. Cleared only by returnFromChild() or by
+  // explicit goHome()/replaceWith*() calls, not by ordinary goTo*() transitions.
+  // Relevant symbols: ReturnHint, returnHint, hasReturnHint, returnFromChild(),
+  // goHome(), goTo*(), replaceWith*().
+  ReturnHint returnHint;
+  bool hasReturnHint = false;
+
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
@@ -85,18 +111,43 @@ class ActivityManager {
   // goTo... functions are convenient wrapper for replaceActivity()
   void goToFileTransfer();
   void goToSettings();
-  void goToFileBrowser(std::string path = {});
-  void goToRecentBooks();
+  void goToFileBrowser(std::string path = {}, std::string focusName = {});
+  void goToRecentBooks(int focusIndex = -1);
   void goToGlobalBookmarks();
+  void goToGlobalBookmarks(ReturnHint hint);
   void goToBrowser();
   void goToReader(std::string path);
   void goToKOReaderSync();
-  void pushReader(std::string path);
   void goToSleep();
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToWeather();
-  void goHome();
+  void goHome(std::string focusBookPath = {}, int focusSelectorIndex = -1);
+
+  // Replace-with-hint helpers: destroy the current activity before launching the new
+  // one (freeing its memory) and record where to route control when the new activity
+  // exits. Consumed by returnFromChild().
+  void replaceWithReader(std::string path, ReturnHint hint);
+  void replaceWithFileBrowser(std::string path, ReturnHint hint, std::string focusName = {});
+  void replaceWithRecentBooks(ReturnHint hint);
+
+  // Called by a "child" activity on successful exit. Consults the stored ReturnHint,
+  // clears it, and dispatches to the corresponding parent with restoration args. If
+  // no hint is set, defaults to goHome().
+  void returnFromChild();
+
+  // Record a ReturnHint before calling any plain goTo*() helper. Allows an activity
+  // (e.g. Home) to declare "when this flow ends, come back here with this state" for
+  // transitions where we don't want a dedicated replaceWith*() wrapper.
+  // Cleared by returnFromChild() or by an explicit goHome()/replaceWith*() call.
+  void setReturnHint(ReturnHint hint) {
+    returnHint = std::move(hint);
+    hasReturnHint = true;
+  }
+  void clearReturnHint() {
+    returnHint = {};
+    hasReturnHint = false;
+  }
 
   // This will move current activity to stack instead of deleting it
   void pushActivity(std::unique_ptr<Activity>&& activity);

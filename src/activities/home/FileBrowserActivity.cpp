@@ -8,6 +8,7 @@
 
 #include <algorithm>
 
+#include "../ActivityManager.h"
 #include "../util/ConfirmationActivity.h"
 #include "BookInfoActivity.h"
 #include "CrossPointSettings.h"
@@ -113,6 +114,14 @@ void FileBrowserActivity::onEnter() {
   loadFiles();
   selectorIndex = 0;
 
+  if (!focusName.empty()) {
+    const size_t idx = findEntry(focusName);
+    if (idx < files.size()) {
+      selectorIndex = idx;
+    }
+    focusName.clear();
+  }
+
   requestUpdate();
 }
 
@@ -147,7 +156,8 @@ void FileBrowserActivity::loop() {
       loadFiles();
       const auto pos = oldPath.find_last_of('/');
       const std::string dirName = oldPath.substr(pos + 1) + "/";
-      selectorIndex = findEntry(dirName);
+      const size_t idx = findEntry(dirName);
+      selectorIndex = (idx < files.size()) ? idx : 0;
       requestUpdate();
     } else {
       onGoHome();
@@ -171,7 +181,12 @@ void FileBrowserActivity::loop() {
     } else {
       std::string fullPath = basepath;
       if (fullPath.back() != '/') fullPath += "/";
-      onSelectBook(fullPath + entry);
+      fullPath += entry;
+      ReturnHint hint;
+      hint.target = ReturnTo::FileBrowser;
+      hint.path = basepath;
+      hint.selectName = entry;
+      activityManager.replaceWithReader(std::move(fullPath), std::move(hint));
     }
     return;
   }
@@ -309,5 +324,5 @@ void FileBrowserActivity::render(RenderLock&&) {
 size_t FileBrowserActivity::findEntry(const std::string& name) const {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
-  return 0;
+  return files.size();
 }

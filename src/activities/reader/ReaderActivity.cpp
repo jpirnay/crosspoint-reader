@@ -20,12 +20,20 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+#ifndef DEBUG_MEMORY_CONSUMPTION
+#define DEBUG_MEMORY_CONSUMPTION 0
+#endif
+
 namespace {
+#if DEBUG_MEMORY_CONSUMPTION
 void logReaderLaunchMemSnapshot(const char* stage) {
   const uint32_t freeHeap = esp_get_free_heap_size();
   const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   LOG_DBG("READER", "Reader mem[%s]: free=%lu contig=%lu", stage, freeHeap, contigHeap);
 }
+#else
+inline void logReaderLaunchMemSnapshot(const char*) {}
+#endif
 }  // namespace
 
 std::string ReaderActivity::extractFolderPath(const std::string& filePath) {
@@ -102,28 +110,24 @@ void ReaderActivity::goToLibrary(const std::string& fromBookPath) {
 void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   const auto epubPath = epub->getPath();
   currentBookPath = epubPath;
-  logReaderLaunchMemSnapshot("before_push_epub_reader");
-  startActivityForResult(std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub)),
-                         [this](const ActivityResult&) { finish(); });
+  logReaderLaunchMemSnapshot("before_replace_epub_reader");
+  activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub)));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {
-  startActivityForResult(std::make_unique<BmpViewerActivity>(renderer, mappedInput, path),
-                         [this](const ActivityResult&) { finish(); });
+  activityManager.replaceActivity(std::make_unique<BmpViewerActivity>(renderer, mappedInput, path));
 }
 
 void ReaderActivity::onGoToXtcReader(std::unique_ptr<Xtc> xtc) {
   const auto xtcPath = xtc->getPath();
   currentBookPath = xtcPath;
-  startActivityForResult(std::make_unique<XtcReaderActivity>(renderer, mappedInput, std::move(xtc)),
-                         [this](const ActivityResult&) { finish(); });
+  activityManager.replaceActivity(std::make_unique<XtcReaderActivity>(renderer, mappedInput, std::move(xtc)));
 }
 
 void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
   const auto txtPath = txt->getPath();
   currentBookPath = txtPath;
-  startActivityForResult(std::make_unique<TxtReaderActivity>(renderer, mappedInput, std::move(txt)),
-                         [this](const ActivityResult&) { finish(); });
+  activityManager.replaceActivity(std::make_unique<TxtReaderActivity>(renderer, mappedInput, std::move(txt)));
 }
 
 void ReaderActivity::onEnter() {

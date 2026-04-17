@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "../ActivityManager.h"
 #include "BookmarkStore.h"
 #include "CrossPointState.h"
 #include "GlobalBookmarkIndex.h"
@@ -25,6 +26,26 @@ void GlobalBookmarksActivity::onEnter() {
 
   const int first = firstSelectableIndex();
   selectorIndex = first >= 0 ? first : 0;
+
+  if (restoreHint.target == ReturnTo::GlobalBookmarks) {
+    const auto& entries = GLOBAL_BOOKMARKS.getEntries();
+    if (!restoreHint.selectionContext.empty() && restoreHint.selectBookmarkIndex >= 0) {
+      for (size_t i = 0; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        if (row.isSeparator) continue;
+        if (row.bookmarkIndex == static_cast<size_t>(restoreHint.selectBookmarkIndex) &&
+            row.bookIndex < entries.size() && entries[row.bookIndex].sourcePath == restoreHint.selectionContext) {
+          selectorIndex = static_cast<int>(i);
+          break;
+        }
+      }
+    }
+    if (selectorIndex < 0 || selectorIndex >= static_cast<int>(rows.size()) || isSeparatorRow(selectorIndex)) {
+      const int fallback = firstSelectableIndex();
+      selectorIndex = fallback >= 0 ? fallback : 0;
+    }
+    restoreHint = {};
+  }
 
   const auto total = static_cast<int>(rows.size());
   buttonNavigator.setSelectablePredicate([this](int index) { return !isSeparatorRow(index); }, total);
@@ -124,7 +145,11 @@ void GlobalBookmarksActivity::openSelected() {
   APP_STATE.saveToFile();
 
   LOG_DBG("GBA", "Jumping to bookmark in %s at %u/%u", entry.sourcePath.c_str(), bm.spineIndex, bm.pageNumber);
-  onSelectBook(entry.sourcePath);
+  ReturnHint hint;
+  hint.target = ReturnTo::GlobalBookmarks;
+  hint.selectionContext = entry.sourcePath;
+  hint.selectBookmarkIndex = static_cast<int>(row.bookmarkIndex);
+  activityManager.replaceWithReader(entry.sourcePath, std::move(hint));
 }
 
 template <typename Op>

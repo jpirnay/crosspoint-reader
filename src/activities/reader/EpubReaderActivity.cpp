@@ -1,3 +1,7 @@
+#ifndef DEBUG_MEMORY_CONSUMPTION
+#define DEBUG_MEMORY_CONSUMPTION 0
+#endif
+
 #include "EpubReaderActivity.h"
 
 #include <Epub/Page.h>
@@ -35,11 +39,15 @@ constexpr unsigned long skipChapterMs = 700;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 constexpr int PAGE_TURN_LABELS[] = {1, 1, 3, 6, 12};
 
+#if DEBUG_MEMORY_CONSUMPTION
 void logReaderMemSnapshot(const char* stage) {
   const uint32_t freeHeap = esp_get_free_heap_size();
   const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   LOG_DBG("ERS", "Reader mem[%s]: free=%lu contig=%lu", stage, freeHeap, contigHeap);
 }
+#else
+inline void logReaderMemSnapshot(const char*) {}
+#endif
 
 bool writeReaderProgressCache(const std::string& cachePath, const int spineIndex, const int currentPage,
                               const int pageCount) {
@@ -91,10 +99,13 @@ void EpubReaderActivity::onEnter() {
     RenderLock lock(*this);
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   }
+  logReaderMemSnapshot("onEnter_after_orientation");
 
   epub->setupCacheDir();
+  logReaderMemSnapshot("onEnter_after_setupCacheDir");
   applyPendingSyncSession();
   applyPendingBookmarkJump();
+  logReaderMemSnapshot("onEnter_after_pending_sync");
 
   FsFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -120,9 +131,11 @@ void EpubReaderActivity::onEnter() {
       LOG_DBG("ERS", "Opened for first time, navigating to text reference at index %d", textSpineIndex);
     }
   }
+  logReaderMemSnapshot("onEnter_after_progress_load");
 
   // Load bookmarks for this book
   bookmarkStore.load(epub->getCachePath());
+  logReaderMemSnapshot("onEnter_after_bookmarks_loaded");
 
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
@@ -135,8 +148,10 @@ void EpubReaderActivity::onEnter() {
   const RecentBook currentBook = RECENT_BOOKS.getBookByPath(epub->getPath());
   bookEmbeddedStyleOverride = currentBook.embeddedStyleOverride;
   bookImageRenderingOverride = currentBook.imageRenderingOverride;
+  logReaderMemSnapshot("onEnter_after_recent_books");
 
   // Trigger first update
+  logReaderMemSnapshot("onEnter_before_request_update");
   requestUpdate();
   logReaderMemSnapshot("onEnter_ready");
 }
@@ -1092,8 +1107,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
   const auto t0 = millis();
+  logReaderMemSnapshot("render_start");
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
+  logReaderMemSnapshot("prewarm_begin");
 
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   const uint32_t heapBefore = esp_get_free_heap_size();
@@ -1106,14 +1123,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   LOG_DBG("ERS", "Heap: before=%lu after=%lu delta=%ld", heapBefore, heapAfter,
           (int32_t)heapAfter - (int32_t)heapBefore);
+  logReaderMemSnapshot("prewarm_end");
 
   // Force special handling for pages with images when anti-aliasing is on
   bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing;
 
+  logReaderMemSnapshot("before_bw_render");
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
+  logReaderMemSnapshot("after_bw_render");
 
   if (imagePageWithAA) {
     // Double FAST_REFRESH with selective image blanking (pablohc's technique):
@@ -1140,34 +1160,44 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tDisplay = millis();
 
   // Save bw buffer to reset buffer state after grayscale data sync
+  logReaderMemSnapshot("bw_store_begin");
   renderer.storeBwBuffer();
   const auto tBwStore = millis();
+  logReaderMemSnapshot("bw_store_end");
 
   // grayscale rendering
   // TODO: Only do this if font supports it
   if (SETTINGS.textAntiAliasing) {
+    logReaderMemSnapshot("gray_lsb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
     renderer.copyGrayscaleLsbBuffers();
     const auto tGrayLsb = millis();
+    logReaderMemSnapshot("gray_lsb_end");
 
     // Render and copy to MSB buffer
+    logReaderMemSnapshot("gray_msb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
     renderer.copyGrayscaleMsbBuffers();
     const auto tGrayMsb = millis();
+    logReaderMemSnapshot("gray_msb_end");
 
     // display grayscale part
+    logReaderMemSnapshot("gray_display_begin");
     renderer.displayGrayBuffer();
     const auto tGrayDisplay = millis();
     renderer.setRenderMode(GfxRenderer::BW);
     fcm->logStats("gray");
+    logReaderMemSnapshot("gray_display_end");
 
     // restore the bw data
+    logReaderMemSnapshot("bw_restore_begin");
     renderer.restoreBwBuffer();
     const auto tBwRestore = millis();
+    logReaderMemSnapshot("bw_restore_end");
 
     const auto tEnd = millis();
     LOG_DBG("ERS",
@@ -1177,8 +1207,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
             tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
   } else {
     // restore the bw data
+    logReaderMemSnapshot("bw_restore_begin");
     renderer.restoreBwBuffer();
     const auto tBwRestore = millis();
+    logReaderMemSnapshot("bw_restore_end");
 
     const auto tEnd = millis();
     LOG_DBG("ERS",

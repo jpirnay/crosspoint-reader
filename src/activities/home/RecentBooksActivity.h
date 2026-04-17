@@ -14,6 +14,7 @@ class RecentBooksActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   size_t selectorIndex = 0;
+  int initialFocusIndex = -1;  // applied once in onEnter(), then cleared
 
   // Recent tab state
   std::vector<RecentBook> recentBooks;
@@ -22,8 +23,8 @@ class RecentBooksActivity final : public Activity {
   void loadRecentBooks();
 
  public:
-  explicit RecentBooksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("RecentBooks", renderer, mappedInput) {}
+  explicit RecentBooksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int focusIndex = -1)
+      : Activity("RecentBooks", renderer, mappedInput), initialFocusIndex(focusIndex) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

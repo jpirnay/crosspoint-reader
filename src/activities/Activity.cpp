@@ -10,9 +10,9 @@ void Activity::requestUpdate(bool immediate) { activityManager.requestUpdate(imm
 
 void Activity::requestUpdateAndWait() { activityManager.requestUpdateAndWait(); }
 
-void Activity::onGoHome() { activityManager.goHome(); }
-
-void Activity::onSelectBook(const std::string& path) { activityManager.pushReader(path); }
+// "Up and out" — return to whichever parent launched this flow. If no return hint
+// is set (typical for activities launched via a plain goTo*()), falls back to Home.
+void Activity::onGoHome() { activityManager.returnFromChild(); }
 
 void Activity::startActivityForResult(std::unique_ptr<Activity>&& activity, ActivityResultHandler resultHandler) {
   this->resultHandler = std::move(resultHandler);

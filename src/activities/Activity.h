@@ -27,6 +27,7 @@ class Activity {
   explicit Activity(std::string name, GfxRenderer& renderer, MappedInputManager& mappedInput)
       : name(std::move(name)), renderer(renderer), mappedInput(mappedInput) {}
   virtual ~Activity() = default;
+  const std::string& getName() const { return name; }
   virtual void onEnter();
   virtual void onExit();
   virtual void loop() {}
@@ -57,5 +58,4 @@ class Activity {
   // Convenience method to facilitate API transition to ActivityManager
   // TODO: remove this in near future
   void onGoHome();
-  void onSelectBook(const std::string& path);
 };

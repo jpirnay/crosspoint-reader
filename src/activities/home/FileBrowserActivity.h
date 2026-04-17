@@ -19,6 +19,7 @@ class FileBrowserActivity final : public Activity {
 
   // Files state
   std::string basepath = "/";
+  std::string focusName;  // entry to select on first load (e.g. the file just returned from)
   std::vector<std::string> files;
 
   // Data loading
@@ -26,8 +27,11 @@ class FileBrowserActivity final : public Activity {
   size_t findEntry(const std::string& name) const;
 
  public:
-  explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/")
-      : Activity("FileBrowser", renderer, mappedInput), basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}
+  explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
+                               std::string focusName = {})
+      : Activity("FileBrowser", renderer, mappedInput),
+        basepath(initialPath.empty() ? "/" : std::move(initialPath)),
+        focusName(std::move(focusName)) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

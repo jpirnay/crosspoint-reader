@@ -9,6 +9,7 @@
 #include <Utf8.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -211,6 +212,28 @@ void HomeActivity::onEnter() {
     recentsLoaded = true;
   }
 
+  // Apply focus: book path takes priority, else combined selector index (covers
+  // "return to the menu entry I was on").
+  bool focused = false;
+  if (!focusBookPath.empty()) {
+    for (size_t i = 0; i < recentBooks.size(); ++i) {
+      if (recentBooks[i].path == focusBookPath) {
+        selectorIndex = static_cast<int>(i);
+        focused = true;
+        break;
+      }
+    }
+    focusBookPath.clear();
+  }
+  if (!focused && focusSelectorIndex >= 0) {
+    rebuildMenuEntries();  // need menu count to clamp; rebuild is idempotent
+    const int combinedSize = static_cast<int>(recentBooks.size() + menuEntries.size());
+    if (combinedSize > 0) {
+      selectorIndex = std::min(focusSelectorIndex, combinedSize - 1);
+    }
+  }
+  focusSelectorIndex = -1;
+
   // Trigger first update
   menuEntriesDirty = true;
   requestUpdate();
@@ -348,9 +371,21 @@ void HomeActivity::render(RenderLock&&) {
   }
 }
 
-void HomeActivity::onSelectBook(const std::string& path) { activityManager.pushReader(path); }
+void HomeActivity::onSelectBook(const std::string& path) {
+  ReturnHint hint;
+  hint.target = ReturnTo::Home;
+  hint.selectName = path;  // used to re-focus the book in the recents strip after return
+  activityManager.replaceWithReader(path, std::move(hint));
+}
 
 void HomeActivity::dispatchMenuAction(MenuAction action) {
+  // Record where the menu entry was focused so that when the launched activity exits
+  // (via returnFromChild() or an empty-stack finish()), we come back to the same row.
+  ReturnHint hint;
+  hint.target = ReturnTo::Home;
+  hint.selectIndex = selectorIndex;
+  activityManager.setReturnHint(std::move(hint));
+
   switch (action) {
     case MenuAction::FileBrowser:
       activityManager.goToFileBrowser();
