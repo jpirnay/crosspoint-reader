@@ -17,17 +17,19 @@ class RenderLock;  // forward declaration
 
 // Where a "child" activity (launched via one of the replaceWith* helpers) should route
 // control when it exits successfully. See ActivityManager::returnFromChild().
-enum class ReturnTo : uint8_t { Home, FileBrowser, RecentBooks };
+enum class ReturnTo : uint8_t { Home, FileBrowser, RecentBooks, GlobalBookmarks };
 
 // Minimal state the returning parent needs to restore its previous view (directory,
-// focused item, list index). Kept as a plain struct stored by value on the
-// ActivityManager — single instance, overwritten per transition, no heap churn
-// beyond the two small std::strings.
+// focused item, list index, or bookmark selection). Kept as a plain struct stored by
+// value on the ActivityManager — single instance, overwritten per transition, no heap
+// churn beyond the small strings.
 struct ReturnHint {
   ReturnTo target = ReturnTo::Home;
-  std::string path;        // FileBrowser directory to restore
-  std::string selectName;  // item to re-focus in a list (file name, book title)
-  int selectIndex = -1;    // e.g. Recents index
+  std::string path;              // FileBrowser directory to restore
+  std::string selectName;        // item to re-focus in a list (file name, book title)
+  int selectIndex = -1;          // e.g. Recents index
+  std::string selectionContext;  // optional activity-specific restore key
+  int selectBookmarkIndex = -1;  // optional bookmark index for GlobalBookmarks
 };
 
 /**
@@ -83,9 +85,12 @@ class ActivityManager {
   // into the next one.
   bool drainInput = false;
 
-  // Where returnFromChild() should route to. Set by replaceWith*() helpers, cleared
-  // in returnFromChild(). Cleared on any manual goHome()/goTo*() to avoid stale hints
-  // outliving the flow they were recorded for.
+  // Where returnFromChild() should route to. Set by replaceWith*() helpers and
+  // preserved across plain goTo*() chains so a chained navigation flow can still
+  // restore its original parent state. Cleared only by returnFromChild() or by
+  // explicit goHome()/replaceWith*() calls, not by ordinary goTo*() transitions.
+  // Relevant symbols: ReturnHint, returnHint, hasReturnHint, returnFromChild(),
+  // goHome(), goTo*(), replaceWith*().
   ReturnHint returnHint;
   bool hasReturnHint = false;
 
@@ -109,6 +114,7 @@ class ActivityManager {
   void goToFileBrowser(std::string path = {}, std::string focusName = {});
   void goToRecentBooks(int focusIndex = -1);
   void goToGlobalBookmarks();
+  void goToGlobalBookmarks(ReturnHint hint);
   void goToBrowser();
   void goToReader(std::string path);
   void goToKOReaderSync();

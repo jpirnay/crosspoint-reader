@@ -20,8 +20,8 @@ struct Rect;
 // header separator or a bookmark entry belonging to the preceding header.
 class GlobalBookmarksActivity final : public Activity {
  public:
-  explicit GlobalBookmarksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("GlobalBookmarks", renderer, mappedInput) {}
+  explicit GlobalBookmarksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, ReturnHint restoreHint = {})
+      : Activity("GlobalBookmarks", renderer, mappedInput), restoreHint(std::move(restoreHint)) {}
 
   void onEnter() override;
   void onExit() override;
@@ -38,6 +38,7 @@ class GlobalBookmarksActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   std::vector<Row> rows;
   int selectorIndex = 0;
+  ReturnHint restoreHint;
 
   void rebuildRows();
   std::string getRowTitle(int index) const;

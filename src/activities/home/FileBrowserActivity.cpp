@@ -323,5 +323,5 @@ void FileBrowserActivity::render(RenderLock&&) {
 size_t FileBrowserActivity::findEntry(const std::string& name) const {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
-  return 0;
+  return files.size();
 }

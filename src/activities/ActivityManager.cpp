@@ -260,8 +260,11 @@ void ActivityManager::goToRecentBooks(int focusIndex) {
   replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput, focusIndex));
 }
 
-void ActivityManager::goToGlobalBookmarks() {
-  replaceActivity(std::make_unique<GlobalBookmarksActivity>(renderer, mappedInput));
+void ActivityManager::goToGlobalBookmarks() { goToGlobalBookmarks({}); }
+
+void ActivityManager::goToGlobalBookmarks(ReturnHint hint) {
+  hasReturnHint = false;
+  replaceActivity(std::make_unique<GlobalBookmarksActivity>(renderer, mappedInput, std::move(hint)));
 }
 
 void ActivityManager::goToBrowser() {
@@ -318,6 +321,9 @@ void ActivityManager::returnFromChild() {
       break;
     case ReturnTo::RecentBooks:
       goToRecentBooks(hint.selectIndex);
+      break;
+    case ReturnTo::GlobalBookmarks:
+      goToGlobalBookmarks(std::move(hint));
       break;
     case ReturnTo::Home:
     default:
