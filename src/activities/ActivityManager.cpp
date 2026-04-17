@@ -3,6 +3,9 @@
 #include <Arduino.h>
 #include <HalClock.h>
 #include <HalPowerManager.h>
+#include <Logging.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include "CrossPointState.h"
 #include "boot_sleep/BootActivity.h"
@@ -27,6 +30,17 @@ void ActivityManager::begin() {
               &renderTaskHandle  // Task handle
   );
   assert(renderTaskHandle != nullptr && "Failed to create render task");
+}
+
+static void logActivityStackState(const char* stage, Activity* currentActivity, size_t stackSize) {
+  const uint32_t freeHeap = esp_get_free_heap_size();
+  const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  LOG_DBG("ACT", "%s: current=%s stackSize=%zu free=%lu contig=%lu",
+          stage,
+          currentActivity ? currentActivity->getName().c_str() : "<none>",
+          stackSize,
+          freeHeap,
+          contigHeap);
 }
 
 void ActivityManager::renderTaskTrampoline(void* param) {
@@ -149,6 +163,7 @@ void ActivityManager::loop() {
       RenderLock lock;
 
       if (pendingAction == PendingAction::Replace) {
+        logActivityStackState("replace_before", currentActivity.get(), stackActivities.size());
         // Destroy the current activity
         exitActivity(lock);
         // Clear the stack
@@ -156,10 +171,13 @@ void ActivityManager::loop() {
           stackActivities.back()->onExit();
           stackActivities.pop_back();
         }
+        logActivityStackState("replace_after_clear", nullptr, stackActivities.size());
       } else if (pendingAction == PendingAction::Push) {
+        logActivityStackState("push_before", currentActivity.get(), stackActivities.size());
         // Move current activity to stack
         stackActivities.push_back(std::move(currentActivity));
         LOG_DBG("ACT", "Pushed to activity stack, new size = %zu", stackActivities.size());
+        logActivityStackState("push_after", currentActivity.get(), stackActivities.size());
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
@@ -201,6 +219,8 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   if (currentActivity) {
     // Defer launch if we're currently in an activity, to avoid deleting the current activity
     // leading to the "delete this" problem
+    LOG_DBG("ACT", "replaceActivity requested: current=%s stackSize=%zu",
+            currentActivity->getName().c_str(), stackActivities.size());
     pendingActivity = std::move(newActivity);
     pendingAction = PendingAction::Replace;
   } else {
@@ -274,6 +294,8 @@ void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
     LOG_ERR("ACT", "pendingActivity while pushActivity is not expected");
     pendingActivity.reset();
   }
+  LOG_DBG("ACT", "pushActivity requested: current=%s stackSize=%zu",
+          currentActivity ? currentActivity->getName().c_str() : "<none>", stackActivities.size());
   pendingActivity = std::move(activity);
   pendingAction = PendingAction::Push;
 }
