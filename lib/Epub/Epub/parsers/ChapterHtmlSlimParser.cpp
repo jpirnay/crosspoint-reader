@@ -1542,8 +1542,14 @@ void ChapterHtmlSlimParser::makePages() {
       }
     }
 
-    addLineToPage(paragraphLines[li].textBlock, paragraphLines[li].lineEndsWithHyphenatedWord,
-                  paragraphLines[li].suppressHyphenationRetry);
+    const auto lineResult = addLineToPage(paragraphLines[li].textBlock,
+                                           paragraphLines[li].lineEndsWithHyphenatedWord,
+                                           paragraphLines[li].suppressHyphenationRetry);
+    if (lineResult == ParsedText::LineProcessResult::RetryWithoutHyphenation) {
+      // Collect-then-dispatch can't redo layout; suppress the retry flag so the
+      // line is accepted as-is rather than silently dropped from the page.
+      addLineToPage(paragraphLines[li].textBlock, false, true);
+    }
   }
 
   // Fallback: transfer any remaining pending footnotes to current page.
