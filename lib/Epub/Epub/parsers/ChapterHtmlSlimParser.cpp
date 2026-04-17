@@ -1496,16 +1496,15 @@ void ChapterHtmlSlimParser::makePages() {
   struct CollectedLine {
     std::shared_ptr<TextBlock> textBlock;
     bool lineEndsWithHyphenatedWord;
+    bool suppressHyphenationRetry;
   };
   std::vector<CollectedLine> paragraphLines;
   paragraphLines.reserve(8);
   currentTextBlock->layoutAndExtractLines(
       renderer, fontId, effectiveWidth,
       [&paragraphLines](const std::shared_ptr<TextBlock>& textBlock, const bool lineEndsWithHyphenatedWord,
-                        const bool /*suppressHyphenationRetry*/) {
-        paragraphLines.push_back({textBlock, lineEndsWithHyphenatedWord});
-        // Always accept during collection; retries require per-line dispatch and can't be
-        // re-entered from widow/orphan post-processing.
+                        const bool suppressHyphenationRetry) {
+        paragraphLines.push_back({textBlock, lineEndsWithHyphenatedWord, suppressHyphenationRetry});
         return ParsedText::LineProcessResult::Accepted;
       });
 
@@ -1517,6 +1516,7 @@ void ChapterHtmlSlimParser::makePages() {
       const int spaceLeft = viewportHeight - currentPageNextY;
       if (spaceLeft >= lineHeight && spaceLeft < lineHeight * 2) {
         // Only 1 line fits — would create an orphan. Force page break.
+        paragraphIndexPerPage.push_back(xpathParagraphIndex);
         completePageFn(std::move(currentPage));
         completedPageCount++;
         currentPage.reset(new Page());
@@ -1533,6 +1533,7 @@ void ChapterHtmlSlimParser::makePages() {
         // Would create a widow. Only prevent if page keeps enough content
         // (at least 2 elements) to avoid trading a widow for an orphan.
         if (currentPage->elements.size() >= 2) {
+          paragraphIndexPerPage.push_back(xpathParagraphIndex);
           completePageFn(std::move(currentPage));
           completedPageCount++;
           currentPage.reset(new Page());
@@ -1541,11 +1542,8 @@ void ChapterHtmlSlimParser::makePages() {
       }
     }
 
-    // Dispatch with hyphenation metadata preserved. Suppress retry here because the
-    // line was already materialized during collection — retrying would require
-    // re-running layoutAndExtractLines on the original words.
     addLineToPage(paragraphLines[li].textBlock, paragraphLines[li].lineEndsWithHyphenatedWord,
-                  /*suppressHyphenationRetry=*/true);
+                  paragraphLines[li].suppressHyphenationRetry);
   }
 
   // Fallback: transfer any remaining pending footnotes to current page.

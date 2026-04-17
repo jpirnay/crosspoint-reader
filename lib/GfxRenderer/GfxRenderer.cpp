@@ -934,8 +934,12 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     renderCharImpl<TextRotation::None>(*this, renderModeSnapshot, font, cp, snapX, yPos, black, style, useAlt);
 
     // Advance the accumulator in fixed-point (no rounding loss).
-    // Only add tracking between characters, not after the last one.
-    cursorFP += lastBaseAdvanceFP + (*text ? trackingFP : 0);
+    // Don't add tracking before a combining mark — the mark must center over the
+    // base glyph at the untracked position, not the inter-character gap.
+    const char* peekText = text;
+    const uint32_t nextCp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&peekText));
+    const bool nextIsCombining = nextCp && utf8IsCombiningMark(nextCp);
+    cursorFP += lastBaseAdvanceFP + (*text && !nextIsCombining ? trackingFP : 0);
     prevCp = cp;
   }
 }

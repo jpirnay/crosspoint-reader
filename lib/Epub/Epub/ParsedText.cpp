@@ -328,6 +328,22 @@ void ParsedText::layoutAndExtractLines(
 
       // Recompute widths after restoring unsplit words.
       wordWidths = calculateWordWidths(renderer, fontId);
+      // Re-apply paragraph tracking — baked into wordWidths before the retry path,
+      // but calculateWordWidths returns natural widths. charCounts is stale after
+      // word merges, so recount characters from the current words array.
+      if (paragraphTracking != 0) {
+        for (size_t wi = 0; wi < wordWidths.size(); wi++) {
+          int n = 0;
+          const auto* p = reinterpret_cast<const unsigned char*>(words[wi].c_str());
+          while (*p) {
+            utf8NextCodepoint(&p);
+            n++;
+          }
+          const int expansion = ((n - 1) * paragraphTracking + 8) >> 4;
+          const int adjusted = static_cast<int>(wordWidths[wi]) + expansion;
+          wordWidths[wi] = static_cast<uint16_t>(std::max(1, adjusted));
+        }
+      }
 
       // Keep previous lines fixed; recompute only this specific line without hyphenation.
       // Suppression is intentionally line-local.
