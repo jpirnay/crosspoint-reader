@@ -866,6 +866,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   const int yPos = y + getFontAscenderSize(fontId);
   int32_t cursorFP = fp4::fromPixel(x);  // accumulate position in 12.4 fixed-point
   int lastBaseAdvanceFP = 0;             // 12.4 fixed-point
+  int lastBaseSnapX = 0;                 // actual pixel snap used when rendering last base glyph
   int lastBaseLeft = 0;
   int lastBaseWidth = 0;
   int lastBaseTop = 0;
@@ -897,8 +898,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
       const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
-      const int baseSnapX = fp4::toPixel(cursorFP - lastBaseAdvanceFP);
-      const int combiningX = combiningMark::centerOver(baseSnapX, lastBaseLeft, lastBaseWidth, combiningGlyph->left,
+      const int combiningX = combiningMark::centerOver(lastBaseSnapX, lastBaseLeft, lastBaseWidth, combiningGlyph->left,
                                                        combiningGlyph->width);
       renderCharImpl<TextRotation::None>(*this, renderModeSnapshot, font, cp, combiningX, yPos - raiseBy, black, style);
       continue;
@@ -931,6 +931,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     // so floor + 0.5 approximates the true fractional position.
     const bool useAlt = fontHasAlt && (cursorFP & 0xF) >= 8;
     const int snapX = useAlt ? static_cast<int>(cursorFP >> fp4::FRAC_BITS) : fp4::toPixel(cursorFP);
+    lastBaseSnapX = snapX;
     renderCharImpl<TextRotation::None>(*this, renderModeSnapshot, font, cp, snapX, yPos, black, style, useAlt);
 
     // Advance the accumulator in fixed-point (no rounding loss).

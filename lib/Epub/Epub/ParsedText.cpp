@@ -194,14 +194,15 @@ void ParsedText::layoutAndExtractLines(
     const auto savedContinues = wordContinues;
     const auto savedWidths = wordWidths;
 
-    // Count characters per word (pre-hyphenation, for tracking width adjustment)
+    // Count tracking slots per word: exclude soft hyphens (measureWordWidth strips
+    // them) and combining marks (drawText skips tracking before them).
     std::vector<int> charCounts(words.size());
     for (size_t i = 0; i < words.size(); i++) {
       int n = 0;
       const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
       while (*p) {
-        utf8NextCodepoint(&p);
-        n++;
+        const uint32_t cp = utf8NextCodepoint(&p);
+        if (cp != 0x00AD && !utf8IsCombiningMark(cp)) n++;
       }
       charCounts[i] = n;
     }
@@ -336,8 +337,8 @@ void ParsedText::layoutAndExtractLines(
           int n = 0;
           const auto* p = reinterpret_cast<const unsigned char*>(words[wi].c_str());
           while (*p) {
-            utf8NextCodepoint(&p);
-            n++;
+            const uint32_t cp = utf8NextCodepoint(&p);
+            if (cp != 0x00AD && !utf8IsCombiningMark(cp)) n++;
           }
           const int expansion = ((n - 1) * paragraphTracking + 8) >> 4;
           const int adjusted = static_cast<int>(wordWidths[wi]) + expansion;
