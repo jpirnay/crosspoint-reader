@@ -14,7 +14,7 @@ struct KeyDef {
   char secondary;
 };
 
-enum SpecialKeyType { SpecShift, SpecMode, SpecSpace, SpecDel, SpecOk };
+enum class SpecialKeyType { Shift, Mode, Space, Del, Ok };
 
 enum class InputType { Text, Password, Url };
 
@@ -51,17 +51,25 @@ class KeyboardEntryActivity : public Activity {
   bool confirmLongHandled = false;
 
   bool cursorMode = false;
+  bool togglePos = false;
   size_t cursorPos = 0;
   bool upHeld = false;
   bool upLongHandled = false;
   bool downHeld = false;
   bool downLongHandled = false;
+  bool rightHeld = false;
+  bool rightLongHandled = false;
+  size_t savedCursorPos = 0;
+  size_t rightStartCursorPos = 0;
 
   bool urlMode = false;
-  static const char* shiftLabel(int shiftState);
   static constexpr int URL_SNIPPET_COUNT = 9;
   static constexpr const char* const urlSnippets[URL_SNIPPET_COUNT] = {
       "https://", "www.", ".com", "http://", "192.168.", ".org", "/opds", ":8080", ".net"};
+
+  int delPressCount = 0;
+  bool hintVisible = false;
+  unsigned long hintShowTime = 0;
 
   void onComplete(std::string text);
   void onCancel();
@@ -75,8 +83,7 @@ class KeyboardEntryActivity : public Activity {
   static constexpr int BOTTOM_KEY_COUNT = 5;
 
   static constexpr KeyDef abcLayout[ABC_ROWS][COLS] = {
-      {{'0', ')'},
-       {'1', '!'},
+      {{'1', '!'},
        {'2', '@'},
        {'3', '#'},
        {'4', '$'},
@@ -84,7 +91,8 @@ class KeyboardEntryActivity : public Activity {
        {'6', '^'},
        {'7', '&'},
        {'8', '*'},
-       {'9', '('}},
+       {'9', '('},
+       {'0', ')'}},
       {{'q', 'Q'},
        {'w', 'W'},
        {'e', 'E'},
@@ -118,8 +126,7 @@ class KeyboardEntryActivity : public Activity {
   };
 
   static constexpr KeyDef symLayout[SYM_ROWS][COLS] = {
-      {{'0', '\0'},
-       {'1', '\0'},
+      {{'1', '\0'},
        {'2', '\0'},
        {'3', '\0'},
        {'4', '\0'},
@@ -127,9 +134,9 @@ class KeyboardEntryActivity : public Activity {
        {'6', '\0'},
        {'7', '\0'},
        {'8', '\0'},
-       {'9', '\0'}},
-      {{')', '\0'},
-       {'!', '\0'},
+       {'9', '\0'},
+       {'0', '\0'}},
+      {{'!', '\0'},
        {'@', '\0'},
        {'#', '\0'},
        {'$', '\0'},
@@ -137,7 +144,8 @@ class KeyboardEntryActivity : public Activity {
        {'^', '\0'},
        {'&', '\0'},
        {'*', '\0'},
-       {'(', '\0'}},
+       {'(', '\0'},
+       {')', '\0'}},
       {{'-', '\0'},
        {'_', '\0'},
        {'=', '\0'},
