@@ -2,8 +2,6 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
-#include <I18n.h>
 #include <Logging.h>
 
 #include <memory>
@@ -51,9 +49,8 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
 }
 
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
-                                     bool hasSubtitle) {
+                                     bool hasSubtitle, int extraReservedHeight) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = getContentRect(renderer, hasButtonHints, /*hasSideHints=*/false);
   int reservedHeight = metrics.topPadding;
   if (hasHeader) {
     reservedHeight += metrics.headerHeight + metrics.verticalSpacing;
@@ -62,76 +59,11 @@ int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader
     reservedHeight += metrics.tabBarHeight;
   }
   if (hasButtonHints) {
-    reservedHeight += metrics.verticalSpacing;
+    reservedHeight += metrics.verticalSpacing + metrics.buttonHintsHeight;
   }
-  const int availableHeight = contentRect.height - reservedHeight;
+  const int availableHeight = renderer.getScreenHeight() - reservedHeight - extraReservedHeight;
   int rowHeight = hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
   return availableHeight / rowHeight;
-}
-
-Rect UITheme::getContentRect(const GfxRenderer& renderer, bool hasBottomHints, bool hasSideHints) {
-  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const int bh = hasBottomHints ? metrics.buttonHintsHeight : 0;
-  const int sw = hasSideHints ? metrics.sideButtonHintsWidth : 0;
-
-  int top = 0, right = 0, bottom = 0, left = 0;
-  switch (renderer.getOrientation()) {
-    case GfxRenderer::Portrait:
-      bottom = bh;
-      if (gpio.deviceIsX3() && hasSideHints) {
-        left = sw;
-        right = sw;
-      } else {
-        right = sw;
-      }
-      break;
-    case GfxRenderer::PortraitInverted:
-      top = bh;
-      if (gpio.deviceIsX3() && hasSideHints) {
-        left = sw;
-        right = sw;
-      } else {
-        left = sw;
-      }
-      break;
-    case GfxRenderer::LandscapeClockwise:
-      left = bh;
-      if (gpio.deviceIsX3() && hasSideHints) {
-        top = sw;
-        bottom = sw;
-      } else {
-        bottom = sw;
-      }
-      break;
-    case GfxRenderer::LandscapeCounterClockwise:
-      right = bh;
-      if (gpio.deviceIsX3() && hasSideHints) {
-        top = sw;
-        bottom = sw;
-      } else {
-        top = sw;
-      }
-      break;
-  }
-
-  const int w = renderer.getScreenWidth();
-  const int h = renderer.getScreenHeight();
-  return Rect{left, top, w - left - right, h - top - bottom};
-}
-
-std::string UITheme::makeSeparatorTitle(const std::string& title) { return std::string("__") + title; }
-
-std::string UITheme::makeSeparatorTitle(StrId labelId) { return std::string("__") + I18N.get(labelId); }
-
-bool UITheme::isSeparatorTitle(const std::string& title) { return title.rfind("__", 0) == 0; }
-
-std::string UITheme::stripSeparatorTitle(const std::string& title) {
-  return isSeparatorTitle(title) ? title.substr(2) : title;
-}
-
-std::function<bool(int)> UITheme::makeSelectablePredicate(int total, std::function<std::string(int)> titleGetter) {
-  return
-      [total, titleGetter](int index) { return index >= 0 && index < total && !isSeparatorTitle(titleGetter(index)); };
 }
 
 std::string UITheme::getCoverThumbPath(std::string coverBmpPath, int coverHeight) {
@@ -152,8 +84,7 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   if (FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename)) {
     return Text;
   }
-  if (FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
-      FsHelpers::hasPngExtension(filename)) {
+  if (FsHelpers::hasBmpExtension(filename) || FsHelpers::hasPxcExtension(filename)) {
     return Image;
   }
   return File;
@@ -165,7 +96,7 @@ int UITheme::getStatusBarHeight() {
   // Add status bar margin
   const bool showStatusBar = SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
                              SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
-                             SETTINGS.statusBarBattery || (SETTINGS.useClock && SETTINGS.statusBarClock);
+                             SETTINGS.statusBarBattery;
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   return (showStatusBar ? (metrics.statusBarVerticalMargin) : 0) +

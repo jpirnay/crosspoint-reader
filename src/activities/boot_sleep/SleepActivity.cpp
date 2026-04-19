@@ -1,361 +1,28 @@
 #include "SleepActivity.h"
 
 #include <Epub.h>
-#include <Epub/converters/PngToFramebufferConverter.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
-#include <PNGdec.h>
-#include <Serialization.h>
 #include <Txt.h>
 #include <Xtc.h>
-#include <esp_system.h>
 
-#include <algorithm>
-#include <memory>
-#include <new>
-
-#include "../reader/EpubReaderActivity.h"
-#include "../reader/TxtReaderActivity.h"
-#include "../reader/XtcReaderActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "Epub/converters/DirectPixelWriter.h"
+#include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 
-namespace {
-
-// Context passed through PNGdec's decode() user-pointer to the per-scanline draw callback.
-struct PngOverlayCtx {
-  const GfxRenderer* renderer;
-  int screenW;
-  int screenH;
-  int srcWidth;
-  int dstWidth;
-  int dstX;
-  int dstY;
-  float yScale;
-  int lastDstY;
-  // Color-key transparency (tRNS chunk) for TRUECOLOR and GRAYSCALE images.
-  // Initialized lazily on the first draw callback because tRNS is processed during decode(),
-  // not during open() — so hasAlpha()/getTransparentColor() are only valid once decode() starts.
-  // -2 = not yet read; -1 = no color key; >=0 = 0x00RRGGBB (TRUECOLOR) or low-byte gray.
-  int32_t transparentColor;
-  PNG* pngObj;  // for lazy-init of transparentColor on first callback
-};
-
-// PNGdec file I/O callbacks — mirror the pattern in PngToFramebufferConverter.cpp.
-void* pngSleepOpen(const char* filename, int32_t* size) {
-  FsFile* f =
-      new FsFile();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transferred via void* to PNGdec callbacks
-  if (!Storage.openFileForRead("SLP", std::string(filename), *f)) {
-    delete f;  // NOLINT(cppcoreguidelines-owning-memory)
-    return nullptr;
-  }
-  *size = f->size();
-  return f;
-}
-void pngSleepClose(void* handle) {
-  FsFile* f = reinterpret_cast<FsFile*>(handle);
-  if (f) {
-    f->close();
-    delete f;  // NOLINT(cppcoreguidelines-owning-memory)
-  }
-}
-int32_t pngSleepRead(PNGFILE* pFile, uint8_t* pBuf, int32_t len) {
-  FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
-  return f ? f->read(pBuf, len) : 0;
-}
-int32_t pngSleepSeek(PNGFILE* pFile, int32_t pos) {
-  FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
-  if (!f) return -1;
-  return f->seek(pos);
-}
-
-bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, const BookOverlayInfo& overlayInfo) {
-  constexpr size_t MIN_FREE_HEAP = 60 * 1024;  // PNG decoder ~42 KB + overhead
-  if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
-    LOG_ERR("SLP", "Not enough heap for PNG sleep image: %s", filename.c_str());
-    return false;
-  }
-
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-
-  renderer.clearScreen();
-
-  RenderConfig config;
-  config.x = 0;
-  config.y = 0;
-  config.maxWidth = pageWidth;
-  config.maxHeight = pageHeight;
-  config.useGrayscale = true;
-  config.useDithering = true;
-  config.ditherMode = ImageDitherMode::Bayer;
-  config.performanceMode = false;
-  config.useExactDimensions = false;
-
-  // Overlay drawing is shared across all three rendering passes (BW + LSB + MSB) so the
-  // text appears on every plane. Captured by reference so the lambda sees the renderer.
-  const auto drawOverlay = [&]() {
-    if (overlayInfo.progressText.empty()) {
-      return;
-    }
-    const int lineHeight12 = renderer.getLineHeight(BOOKERLY_12_FONT_ID);
-    const int lineHeight10 = renderer.getLineHeight(UI_10_FONT_ID);
-    constexpr int lineSpacing = 3;
-    constexpr int sectionSpacing = 10;
-    const int maxTextWidth = pageWidth - 20;
-
-    int textBlockHeight = 0;
-    if (!overlayInfo.title.empty()) {
-      textBlockHeight += lineHeight12;
-      if (!overlayInfo.author.empty()) {
-        textBlockHeight += lineSpacing;
-      } else if (!overlayInfo.progressText.empty()) {
-        textBlockHeight += sectionSpacing;
-      }
-    }
-    if (!overlayInfo.author.empty()) {
-      textBlockHeight += lineHeight10;
-      if (!overlayInfo.progressText.empty()) {
-        textBlockHeight += sectionSpacing;
-      }
-    }
-    if (!overlayInfo.progressText.empty()) {
-      textBlockHeight += lineHeight10;
-    }
-
-    const int overlayY = pageHeight - textBlockHeight - (lineHeight12 / 3) - (lineHeight10 * 2 / 3);
-    int y = overlayY + (lineHeight12 / 3);
-    if (!overlayInfo.title.empty()) {
-      const std::string title = renderer.truncatedText(BOOKERLY_12_FONT_ID, overlayInfo.title.c_str(), maxTextWidth);
-      renderer.drawText(BOOKERLY_12_FONT_ID, 10, y, title.c_str(), true);
-      y += lineHeight12;
-      if (!overlayInfo.author.empty()) {
-        y += lineSpacing;
-      } else if (!overlayInfo.progressText.empty()) {
-        y += sectionSpacing;
-      }
-    }
-    if (!overlayInfo.author.empty()) {
-      const std::string author = renderer.truncatedText(UI_10_FONT_ID, overlayInfo.author.c_str(), maxTextWidth);
-      renderer.drawText(UI_10_FONT_ID, 10, y, author.c_str(), true);
-      y += lineHeight10;
-      if (!overlayInfo.progressText.empty()) {
-        y += sectionSpacing;
-      }
-    }
-    if (!overlayInfo.progressText.empty()) {
-      const std::string progress =
-          renderer.truncatedText(UI_10_FONT_ID, overlayInfo.progressText.c_str(), maxTextWidth);
-      renderer.drawText(UI_10_FONT_ID, 10, y, progress.c_str(), true);
-    }
-  };
-
-  PngToFramebufferConverter decoder;
-
-  // Pass 1: BW plane — mirrors SleepActivity::renderBitmapSleepScreen so the BW carrier
-  // matches the 4-level quantization layered on top via the LSB/MSB planes.
-  renderer.setRenderMode(GfxRenderer::BW);
-  renderer.clearScreen();
-  if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
-    LOG_DBG("SLP", "PNG sleep image decode failed: %s", filename.c_str());
-    return false;
-  }
-  drawOverlay();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-
-  // Pass 2: GRAYSCALE_LSB plane.
-  renderer.clearScreen(0x00);
-  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-  if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
-    LOG_DBG("SLP", "PNG sleep image LSB decode failed: %s", filename.c_str());
-    renderer.setRenderMode(GfxRenderer::BW);
-    return false;
-  }
-  drawOverlay();
-  renderer.copyGrayscaleLsbBuffers();
-
-  // Pass 3: GRAYSCALE_MSB plane.
-  renderer.clearScreen(0x00);
-  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-  if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
-    LOG_DBG("SLP", "PNG sleep image MSB decode failed: %s", filename.c_str());
-    renderer.setRenderMode(GfxRenderer::BW);
-    return false;
-  }
-  drawOverlay();
-  renderer.copyGrayscaleMsbBuffers();
-
-  renderer.displayGrayBuffer();
-  renderer.setRenderMode(GfxRenderer::BW);
-  return true;
-}
-
-// Per-scanline draw callback for PNG overlay compositing.
-// Transparent pixels (alpha < 128) are skipped so the reader page shows through.
-// Opaque pixels are drawn in their grayscale brightness (dark → black, light → white).
-int pngOverlayDraw(PNGDRAW* pDraw) {
-  PngOverlayCtx* ctx = reinterpret_cast<PngOverlayCtx*>(pDraw->pUser);
-
-  // Lazy-init: tRNS chunk is processed during decode() before any IDAT data, so by the time
-  // the first draw callback fires, hasAlpha() / getTransparentColor() are already valid.
-  if (ctx->transparentColor == -2) {
-    const int pt = pDraw->iPixelType;
-    ctx->transparentColor = (pDraw->iHasAlpha && (pt == PNG_PIXEL_TRUECOLOR || pt == PNG_PIXEL_GRAYSCALE))
-                                ? (int32_t)ctx->pngObj->getTransparentColor()
-                                : -1;
-  }
-
-  const int destY = ctx->dstY + (int)(pDraw->y * ctx->yScale);
-  if (destY == ctx->lastDstY) return 1;  // skip duplicate rows from Y scaling
-  ctx->lastDstY = destY;
-  if (destY < 0 || destY >= ctx->screenH) return 1;
-
-  const int srcWidth = ctx->srcWidth;
-  const int dstWidth = ctx->dstWidth;
-  const uint8_t* pixels = pDraw->pPixels;
-  const int pixelType = pDraw->iPixelType;
-  const int hasAlpha = pDraw->iHasAlpha;
-
-  int srcX = 0, error = 0;
-  for (int dstX = 0; dstX < dstWidth; dstX++) {
-    const int outX = ctx->dstX + dstX;
-    if (outX >= 0 && outX < ctx->screenW) {
-      uint8_t alpha = 255, gray = 0;
-      switch (pixelType) {
-        case PNG_PIXEL_TRUECOLOR_ALPHA: {
-          const uint8_t* p = &pixels[srcX * 4];
-          alpha = p[3];
-          gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
-          break;
-        }
-        case PNG_PIXEL_GRAY_ALPHA:
-          gray = pixels[srcX * 2];
-          alpha = pixels[srcX * 2 + 1];
-          break;
-        case PNG_PIXEL_TRUECOLOR: {
-          const uint8_t* p = &pixels[srcX * 3];
-          gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
-          // tRNS color-key: if pixel matches the designated transparent color, skip it
-          if (ctx->transparentColor >= 0 && p[0] == (uint8_t)((ctx->transparentColor >> 16) & 0xFF) &&
-              p[1] == (uint8_t)((ctx->transparentColor >> 8) & 0xFF) &&
-              p[2] == (uint8_t)(ctx->transparentColor & 0xFF)) {
-            alpha = 0;
-          }
-          break;
-        }
-        case PNG_PIXEL_GRAYSCALE:
-          gray = pixels[srcX];
-          // tRNS color-key: transparent gray value stored in low byte
-          if (ctx->transparentColor >= 0 && gray == (uint8_t)(ctx->transparentColor & 0xFF)) {
-            alpha = 0;
-          }
-          break;
-        case PNG_PIXEL_INDEXED:
-          if (pDraw->pPalette) {
-            const uint8_t idx = pixels[srcX];
-            const uint8_t* p = &pDraw->pPalette[idx * 3];
-            gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
-            if (hasAlpha) alpha = pDraw->pPalette[768 + idx];
-          }
-          break;
-        default:
-          gray = pixels[srcX];
-          break;
-      }
-
-      if (alpha >= 128) {
-        ctx->renderer->drawPixel(outX, destY, gray < 128);  // true = black, false = white
-      }
-      // alpha < 128: transparent — leave the reader page pixel intact
-    }
-
-    // Bresenham-style X stepping (handles downscaling; 1:1 when srcWidth == dstWidth)
-    error += srcWidth;
-    while (error >= dstWidth) {
-      error -= dstWidth;
-      srcX++;
-    }
-  }
-  return 1;
-}
-
-// Collects full paths of valid image files from /.sleep and /sleep, with no preference between
-// the two directories. BMP files are validated by parsing their headers; invalid BMPs are skipped.
-// When allowPng is true, .png files are also accepted (PNG validation happens later at decode time).
-std::vector<std::string> collectSleepImages(bool allowPng) {
-  std::vector<std::string> files;
-  for (const char* sleepDir : {"/.sleep", "/sleep"}) {
-    auto dir = Storage.open(sleepDir);
-    if (!dir || !dir.isDirectory()) {
-      if (dir) dir.close();
-      continue;
-    }
-    char name[500];
-    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
-      if (file.isDirectory()) {
-        file.close();
-        continue;
-      }
-      file.getName(name, sizeof(name));
-      auto filename = std::string(name);
-      if (filename[0] == '.') {
-        file.close();
-        continue;
-      }
-      const bool isBmp = FsHelpers::hasBmpExtension(filename);
-      const bool isPng = allowPng && FsHelpers::hasPngExtension(filename);
-      if (!isBmp && !isPng) {
-        file.close();
-        continue;
-      }
-      if (isBmp) {
-        Bitmap bmp(file);
-        if (bmp.parseHeaders() != BmpReaderError::Ok) {
-          LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
-          file.close();
-          continue;
-        }
-      }
-      files.emplace_back(std::string(sleepDir) + "/" + filename);
-      file.close();
-    }
-    dir.close();
-  }
-  // Sort by full path so the order is deterministic across reboots — required for sequential
-  // pick mode, harmless for random pick mode.
-  std::sort(files.begin(), files.end());
-  return files;
-}
-
-// Picks the next file index based on the user's pick mode.
-// RANDOM: uniform random with single reroll to avoid immediate repeats.
-// SEQUENTIAL: advances from APP_STATE.lastSleepImage, wrapping at numFiles.
-size_t pickSleepImageIndex(size_t numFiles) {
-  if (SETTINGS.sleepImagePickMode == CrossPointSettings::SLEEP_IMAGE_PICK_MODE::PICK_SEQUENTIAL) {
-    const size_t last = APP_STATE.lastSleepImage;
-    if (last == SIZE_MAX || last >= numFiles) return 0;
-    return (last + 1) % numFiles;
-  }
-  size_t idx = static_cast<size_t>(esp_random() % numFiles);
-  while (numFiles > 1 && APP_STATE.lastSleepImage != SIZE_MAX && idx == APP_STATE.lastSleepImage) {
-    idx = static_cast<size_t>(esp_random() % numFiles);
-  }
-  return idx;
-}
-
-}  // namespace
-
 void SleepActivity::onEnter() {
   Activity::onEnter();
-  RenderLock lock(*this);
-  // For OVERLAY mode the popup is suppressed so the frame buffer (reader page) stays intact
-  if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+
+  if (APP_STATE.lastSleepFromReader) {
+    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   }
 
   switch (SETTINGS.sleepScreen) {
@@ -364,75 +31,136 @@ void SleepActivity::onEnter() {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
       return renderCustomSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
+      return renderCoverSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
-      if (!APP_STATE.openEpubPath.empty()) {
+      if (APP_STATE.lastSleepFromReader) {
         return renderCoverSleepScreen();
       } else {
         return renderCustomSleepScreen();
       }
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY):
-      return renderOverlaySleepScreen();
     default:
       return renderDefaultSleepScreen();
   }
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
-  const BookOverlayInfo overlayInfo{};
-  const bool shouldLoadOverlayInfo =
-      SETTINGS.sleepCoverOverlay != 0 && APP_STATE.lastSleepFromReader && !APP_STATE.openEpubPath.empty();
-
-  // An explicitly selected custom sleep image should override random images from /.sleep or /sleep.
-  FsFile explicitSleepFile;
-  if (Storage.openFileForRead("SLP", "/sleep.bmp", explicitSleepFile)) {
-    Bitmap bitmap(explicitSleepFile, true);
-    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      LOG_DBG("SLP", "Loading explicit custom sleep image: /sleep.bmp");
-      const BookOverlayInfo resolvedOverlayInfo =
-          shouldLoadOverlayInfo ? getBookOverlayInfo(APP_STATE.openEpubPath) : overlayInfo;
-      renderBitmapSleepScreen(bitmap, resolvedOverlayInfo);
-      explicitSleepFile.close();
-      return;
-    }
-    explicitSleepFile.close();
-  }
-  if (Storage.openFileForRead("SLP", "/sleep.png", explicitSleepFile)) {
-    explicitSleepFile.close();
-    const BookOverlayInfo resolvedOverlayInfo =
-        shouldLoadOverlayInfo ? getBookOverlayInfo(APP_STATE.openEpubPath) : overlayInfo;
-    LOG_DBG("SLP", "Loading explicit custom sleep image: /sleep.png");
-    if (renderPngSleepScreen("/sleep.png", renderer, resolvedOverlayInfo)) {
-      return;
+  // Check if we have a /.sleep (preferred) or /sleep directory
+  const char* sleepDir = nullptr;
+  auto dir = Storage.open("/.sleep");
+  if (dir && dir.isDirectory()) {
+    sleepDir = "/.sleep";
+  } else {
+    dir = Storage.open("/sleep");
+    if (dir && dir.isDirectory()) {
+      sleepDir = "/sleep";
     }
   }
 
-  // Collect valid BMP and PNG files from both /.sleep and /sleep directories (no preference between them)
-  const auto files = collectSleepImages(/*allowPng=*/true);
-  const auto numFiles = files.size();
-  if (numFiles > 0) {
-    const auto pickedIndex = pickSleepImageIndex(numFiles);
-    APP_STATE.lastSleepImage = pickedIndex;
-    APP_STATE.saveToFile();
-    const auto& filename = files[pickedIndex];
-    LOG_DBG("SLP", "Loading sleep image: %s", filename.c_str());
-    const BookOverlayInfo resolvedOverlayInfo =
-        shouldLoadOverlayInfo ? getBookOverlayInfo(APP_STATE.openEpubPath) : overlayInfo;
-    if (FsHelpers::hasPngExtension(filename)) {
-      if (renderPngSleepScreen(filename, renderer, resolvedOverlayInfo)) {
+  if (sleepDir) {
+    std::vector<std::string> files;
+    char name[500];
+    // collect all valid BMP files
+    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+      if (file.isDirectory()) {
+        continue;
+      }
+      file.getName(name, sizeof(name));
+      auto filename = std::string(name);
+      if (filename[0] == '.') {
+        continue;
+      }
+
+      const bool isBmp = FsHelpers::hasBmpExtension(filename);
+      const bool isPxc = FsHelpers::hasPxcExtension(filename);
+      if (!isBmp && !isPxc) {
+        LOG_DBG("SLP", "Skipping non-BMP/PXC file: %s", name);
+        file.close();
+        continue;
+      }
+      if (isBmp) {
+        Bitmap bitmap(file);
+        if (bitmap.parseHeaders() != BmpReaderError::Ok) {
+          LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
+          file.close();
+          continue;
+        }
+      }
+      if (isPxc) {
+        uint16_t w, h;
+        if (file.read(&w, 2) != 2 || file.read(&h, 2) != 2) {
+          LOG_DBG("SLP", "Skipping PXC with unreadable header: %s", name);
+          file.close();
+          continue;
+        }
+        const int sw = renderer.getScreenWidth();
+        const int sh = renderer.getScreenHeight();
+        if (abs(w - sw) > 1 || abs(h - sh) > 1) {
+          LOG_DBG("SLP", "Skipping PXC size mismatch %dx%d (screen %dx%d): %s", w, h, sw, sh, name);
+          file.close();
+          continue;
+        }
+      }
+      files.emplace_back(filename);
+    }
+    const auto numFiles = files.size();
+    if (numFiles > 0) {
+      // Pick a random wallpaper, excluding recently shown ones.
+      // Window: up to SLEEP_RECENT_COUNT entries, capped at numFiles-1.
+      const uint16_t fileCount = static_cast<uint16_t>(std::min(numFiles, static_cast<size_t>(UINT16_MAX)));
+      const uint8_t window =
+          static_cast<uint8_t>(std::min(static_cast<size_t>(APP_STATE.recentSleepFill), numFiles - 1));
+      auto randomFileIndex = static_cast<uint16_t>(random(fileCount));
+      for (uint8_t attempt = 0; attempt < 20 && APP_STATE.isRecentSleep(randomFileIndex, window); attempt++) {
+        randomFileIndex = static_cast<uint16_t>(random(fileCount));
+      }
+      APP_STATE.pushRecentSleep(randomFileIndex);
+      APP_STATE.saveToFile();
+      const auto filename = std::string(sleepDir) + "/" + files[randomFileIndex];
+      LOG_DBG("SLP", "Randomly loading: %s/%s", sleepDir, files[randomFileIndex].c_str());
+      delay(100);
+      if (FsHelpers::hasPxcExtension(files[randomFileIndex])) {
+        renderPxcSleepScreen(filename);
+        dir.close();
         return;
       }
-    } else {
       FsFile file;
       if (Storage.openFileForRead("SLP", filename, file)) {
-        delay(100);
         Bitmap bitmap(file, true);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          renderBitmapSleepScreen(bitmap, resolvedOverlayInfo);
-          file.close();
+          if (bitmap.hasGreyscale() &&
+              SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER) {
+            lastGrayscalePath = filename;
+            lastGrayscaleIsPxc = false;
+          }
+          renderBitmapSleepScreen(bitmap);
           return;
         }
-        file.close();
       }
+    }
+  }
+  if (dir) dir.close();
+
+  // Check root for sleep.pxc (preferred) or sleep.bmp
+  if (Storage.exists("/sleep.pxc")) {
+    LOG_DBG("SLP", "Loading: /sleep.pxc");
+    renderPxcSleepScreen("/sleep.pxc");
+    return;
+  }
+
+  // Look for sleep.bmp on the root of the sd card to determine if we should
+  // render a custom sleep screen instead of the default.
+  FsFile file;
+  if (Storage.openFileForRead("SLP", "/sleep.bmp", file)) {
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+      LOG_DBG("SLP", "Loading: /sleep.bmp");
+      if (bitmap.hasGreyscale() &&
+          SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER) {
+        lastGrayscalePath = "/sleep.bmp";
+        lastGrayscaleIsPxc = false;
+      }
+      renderBitmapSleepScreen(bitmap);
+      return;
     }
   }
 
@@ -453,131 +181,125 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 }
 
-BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) const {
-  BookOverlayInfo info;
-
-  if (FsHelpers::checkFileExtension(bookPath, ".xtc") || FsHelpers::checkFileExtension(bookPath, ".xtch")) {
-    Xtc xtc(bookPath, "/.crosspoint");
-    if (xtc.load()) {
-      info.title = xtc.getTitle();
-      info.author = xtc.getAuthor();
-
-      FsFile f;
-      if (Storage.openFileForRead("SLP", xtc.getCachePath() + "/progress.bin", f)) {
-        uint8_t data[4];
-        if (f.read(data, 4) == 4) {
-          uint32_t currentPage = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
-                                 (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
-          uint32_t totalPages = xtc.getPageCount();
-          float progress = xtc.calculateProgress(currentPage) * 100.0f;
-          char buf[64];
-          snprintf(buf, sizeof(buf), tr(STR_OVERLAY_READING_PROGRESS), (unsigned long)currentPage + 1, totalPages,
-                   progress);
-          info.progressText = buf;
-        }
-        f.close();
-      }
-    }
-  } else if (FsHelpers::checkFileExtension(bookPath, ".txt")) {
-    Txt txt(bookPath, "/.crosspoint");
-    if (txt.load()) {
-      info.title = txt.getTitle();
-
-      FsFile f;
-      if (Storage.openFileForRead("SLP", txt.getCachePath() + "/progress.bin", f)) {
-        uint8_t data[4];
-        if (f.read(data, 4) == 4) {
-          uint32_t currentPage = data[0] + (data[1] << 8);
-
-          uint32_t totalPages = 0;
-          FsFile indexFile;
-          if (Storage.openFileForRead("SLP", txt.getCachePath() + "/index.bin", indexFile)) {
-            uint32_t magic;
-            serialization::readPod(indexFile, magic);
-            uint8_t version;
-            serialization::readPod(indexFile, version);
-            static constexpr uint32_t INDEX_CACHE_MAGIC = 0x54585449;  // "TXTI"
-            static constexpr uint8_t INDEX_CACHE_VERSION = 2;
-            if (magic == INDEX_CACHE_MAGIC && version == INDEX_CACHE_VERSION) {
-              indexFile.seek(32);
-              serialization::readPod(indexFile, totalPages);
-            }
-            indexFile.close();
-          }
-
-          if (totalPages > 0) {
-            float progress = (currentPage + 1) * 100.0f / totalPages;
-            char buf[64];
-            snprintf(buf, sizeof(buf), tr(STR_OVERLAY_READING_PROGRESS), (unsigned long)currentPage + 1, totalPages,
-                     progress);
-            info.progressText = buf;
-          } else {
-            char buf[64];
-            snprintf(buf, sizeof(buf), tr(STR_OVERLAY_READING_PROGRESS_NO_TOTAL), (unsigned long)currentPage + 1);
-            info.progressText = buf;
-          }
-        }
-        f.close();
-      }
-    }
-  } else if (FsHelpers::checkFileExtension(bookPath, ".epub")) {
-    Epub epub(bookPath, "/.crosspoint");
-    if (epub.load(true, true)) {
-      info.title = epub.getTitle();
-      info.author = epub.getAuthor();
-
-      FsFile f;
-      if (Storage.openFileForRead("SLP", epub.getCachePath() + "/progress.bin", f)) {
-        uint8_t data[6];
-        const int dataSize = f.read(data, 6);
-        if (dataSize == 4 || dataSize == 6) {
-          int currentSpineIndex = data[0] + (data[1] << 8);
-          int currentPage = data[2] + (data[3] << 8);
-          int pageCount = (dataSize == 6) ? (data[4] + (data[5] << 8)) : 0;
-          if (pageCount > 0) {
-            float chapterProgress = static_cast<float>(currentPage) / static_cast<float>(pageCount);
-            float bookProgress = epub.calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
-
-            const int tocIndex = epub.getTocIndexForSpineIndex(currentSpineIndex);
-            if (tocIndex != -1) {
-              const auto tocItem = epub.getTocItem(tocIndex);
-              info.chapterName = tocItem.title;
-              char suffix[64];
-              snprintf(suffix, sizeof(suffix), tr(STR_OVERLAY_CHAPTER_PAGE_SUFFIX), currentPage + 1, pageCount,
-                       bookProgress);
-              info.progressSuffix = suffix;
-              info.progressText = info.chapterName + info.progressSuffix;
-            } else {
-              char buf[80];
-              snprintf(buf, sizeof(buf), tr(STR_OVERLAY_READING_PROGRESS), (unsigned long)currentPage + 1,
-                       (unsigned)pageCount, bookProgress);
-              info.progressText = buf;
-            }
-          } else {
-            char buf[64];
-            snprintf(buf, sizeof(buf), tr(STR_OVERLAY_READING_PROGRESS_NO_TOTAL), (unsigned long)currentPage + 1);
-            info.progressText = buf;
-          }
-        }
-        f.close();
-      }
-    }
+void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", path, file)) {
+    LOG_ERR("SLP", "Cannot open PXC: %s", path.c_str());
+    return renderDefaultSleepScreen();
   }
 
-  return info;
+  uint16_t pxcWidth, pxcHeight;
+  if (file.read(&pxcWidth, 2) != 2 || file.read(&pxcHeight, 2) != 2) {
+    LOG_ERR("SLP", "PXC header read failed: %s", path.c_str());
+    file.close();
+    return renderDefaultSleepScreen();
+  }
+
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  if (abs(pxcWidth - screenWidth) > 1 || abs(pxcHeight - screenHeight) > 1) {
+    LOG_ERR("SLP", "PXC size %dx%d does not match screen %dx%d", pxcWidth, pxcHeight, screenWidth, screenHeight);
+    file.close();
+    return renderDefaultSleepScreen();
+  }
+
+  const uint32_t dataOffset = file.position();  // right after the 4-byte header
+  const auto filter = SETTINGS.sleepScreenCoverFilter;
+  const int bytesPerRow = (pxcWidth + 3) / 4;
+
+  if (filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER) {
+    lastGrayscalePath = path;
+    lastGrayscaleIsPxc = true;
+    struct PxcCtx {
+      FsFile* file;
+      uint32_t dataOffset;
+      int width, height;
+    };
+    PxcCtx ctx{&file, dataOffset, pxcWidth, pxcHeight};
+
+    renderer.renderGrayscaleSinglePass(
+        gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+        [](const GfxRenderer& r, const void* raw) {
+          const auto* c = static_cast<const PxcCtx*>(raw);
+          c->file->seek(c->dataOffset);
+
+          const int bpr = (c->width + 3) / 4;
+          uint8_t* rowBuf = static_cast<uint8_t*>(malloc(bpr));
+          if (!rowBuf) {
+            LOG_ERR("SLP", "malloc failed for rowBuf (%d bytes, %dx%d)", bpr, c->width, c->height);
+            return;
+          }
+
+          DirectPixelWriter pw;
+          pw.init(r);
+
+          for (int row = 0; row < c->height; row++) {
+            if (c->file->read(rowBuf, bpr) != bpr) break;
+            pw.beginRow(row);
+            for (int col = 0; col < c->width; col++) {
+              const uint8_t pv = (rowBuf[col >> 2] >> (6 - (col & 3) * 2)) & 0x03;
+              pw.writePixel(pv);
+            }
+          }
+          free(rowBuf);
+        },
+        &ctx,
+        [](const GfxRenderer& r, const void*) {
+          constexpr int margin = 15;
+          const char* msg = tr(STR_ENTERING_SLEEP);
+          const int y = static_cast<int>(r.getScreenHeight() * 0.075f);
+          const int textWidth = r.getTextWidth(UI_12_FONT_ID, msg, EpdFontFamily::BOLD);
+          const int w = textWidth + margin * 2;
+          const int h = r.getLineHeight(UI_12_FONT_ID) + margin * 2;
+          const int x = (r.getScreenWidth() - w) / 2;
+          r.fillRect(x - 2, y - 2, w + 4, h + 4, true);
+          r.fillRect(x, y, w, h, false);
+          r.drawText(UI_12_FONT_ID, x + margin, y + margin - 2, msg, true, EpdFontFamily::BOLD);
+        },
+        nullptr);
+  } else {
+    // BLACK_AND_WHITE / INVERTED_BLACK_AND_WHITE: threshold PXC to 1-bit
+    // (pv 0=Black, 1=DarkGrey map to dark; 2=LightGrey, 3=White map to light)
+    renderer.clearScreen();
+    if (!file.seek(dataOffset)) {
+      LOG_ERR("SLP", "PXC seek failed: %s", path.c_str());
+      file.close();
+      return renderDefaultSleepScreen();
+    }
+
+    uint8_t* rowBuf = static_cast<uint8_t*>(malloc(bytesPerRow));
+    if (!rowBuf) {
+      LOG_ERR("SLP", "PXC malloc failed");
+      file.close();
+      return renderDefaultSleepScreen();
+    }
+
+    for (int row = 0; row < pxcHeight; row++) {
+      if (file.read(rowBuf, bytesPerRow) != bytesPerRow) break;
+      for (int col = 0; col < pxcWidth; col++) {
+        const uint8_t pv = (rowBuf[col >> 2] >> (6 - (col & 3) * 2)) & 0x03;
+        if (pv < 2) renderer.drawPixel(col, row, true);
+      }
+    }
+    free(rowBuf);
+
+    if (filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+      renderer.invertScreen();
+    }
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+  }
+
+  file.close();
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOverlayInfo& overlayInfo) const {
+void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   float cropX = 0, cropY = 0;
-  const bool topAlignForCoverFit = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER ||
-                                    SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM) &&
-                                   SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::FIT;
 
   LOG_DBG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
@@ -594,9 +316,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
         ratio = (1.0f - cropX) * static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
       }
       x = 0;
-      y = topAlignForCoverFit
-              ? 0
-              : std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
+      y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
       LOG_DBG("SLP", "Centering with ratio %f to y=%d", ratio, y);
     } else {
       // image taller than viewport ratio, scaled down image needs to be centered horizontally
@@ -612,108 +332,48 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
   } else {
     // center the image
     x = (pageWidth - bitmap.getWidth()) / 2;
-    y = topAlignForCoverFit ? 0 : (pageHeight - bitmap.getHeight()) / 2;
+    y = (pageHeight - bitmap.getHeight()) / 2;
   }
 
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
-  renderer.clearScreen();
 
   const bool hasGreyscale = bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
 
-  renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-
-  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
-    renderer.invertScreen();
-  }
-
-  const uint8_t overlayMode = SETTINGS.sleepCoverOverlay;
-  const auto drawOverlay = [&]() {
-    const bool hasTitle = !overlayInfo.title.empty();
-    const bool hasProgress = !overlayInfo.progressText.empty();
-    const bool hasAuthor = !overlayInfo.author.empty();
-    // If there is no overlay progress text, do not draw the overlay background block.
-    if (!hasProgress) {
-      return;
-    }
-
-    const int lineHeight12 = renderer.getLineHeight(BOOKERLY_12_FONT_ID);
-    const int lineHeight10 = renderer.getLineHeight(UI_10_FONT_ID);
-    constexpr int lineSpacing = 3;
-    constexpr int sectionSpacing = 10;
-    const int availableWidth = pageWidth - 20;
-
-    int textBlockHeight = lineHeight10;  // progress line (always present here)
-    if (hasTitle) {
-      textBlockHeight += lineHeight12;
-      textBlockHeight += hasAuthor ? lineSpacing : sectionSpacing;
-    }
-    if (hasAuthor) {
-      textBlockHeight += lineHeight10 + sectionSpacing;
-    }
-
-    const bool textBlack = (overlayMode != 3);
-    const int topPadding = lineHeight12 / 3;
-    const int bottomPadding = lineHeight10 * 2 / 3;
-    const int overlayHeight = textBlockHeight + topPadding + bottomPadding;
-    const int overlayY = pageHeight - overlayHeight;
-
-    if (overlayMode == 2) {
-      renderer.fillRectDither(0, overlayY, pageWidth, overlayHeight, Color::LightGray);
-    } else {
-      renderer.fillRect(0, overlayY, pageWidth, overlayHeight, overlayMode == 3);
-    }
-
-    int currentY = overlayY + topPadding;
-
-    if (hasTitle) {
-      const std::string titleStr =
-          renderer.truncatedText(BOOKERLY_12_FONT_ID, overlayInfo.title.c_str(), availableWidth, EpdFontFamily::BOLD);
-      renderer.drawCenteredText(BOOKERLY_12_FONT_ID, currentY, titleStr.c_str(), textBlack, EpdFontFamily::BOLD);
-      currentY += lineHeight12 + (hasAuthor ? lineSpacing : sectionSpacing);
-    }
-
-    if (hasAuthor) {
-      const std::string authorStr = renderer.truncatedText(UI_10_FONT_ID, overlayInfo.author.c_str(), availableWidth);
-      renderer.drawCenteredText(UI_10_FONT_ID, currentY, authorStr.c_str(), textBlack);
-      currentY += lineHeight10 + sectionSpacing;
-    }
-
-    std::string progressStr;
-    if (!overlayInfo.chapterName.empty()) {
-      const int suffixWidth = renderer.getTextWidth(UI_10_FONT_ID, overlayInfo.progressSuffix.c_str());
-      const int maxChapterWidth = availableWidth - suffixWidth;
-      const std::string truncatedChapter =
-          maxChapterWidth > 0 ? renderer.truncatedText(UI_10_FONT_ID, overlayInfo.chapterName.c_str(), maxChapterWidth)
-                              : "";
-      progressStr = truncatedChapter + overlayInfo.progressSuffix;
-    } else {
-      progressStr = renderer.truncatedText(UI_10_FONT_ID, overlayInfo.progressText.c_str(), availableWidth);
-    }
-    renderer.drawCenteredText(UI_10_FONT_ID, currentY, progressStr.c_str(), textBlack);
-  };
-
-  drawOverlay();
-
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-
   if (hasGreyscale) {
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+    struct BitmapGrayCtx {
+      const Bitmap* bitmap;
+      int x, y, maxWidth, maxHeight;
+      float cropX, cropY;
+    };
+    BitmapGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, cropX, cropY};
+    renderer.renderGrayscaleSinglePass(
+        gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+        [](const GfxRenderer& r, const void* raw) {
+          const auto* c = static_cast<const BitmapGrayCtx*>(raw);
+          r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, c->cropX, c->cropY);
+        },
+        &grayCtx,
+        [](const GfxRenderer& r, const void*) {
+          constexpr int margin = 15;
+          const char* msg = tr(STR_ENTERING_SLEEP);
+          const int y = static_cast<int>(r.getScreenHeight() * 0.075f);
+          const int textWidth = r.getTextWidth(UI_12_FONT_ID, msg, EpdFontFamily::BOLD);
+          const int w = textWidth + margin * 2;
+          const int h = r.getLineHeight(UI_12_FONT_ID) + margin * 2;
+          const int x = (r.getScreenWidth() - w) / 2;
+          r.fillRect(x - 2, y - 2, w + 4, h + 4, true);
+          r.fillRect(x, y, w, h, false);
+          r.drawText(UI_12_FONT_ID, x + margin, y + margin - 2, msg, true, EpdFontFamily::BOLD);
+        },
+        nullptr);
+  } else {
+    renderer.clearScreen();
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    drawOverlay();
-    renderer.copyGrayscaleLsbBuffers();
-
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    drawOverlay();
-    renderer.copyGrayscaleMsbBuffers();
-
-    renderer.displayGrayBuffer();
-    renderer.setRenderMode(GfxRenderer::BW);
+    if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+      renderer.invertScreen();
+    }
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
   }
 }
 
@@ -788,14 +448,14 @@ void SleepActivity::renderCoverSleepScreen() const {
     Bitmap bitmap(file);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      const uint8_t overlayMode = SETTINGS.sleepCoverOverlay;
-      const BookOverlayInfo coverOverlayInfo =
-          overlayMode != 0 ? getBookOverlayInfo(APP_STATE.openEpubPath) : BookOverlayInfo{};
-      renderBitmapSleepScreen(bitmap, coverOverlayInfo);
-      file.close();
+      if (bitmap.hasGreyscale() &&
+          SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER) {
+        lastGrayscalePath = coverBmpPath;
+        lastGrayscaleIsPxc = false;
+      }
+      renderBitmapSleepScreen(bitmap);
       return;
     }
-    file.close();
   }
 
   return (this->*renderNoCoverSleepScreen)();
@@ -803,144 +463,23 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 }
 
-void SleepActivity::renderOverlaySleepScreen() const {
-  // Overlay pictures always use portrait orientation regardless of the reader's orientation preference.
-  const auto savedOrientation = renderer.getOrientation();
-  renderer.setOrientation(GfxRenderer::Portrait);
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
-  // Step 1: Ensure the frame buffer contains the reader page.
-  // When coming from a reader activity the frame buffer already holds the page.
-  // When coming from a non-reader activity we re-render it from the saved progress.
-  if (!APP_STATE.lastSleepFromReader && !APP_STATE.openEpubPath.empty()) {
-    const auto& path = APP_STATE.openEpubPath;
-    bool rendered = false;
-
-    if (FsHelpers::checkFileExtension(path, ".xtc") || FsHelpers::checkFileExtension(path, ".xtch")) {
-      rendered = XtcReaderActivity::drawCurrentPageToBuffer(path, renderer);
-    } else if (FsHelpers::checkFileExtension(path, ".txt")) {
-      rendered = TxtReaderActivity::drawCurrentPageToBuffer(path, renderer);
-    } else if (FsHelpers::checkFileExtension(path, ".epub")) {
-      rendered = EpubReaderActivity::drawCurrentPageToBuffer(path, renderer);
-    }
-
-    if (!rendered) {
-      LOG_DBG("SLP", "Page re-render failed, using white background");
-      renderer.clearScreen();
-    }
-  }
-
-  // Step 2: Load the overlay image using the same selection logic as renderCustomSleepScreen.
-  // BMP: white pixels are skipped (transparent via drawBitmap), black pixels composited on top.
-  // PNG: pixels with alpha < 128 are skipped; opaque pixels are drawn with their grayscale value.
-  auto tryDrawOverlay = [&](const std::string& filename) -> bool {
+void SleepActivity::onScreenshotRequest() {
+  if (lastGrayscalePath.empty()) return;
+  if (lastGrayscaleIsPxc) {
+    renderPxcSleepScreen(lastGrayscalePath);
+  } else {
     FsFile file;
-    if (!Storage.openFileForRead("SLP", filename, file)) return false;
-    Bitmap bitmap(file, true);
-    if (bitmap.parseHeaders() != BmpReaderError::Ok) {
-      file.close();
-      return false;
-    }
-
-    int x, y;
-    float cropX = 0, cropY = 0;
-    if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
-      float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
-      const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(pageHeight);
-      if (ratio > screenRatio) {
-        x = 0;
-        y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
-      } else {
-        x = std::round((static_cast<float>(pageWidth) - static_cast<float>(pageHeight) * ratio) / 2);
-        y = 0;
+    if (Storage.openFileForRead("SLP", lastGrayscalePath.c_str(), file)) {
+      Bitmap bitmap(file, true);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+        renderBitmapSleepScreen(bitmap);
       }
-    } else {
-      x = (pageWidth - bitmap.getWidth()) / 2;
-      y = (pageHeight - bitmap.getHeight()) / 2;
-    }
-
-    // Draw without clearScreen so the reader page remains in the frame buffer beneath
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    file.close();
-    return true;
-  };
-
-  auto tryDrawPngOverlay = [&](const std::string& filename) -> bool {
-    constexpr size_t MIN_FREE_HEAP = 60 * 1024;  // PNG decoder ~42 KB + overhead
-    if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
-      LOG_ERR("SLP", "Not enough heap for PNG overlay decoder");
-      return false;
-    }
-    std::unique_ptr<PNG> png(new (std::nothrow) PNG());
-    if (!png) return false;
-
-    int rc = png->open(filename.c_str(), pngSleepOpen, pngSleepClose, pngSleepRead, pngSleepSeek, pngOverlayDraw);
-    if (rc != PNG_SUCCESS) {
-      LOG_DBG("SLP", "PNG open failed: %s (%d)", filename.c_str(), rc);
-      return false;
-    }
-
-    const int srcW = png->getWidth(), srcH = png->getHeight();
-    float yScale = 1.0f;
-    int dstW = srcW, dstH = srcH;
-    if (srcW > pageWidth || srcH > pageHeight) {
-      const float scaleX = (float)pageWidth / srcW, scaleY = (float)pageHeight / srcH;
-      const float scale = (scaleX < scaleY) ? scaleX : scaleY;
-      dstW = (int)(srcW * scale);
-      dstH = (int)(srcH * scale);
-      yScale = (float)dstH / srcH;
-    }
-
-    PngOverlayCtx ctx;
-    ctx.renderer = &renderer;
-    ctx.screenW = pageWidth;
-    ctx.screenH = pageHeight;
-    ctx.srcWidth = srcW;
-    ctx.dstWidth = dstW;
-    ctx.dstX = (pageWidth - dstW) / 2;
-    ctx.dstY = (pageHeight - dstH) / 2;
-    ctx.yScale = yScale;
-    ctx.lastDstY = -1;
-    ctx.transparentColor = -2;  // will be resolved on first draw callback (after tRNS is parsed)
-    ctx.pngObj = png.get();
-
-    rc = png->decode(&ctx, 0);
-    png->close();
-    return rc == PNG_SUCCESS;
-  };
-
-  // Collect images from both /.sleep and /sleep directories (no preference between them).
-  // Accepts both .bmp and .png files; .bmp headers are validated during the scan.
-  bool overlayDrawn = false;
-  const auto files = collectSleepImages(/*allowPng=*/true);
-  const auto numFiles = files.size();
-  if (numFiles > 0) {
-    const auto pickedIndex = pickSleepImageIndex(numFiles);
-    APP_STATE.lastSleepImage = pickedIndex;
-    APP_STATE.saveToFile();
-    const std::string& selected = files[pickedIndex];
-    if (FsHelpers::hasPngExtension(selected)) {
-      overlayDrawn = tryDrawPngOverlay(selected);
-    } else {
-      overlayDrawn = tryDrawOverlay(selected);
+      file.close();
     }
   }
-
-  if (!overlayDrawn) {
-    overlayDrawn = tryDrawOverlay("/sleep.bmp");
-  }
-  if (!overlayDrawn) {
-    overlayDrawn = tryDrawPngOverlay("/sleep.png");
-  }
-
-  if (!overlayDrawn) {
-    LOG_DBG("SLP", "No overlay image found, displaying page without overlay");
-  }
-
-  renderer.setOrientation(savedOrientation);
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.clearScreen();
+  renderer.cleanupGrayscaleWithFrameBuffer();
 }

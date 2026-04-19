@@ -2,13 +2,8 @@
 
 #include <FsHelpers.h>
 #include <HalStorage.h>
-#include <I18n.h>
-#include <Logging.h>
-#include <esp_heap_caps.h>
-#include <esp_system.h>
 
 #include "CrossPointSettings.h"
-#include "CrossPointState.h"
 #include "Epub.h"
 #include "EpubReaderActivity.h"
 #include "Txt.h"
@@ -17,32 +12,7 @@
 #include "XtcReaderActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
-#include "components/UITheme.h"
-#include "fontIds.h"
-
-#ifndef DEBUG_MEMORY_CONSUMPTION
-#define DEBUG_MEMORY_CONSUMPTION 0
-#endif
-
-namespace {
-#if DEBUG_MEMORY_CONSUMPTION
-void logReaderLaunchMemSnapshot(const char* stage) {
-  const uint32_t freeHeap = esp_get_free_heap_size();
-  const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
-  LOG_DBG("READER", "Reader mem[%s]: free=%lu contig=%lu", stage, freeHeap, contigHeap);
-}
-#else
-inline void logReaderLaunchMemSnapshot(const char*) {}
-#endif
-}  // namespace
-
-std::string ReaderActivity::extractFolderPath(const std::string& filePath) {
-  const auto lastSlash = filePath.find_last_of('/');
-  if (lastSlash == std::string::npos || lastSlash == 0) {
-    return "/";
-  }
-  return filePath.substr(0, lastSlash);
-}
+#include "activities/util/PxcViewerActivity.h"
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -51,9 +21,9 @@ bool ReaderActivity::isTxtFile(const std::string& path) {
          FsHelpers::hasMarkdownExtension(path);  // Treat .md as txt files (until we have a markdown reader)
 }
 
-bool ReaderActivity::isImageFile(const std::string& path) {
-  return FsHelpers::hasBmpExtension(path) || FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path);
-}
+bool ReaderActivity::isBmpFile(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
+
+bool ReaderActivity::isPxcFile(const std::string& path) { return FsHelpers::hasPxcExtension(path); }
 
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
@@ -62,7 +32,6 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   }
 
   auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
-  epub->setSyntheticTocFallbackEnabled(SETTINGS.syntheticTocFallback != 0);
   if (epub->load(true, SETTINGS.embeddedStyle == 0)) {
     return epub;
   }
@@ -103,19 +72,22 @@ std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
 
 void ReaderActivity::goToLibrary(const std::string& fromBookPath) {
   // If coming from a book, start in that book's folder; otherwise start from root
-  auto initialPath = fromBookPath.empty() ? "/" : extractFolderPath(fromBookPath);
+  auto initialPath = fromBookPath.empty() ? "/" : FsHelpers::extractFolderPath(fromBookPath);
   activityManager.goToFileBrowser(std::move(initialPath));
 }
 
 void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   const auto epubPath = epub->getPath();
   currentBookPath = epubPath;
-  logReaderLaunchMemSnapshot("before_replace_epub_reader");
   activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub)));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {
   activityManager.replaceActivity(std::make_unique<BmpViewerActivity>(renderer, mappedInput, path));
+}
+
+void ReaderActivity::onGoToPxcViewer(const std::string& path) {
+  activityManager.replaceActivity(std::make_unique<PxcViewerActivity>(renderer, mappedInput, path));
 }
 
 void ReaderActivity::onGoToXtcReader(std::unique_ptr<Xtc> xtc) {
@@ -132,29 +104,18 @@ void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
 
 void ReaderActivity::onEnter() {
   Activity::onEnter();
-  logReaderLaunchMemSnapshot("onEnter_begin");
 
   if (initialBookPath.empty()) {
     goToLibrary();  // Start from root when entering via Browse
     return;
   }
 
-  if (APP_STATE.koReaderSyncSession.active && APP_STATE.koReaderSyncSession.epubPath == initialBookPath) {
-    LOG_DBG("READER", "Opening EPUB with pending KOReader sync outcome=%d",
-            static_cast<int>(APP_STATE.koReaderSyncSession.outcome));
-  }
-
   currentBookPath = initialBookPath;
-  if (isImageFile(initialBookPath)) {
+  if (isBmpFile(initialBookPath)) {
     onGoToBmpViewer(initialBookPath);
+  } else if (isPxcFile(initialBookPath)) {
+    onGoToPxcViewer(initialBookPath);
   } else if (isXtcFile(initialBookPath)) {
-    {
-      RenderLock lock(*this);
-      renderer.clearScreen();
-      renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_LOADING), true, EpdFontFamily::BOLD);
-      renderer.displayBuffer();
-    }
-
     auto xtc = loadXtc(initialBookPath);
     if (!xtc) {
       onGoBack();

@@ -24,11 +24,9 @@ class CrossPointSettings {
     COVER = 3,
     BLANK = 4,
     COVER_CUSTOM = 5,
-    OVERLAY = 6,
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
-  enum SLEEP_IMAGE_PICK_MODE { PICK_RANDOM = 0, PICK_SEQUENTIAL = 1, SLEEP_IMAGE_PICK_MODE_COUNT };
   enum SLEEP_SCREEN_COVER_FILTER {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
@@ -128,15 +126,7 @@ class CrossPointSettings {
   };
 
   // Short power button press actions
-  enum SHORT_PWRBTN {
-    IGNORE = 0,
-    SLEEP = 1,
-    PAGE_TURN = 2,
-    FORCE_REFRESH = 3,
-    FOOTNOTES = 4,
-    STAR_PAGE = 5,
-    SHORT_PWRBTN_COUNT
-  };
+  enum SHORT_PWRBTN { IGNORE = 0, SLEEP = 1, PAGE_TURN = 2, FORCE_REFRESH = 3, SHORT_PWRBTN_COUNT };
 
   // Hide battery percentage
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
@@ -147,59 +137,12 @@ class CrossPointSettings {
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
 
-  // Text darkness for AA glyph rendering (forwarded to GfxRenderer::setTextDarkness)
-  enum TEXT_DARKNESS {
-    DARKNESS_NORMAL = 0,      // true 4-level AA
-    DARKNESS_DARK = 1,        // historical default — bolder dark-gray AA
-    DARKNESS_EXTRA_DARK = 2,  // both AA shades pushed to darkest gray state
-    DARKNESS_MAXIMUM = 3,     // skip grayscale passes — AA pixels stay solid black from BW pass
-    TEXT_DARKNESS_COUNT
-  };
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  enum IMAGE_DITHERING {
-    IMAGE_DITHER_BAYER = 0,
-    IMAGE_DITHER_ATKINSON = 1,
-    IMAGE_DITHER_DIFFUSED_BAYER = 2,
-    IMAGE_DITHERING_COUNT
-  };
-#else
-  enum IMAGE_DITHERING { IMAGE_DITHER_BAYER = 0, IMAGE_DITHERING_COUNT };
-#endif
-
-  // Timezone options (POSIX TZ rules for DST support)
-  enum TIMEZONE {
-    TZ_UTC = 0,
-    TZ_CET = 1,
-    TZ_EET = 2,
-    TZ_MSK = 3,
-    TZ_UTC_PLUS4 = 4,
-    TZ_IST = 5,
-    TZ_UTC_PLUS7 = 6,
-    TZ_UTC_PLUS8 = 7,
-    TZ_UTC_PLUS9 = 8,
-    TZ_AEST = 9,
-    TZ_NZST = 10,
-    TZ_UTC_MINUS3 = 11,
-    TZ_EST = 12,
-    TZ_CST = 13,
-    TZ_MST = 14,
-    TZ_PST = 15,
-    TZ_AST_ADT = 16,
-    TZ_ACST_ACDT = 17,
-    TZ_AKST_AKDT = 18,
-    TIMEZONE_COUNT
-  };
-
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
   uint8_t sleepScreenCoverFilter = NO_FILTER;
-  // Apply information overlay with reading progress on sleep cover
-  uint8_t sleepCoverOverlay = 0;
-  // Sleep image pick mode (random vs sequential walk-through)
-  uint8_t sleepImagePickMode = PICK_RANDOM;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
@@ -211,9 +154,6 @@ class CrossPointSettings {
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
   uint8_t textAntiAliasing = 1;
-  // Text darkness (0 = normal, 1 = dark, 2 = extra dark). Default 1 preserves
-  // historical AA rendering (both grayscale shades drawn in the MSB pass).
-  uint8_t textDarkness = DARKNESS_DARK;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
   // EPUB reading orientation settings
@@ -257,26 +197,8 @@ class CrossPointSettings {
   uint8_t embeddedStyle = 1;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
-  // Show file extensions in the file browser (0 = hidden, 1 = show)
-  uint8_t showFileExtensions = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
-  // Dithering mode for decoded images (EPUB/JPG/PNG)
-  uint8_t imageDithering = IMAGE_DITHER_BAYER;
-  // Enable synthetic TOC fallback for malformed/sparse TOC books (1 = enabled, 0 = disabled)
-  uint8_t syntheticTocFallback = 1;
-  // Show clock in the reader status bar
-  uint8_t statusBarClock = 0;
-  // Clock format: 0 = 24h (14:00), 1 = 12h (2:00pm)
-  uint8_t clockFormat12h = 0;
-  // Timezone selection (applies POSIX TZ rules for DST)
-  uint8_t timeZone = TZ_UTC;
-  // Use clock and keep the LP timer running during deep sleep (GPIO13 HIGH)
-  // so time can be accurately restored on wake. Increases sleep current by ~3-4 mA.
-  uint8_t useClock = 0;
-  // Show the Weather home screen menu item (1 = enabled, 0 = hidden)
-  uint8_t useWeather = 1;
-
   ~CrossPointSettings() = default;
 
   // Get singleton instance
