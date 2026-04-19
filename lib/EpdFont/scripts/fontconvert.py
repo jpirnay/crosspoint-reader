@@ -18,6 +18,7 @@ parser.add_argument("--2bit", dest="is2Bit", action="store_true", help="generate
 parser.add_argument("--additional-intervals", dest="additional_intervals", action="append", help="Additional code point intervals to export as min,max. This argument can be repeated.")
 parser.add_argument("--compress", dest="compress", action="store_true", help="Compress glyph bitmaps using DEFLATE with group-based compression.")
 parser.add_argument("--force-autohint", dest="force_autohint", action="store_true", help="Force FreeType auto-hinter instead of native font hinting. Improves stem width consistency for fonts with weak or no native TrueType hints.")
+parser.add_argument("--binary", dest="binary", action="store_true", help="Output .epdfont binary format instead of C header. Requires --compress and --2bit.")
 args = parser.parse_args()
 
 GlyphProps = namedtuple("GlyphProps", ["width", "height", "advance_x", "left", "top", "data_length", "data_offset", "code_point"])
@@ -688,6 +689,15 @@ ligature_pairs = sorted(unique_ligature_pairs, key=lambda p: p[0])
 print(f"ligatures: {len(ligature_pairs)} pairs extracted", file=sys.stderr)
 
 compress = args.compress
+binary = args.binary
+
+if binary and (not compress or not is2Bit):
+    print("Error: --binary requires --compress and --2bit", file=sys.stderr)
+    sys.exit(1)
+
+# Group size limits enforced for binary output (CustomFontLoader / FontDecompressor constraints)
+BINARY_MAX_UNCOMPRESSED = 51200   # HOT_GROUP_BUF_SIZE
+BINARY_MAX_COMPRESSED   = 16384   # COMPRESSED_STAGING_SIZE
 
 
 def to_byte_aligned(packed, width, height):
@@ -811,7 +821,165 @@ if compress:
     total_uncompressed = len(glyph_data)
     print(f"// Compression: {total_uncompressed} -> {total_compressed} bytes ({100*total_compressed/total_uncompressed:.1f}%), {len(groups)} groups", file=sys.stderr)
 
-print(f"""/**
+    # --binary mode: split any group that exceeds HOT_GROUP_BUF_SIZE or COMPRESSED_STAGING_SIZE.
+    # Re-compress each half recursively until both constraints are satisfied.
+    if binary:
+        def split_and_compress(first_idx, count, gp_list, ag_list):
+            """Recursively split a group until both size limits are met.
+            Returns list of (compressed_bytes, uncompressed_size, count, first_idx).
+            Also updates gp_list[first_idx..first_idx+count] with corrected within-group offsets."""
+            # Compute aligned data for this slice
+            grp_aligned = bytearray()
+            packed_offset = 0
+            for gi in range(first_idx, first_idx + count):
+                props, packed = all_glyphs[gi]
+                old = gp_list[gi]
+                gp_list[gi] = GlyphProps(old.width, old.height, old.advance_x, old.left, old.top,
+                                         old.data_length, packed_offset, old.code_point)
+                packed_offset += len(packed)
+                grp_aligned.extend(to_byte_aligned(packed, old.width, old.height))
+
+            uncompressed_size = len(grp_aligned)
+            compressor = zlib.compressobj(level=9, wbits=-15)
+            comp = compressor.compress(bytes(grp_aligned)) + compressor.flush()
+
+            if (uncompressed_size <= BINARY_MAX_UNCOMPRESSED and len(comp) <= BINARY_MAX_COMPRESSED) or count <= 1:
+                if count > 1 and (uncompressed_size > BINARY_MAX_UNCOMPRESSED or len(comp) > BINARY_MAX_COMPRESSED):
+                    print(f"Warning: single-glyph group still exceeds limits (unc={uncompressed_size} comp={len(comp)})", file=sys.stderr)
+                return [(comp, uncompressed_size, count, first_idx)]
+
+            half = count // 2
+            left  = split_and_compress(first_idx,        half,         gp_list, ag_list)
+            right = split_and_compress(first_idx + half, count - half, gp_list, ag_list)
+            return left + right
+
+        split_groups = []
+        for comp_bytes, unc_size, count, first_idx in compressed_groups:
+            if unc_size <= BINARY_MAX_UNCOMPRESSED and len(comp_bytes) <= BINARY_MAX_COMPRESSED:
+                split_groups.append((comp_bytes, unc_size, count, first_idx))
+            else:
+                print(f"// Splitting group first={first_idx} count={count} unc={unc_size} comp={len(comp_bytes)}", file=sys.stderr)
+                new_sub = split_and_compress(first_idx, count, glyph_props, [])
+                split_groups.extend(new_sub)
+
+        if len(split_groups) != len(compressed_groups):
+            # Rebuild compressed_bitmap_data with updated groups
+            compressed_groups = split_groups
+            compressed_bitmap_data = []
+            new_offset = 0
+            rebuilt = []
+            for comp_bytes, unc_size, count, first_idx in compressed_groups:
+                rebuilt.append((comp_bytes, unc_size, count, first_idx))
+                compressed_bitmap_data.extend(comp_bytes)
+                new_offset += len(comp_bytes)
+            compressed_groups = rebuilt
+            print(f"// After splitting: {len(compressed_groups)} groups", file=sys.stderr)
+
+if binary:
+    # -----------------------------------------------------------------------
+    # Binary .epdfont output
+    # -----------------------------------------------------------------------
+    import struct
+
+    has_kerning   = bool(kern_map)
+    has_ligatures = bool(ligature_pairs)
+    flags = (0x01 if is2Bit else 0) | (0x02 if has_kerning else 0) | (0x04 if has_ligatures else 0)
+
+    glyph_count    = len(glyph_props)
+    group_count    = len(compressed_groups)
+    interval_count = len(intervals)
+    kern_left_count  = len(kern_left_classes)  if has_kerning   else 0
+    kern_right_count = len(kern_right_classes) if has_kerning   else 0
+    kern_matrix_size = len(kern_matrix)        if has_kerning   else 0
+    ligature_count   = len(ligature_pairs)     if has_ligatures else 0
+
+    advance_y  = norm_ceil(face.size.height)
+    ascender   = norm_ceil(face.size.ascender)
+    descender  = norm_floor(face.size.descender)
+    kern_lcc   = kern_left_class_count  if has_kerning else 0
+    kern_rcc   = kern_right_class_count if has_kerning else 0
+
+    bitmap_size = len(compressed_bitmap_data)
+
+    # 48-byte header (all little-endian)
+    # Layout: magic(4) ver(1) flags(1) glyphCount(2) groupCount(4) intervalCount(4)
+    #         kernLeftCount(4) kernRightCount(4) kernMatrixSize(4) ligatureCount(4)
+    #         advanceY(1) reserved(1) ascender(2) descender(2)
+    #         kernLeftClassCount(2) kernRightClassCount(2) bitmapSize(4) reserved(2)
+    # Total: 4+1+1+2+4+4+4+4+4+4+1+1+2+2+2+2+4+2 = 48
+    header = struct.pack(
+        "<4sBBHIIIIIIBBhhHHIH",
+        b"EPDF",           # magic [4]
+        1,                 # version [1]
+        flags,             # [1]
+        glyph_count,       # [2]
+        group_count,       # [4]
+        interval_count,    # [4]
+        kern_left_count,   # [4]
+        kern_right_count,  # [4]
+        kern_matrix_size,  # [4]
+        ligature_count,    # [4]
+        advance_y,         # [1]
+        0,                 # reserved [1]
+        ascender,          # [2]
+        descender,         # [2]
+        kern_lcc,          # [2]
+        kern_rcc,          # [2]
+        bitmap_size,       # [4]
+        0,                 # reserved [2]
+    )
+    assert len(header) == 48, f"Header size mismatch: {len(header)}"
+
+    # Metrics segment
+    metrics = bytearray()
+
+    # EpdGlyph[]: width(u8) height(u8) advanceX(u16) left(i16) top(i16) dataLength(u16) [2-byte pad] dataOffset(u32)
+    # Actual layout: 1+1+2+2+2+2+2pad+4 = 16 bytes (uint32_t at offset 12 needs 4-byte alignment)
+    for g in glyph_props:
+        metrics += struct.pack("<BBHhhHHI", g.width, g.height, g.advance_x, g.left, g.top, g.data_length, 0, g.data_offset)
+
+    # EpdUnicodeInterval[]: first(u32) last(u32) offset(u32)
+    glyph_offset = 0
+    for i_start, i_end in intervals:
+        metrics += struct.pack("<III", i_start, i_end, glyph_offset)
+        glyph_offset += i_end - i_start + 1
+
+    # EpdFontGroup[]: compressedOffset(u32) compressedSize(u32) uncompressedSize(u32) glyphCount(u16) pad(u16) firstGlyphIndex(u32)
+    # Struct layout (not packed): 4+4+4+2+2pad+4 = 20 bytes
+    comp_off = 0
+    for comp_bytes, unc_size, count, first_idx in compressed_groups:
+        metrics += struct.pack("<IIIHHI", comp_off, len(comp_bytes), unc_size, count, 0, first_idx)
+        comp_off += len(comp_bytes)
+
+    # Kern class entries: EpdKernClassEntry packed = codepoint(u16) classId(u8)
+    if has_kerning:
+        for cp, cls in kern_left_classes:
+            metrics += struct.pack("<HB", cp, cls)
+        for cp, cls in kern_right_classes:
+            metrics += struct.pack("<HB", cp, cls)
+        for v in kern_matrix:
+            metrics += struct.pack("<b", v)
+
+    # Ligature pairs: EpdLigaturePair packed = pair(u32) ligatureCp(u32)
+    if has_ligatures:
+        for packed_pair, lig_cp in ligature_pairs:
+            metrics += struct.pack("<II", packed_pair, lig_cp)
+
+    sys.stdout.buffer.write(header)
+    sys.stdout.buffer.write(metrics)
+    sys.stdout.buffer.write(bytes(compressed_bitmap_data))
+    sys.stdout.buffer.flush()
+
+else:
+    # -----------------------------------------------------------------------
+    # C header output (default)
+    # -----------------------------------------------------------------------
+    def cp_label(cp):
+        if cp == 0x5C:
+            return '<backslash>'
+        return chr(cp) if 0x20 < cp < 0x7F else f'U+{cp:04X}'
+
+    print(f"""/**
  * generated by fontconvert.py
  * name: {font_name}
  * size: {size}
@@ -822,103 +990,98 @@ print(f"""/**
 #include "EpdFontData.h"
 """)
 
-if compress:
-    print(f"static const uint8_t {font_name}Bitmaps[{len(compressed_bitmap_data)}] = {{")
-    for c in chunks(compressed_bitmap_data, 16):
-        print ("    " + " ".join(f"0x{b:02X}," for b in c))
-    print ("};\n");
-else:
-    print(f"static const uint8_t {font_name}Bitmaps[{len(glyph_data)}] = {{")
-    for c in chunks(glyph_data, 16):
-        print ("    " + " ".join(f"0x{b:02X}," for b in c))
-    print ("};\n");
+    if compress:
+        print(f"static const uint8_t {font_name}Bitmaps[{len(compressed_bitmap_data)}] = {{")
+        for c in chunks(compressed_bitmap_data, 16):
+            print("    " + " ".join(f"0x{b:02X}," for b in c))
+        print("};\n")
+    else:
+        print(f"static const uint8_t {font_name}Bitmaps[{len(glyph_data)}] = {{")
+        for c in chunks(glyph_data, 16):
+            print("    " + " ".join(f"0x{b:02X}," for b in c))
+        print("};\n")
 
-def cp_label(cp):
-    if cp == 0x5C:
-        return '<backslash>'
-    return chr(cp) if 0x20 < cp < 0x7F else f'U+{cp:04X}'
-
-print(f"static const EpdGlyph {font_name}Glyphs[] = {{")
-for i, g in enumerate(glyph_props):
-    print ("    { " + ", ".join([f"{a}" for a in list(g[:-1])]),"},", f"// {cp_label(g.code_point)}")
-print ("};\n");
-
-print(f"static const EpdUnicodeInterval {font_name}Intervals[] = {{")
-offset = 0
-for i_start, i_end in intervals:
-    print (f"    {{ 0x{i_start:X}, 0x{i_end:X}, 0x{offset:X} }},")
-    offset += i_end - i_start + 1
-print ("};\n");
-
-if compress:
-    print(f"static const EpdFontGroup {font_name}Groups[] = {{")
-    compressed_offset = 0
-    for compressed, uncompressed_size, count, first_idx in compressed_groups:
-        print(f"    {{ {compressed_offset}, {len(compressed)}, {uncompressed_size}, {count}, {first_idx} }},")
-        compressed_offset += len(compressed)
+    print(f"static const EpdGlyph {font_name}Glyphs[] = {{")
+    for i, g in enumerate(glyph_props):
+        print("    { " + ", ".join([f"{a}" for a in list(g[:-1])]), "},", f"// {cp_label(g.code_point)}")
     print("};\n")
 
-if kern_map:
-    print(f"static const EpdKernClassEntry {font_name}KernLeftClasses[] = {{")
-    for cp, cls in kern_left_classes:
-        print(f"    {{ 0x{cp:04X}, {cls} }}, // {cp_label(cp)}")
+    print(f"static const EpdUnicodeInterval {font_name}Intervals[] = {{")
+    offset = 0
+    for i_start, i_end in intervals:
+        print(f"    {{ 0x{i_start:X}, 0x{i_end:X}, 0x{offset:X} }},")
+        offset += i_end - i_start + 1
     print("};\n")
 
-    print(f"static const EpdKernClassEntry {font_name}KernRightClasses[] = {{")
-    for cp, cls in kern_right_classes:
-        print(f"    {{ 0x{cp:04X}, {cls} }}, // {cp_label(cp)}")
-    print("};\n")
+    if compress:
+        print(f"static const EpdFontGroup {font_name}Groups[] = {{")
+        compressed_offset = 0
+        for compressed, uncompressed_size, count, first_idx in compressed_groups:
+            print(f"    {{ {compressed_offset}, {len(compressed)}, {uncompressed_size}, {count}, {first_idx} }},")
+            compressed_offset += len(compressed)
+        print("};\n")
 
-    print(f"static const int8_t {font_name}KernMatrix[] = {{")
-    for row in range(kern_left_class_count):
-        row_start = row * kern_right_class_count
-        row_vals = kern_matrix[row_start:row_start + kern_right_class_count]
-        print("    " + ", ".join(f"{v:4d}" for v in row_vals) + ",")
-    print("};\n")
+    if kern_map:
+        print(f"static const EpdKernClassEntry {font_name}KernLeftClasses[] = {{")
+        for cp, cls in kern_left_classes:
+            print(f"    {{ 0x{cp:04X}, {cls} }}, // {cp_label(cp)}")
+        print("};\n")
 
-if ligature_pairs:
-    print(f"static const EpdLigaturePair {font_name}LigaturePairs[] = {{")
-    for packed_pair, lig_cp in ligature_pairs:
-        print(f"    {{ 0x{packed_pair:08X}, 0x{lig_cp:04X} }}, // {cp_label(packed_pair >> 16)} {cp_label(packed_pair & 0xFFFF)} -> {cp_label(lig_cp)}")
-    print("};\n")
+        print(f"static const EpdKernClassEntry {font_name}KernRightClasses[] = {{")
+        for cp, cls in kern_right_classes:
+            print(f"    {{ 0x{cp:04X}, {cls} }}, // {cp_label(cp)}")
+        print("};\n")
 
-print(f"static const EpdFontData {font_name} = {{")
-print(f"    {font_name}Bitmaps,")
-print(f"    {font_name}Glyphs,")
-print(f"    {font_name}Intervals,")
-print(f"    {len(intervals)},")
-print(f"    {norm_ceil(face.size.height)},")
-print(f"    {norm_ceil(face.size.ascender)},")
-print(f"    {norm_floor(face.size.descender)},")
-print(f"    {'true' if is2Bit else 'false'},")
-if compress:
-    print(f"    {font_name}Groups,")
-    print(f"    {len(compressed_groups)},")
-else:
+        print(f"static const int8_t {font_name}KernMatrix[] = {{")
+        for row in range(kern_left_class_count):
+            row_start = row * kern_right_class_count
+            row_vals = kern_matrix[row_start:row_start + kern_right_class_count]
+            print("    " + ", ".join(f"{v:4d}" for v in row_vals) + ",")
+        print("};\n")
+
+    if ligature_pairs:
+        print(f"static const EpdLigaturePair {font_name}LigaturePairs[] = {{")
+        for packed_pair, lig_cp in ligature_pairs:
+            print(f"    {{ 0x{packed_pair:08X}, 0x{lig_cp:04X} }}, // {cp_label(packed_pair >> 16)} {cp_label(packed_pair & 0xFFFF)} -> {cp_label(lig_cp)}")
+        print("};\n")
+
+    print(f"static const EpdFontData {font_name} = {{")
+    print(f"    {font_name}Bitmaps,")
+    print(f"    {font_name}Glyphs,")
+    print(f"    {font_name}Intervals,")
+    print(f"    {len(intervals)},")
+    print(f"    {norm_ceil(face.size.height)},")
+    print(f"    {norm_ceil(face.size.ascender)},")
+    print(f"    {norm_floor(face.size.descender)},")
+    print(f"    {'true' if is2Bit else 'false'},")
+    if compress:
+        print(f"    {font_name}Groups,")
+        print(f"    {len(compressed_groups)},")
+    else:
+        print("    nullptr,")
+        print("    0,")
+    # glyphToGroup (not used for script-grouped fonts)
     print("    nullptr,")
-    print("    0,")
-# glyphToGroup (not used for script-grouped fonts)
-print("    nullptr,")
-if kern_map:
-    print(f"    {font_name}KernLeftClasses,")
-    print(f"    {font_name}KernRightClasses,")
-    print(f"    {font_name}KernMatrix,")
-    print(f"    {len(kern_left_classes)},")
-    print(f"    {len(kern_right_classes)},")
-    print(f"    {kern_left_class_count},")
-    print(f"    {kern_right_class_count},")
-else:
-    print(f"    nullptr,")
-    print(f"    nullptr,")
-    print(f"    nullptr,")
-    print(f"    0,")
-    print(f"    0,")
-    print(f"    0,")
-    print(f"    0,")
-if ligature_pairs:
-    print(f"    {font_name}LigaturePairs,")
-    print(f"    {len(ligature_pairs)},")
-else:
-    print(f"    nullptr,")
-    print(f"    0,")
-print("};")
+    if kern_map:
+        print(f"    {font_name}KernLeftClasses,")
+        print(f"    {font_name}KernRightClasses,")
+        print(f"    {font_name}KernMatrix,")
+        print(f"    {len(kern_left_classes)},")
+        print(f"    {len(kern_right_classes)},")
+        print(f"    {kern_left_class_count},")
+        print(f"    {kern_right_class_count},")
+    else:
+        print(f"    nullptr,")
+        print(f"    nullptr,")
+        print(f"    nullptr,")
+        print(f"    0,")
+        print(f"    0,")
+        print(f"    0,")
+        print(f"    0,")
+    if ligature_pairs:
+        print(f"    {font_name}LigaturePairs,")
+        print(f"    {len(ligature_pairs)},")
+    else:
+        print(f"    nullptr,")
+        print(f"    0,")
+    print("};")

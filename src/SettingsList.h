@@ -85,7 +85,7 @@ inline const std::vector<SettingInfo> list = {
                       "orientation", StrId::STR_CAT_READER),
     // Font
     SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                      {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC}, "fontFamily",
+                      {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_CUSTOM_FONT}, "fontFamily",
                       StrId::STR_CAT_READER)
         .withSubcategory(StrId::STR_MENU_READER_FONT),
     SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
@@ -187,6 +187,10 @@ inline const std::vector<SettingInfo> list = {
           KOREADER_STORE.saveToFile();
         },
         "koMatchMethod", StrId::STR_KOREADER_SYNC),
+
+    // --- Custom font selection (JSON-persisted name, not shown in device UI) ---
+    SettingInfo::String(StrId::STR_NONE_OPT, SETTINGS.customFontName, sizeof(SETTINGS.customFontName),
+                        "customFontName", StrId::STR_NONE_OPT),
 
     // --- OPDS Browser (web-only, uses CrossPointSettings char arrays) ---
     SettingInfo::String(StrId::STR_OPDS_SERVER_URL, SETTINGS.opdsServerUrl, sizeof(SETTINGS.opdsServerUrl),

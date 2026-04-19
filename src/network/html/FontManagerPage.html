@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CrossPoint Reader - Font Manager</title>
+  <style>
+    :root {
+      --font-color: #333;
+      --bg: #f5f5f5;
+      --title-color: #2c3e50;
+      --card-bg: #FFF;
+      --label-color: #7f8c8d;
+      --border-color: #eee;
+      --accent-color: rgb(110, 154, 130);
+      --accent-hover-color: #5a8c73;
+      --danger-color: #e74c3c;
+      --danger-hover: #c0392b;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --font-color: #f5f5f5;
+        --bg: #333;
+        --title-color: #ecf0f1;
+        --card-bg: #444;
+        --label-color: #bdc3c7;
+        --border-color: #555;
+        color-scheme: dark;
+      }
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: var(--bg); color: var(--font-color); }
+    h1 { color: var(--title-color); border-bottom: 2px solid var(--accent-color); padding-bottom: 10px; }
+    h2 { color: var(--title-color); margin-top: 0; }
+    .nav-links { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+    .nav-links a { color: var(--accent-color); text-decoration: none; padding: 6px 12px; border: 1px solid var(--accent-color); border-radius: 4px; }
+    .nav-links a:hover { background: var(--accent-color); color: white; }
+    .card { background: var(--card-bg); border-radius: 8px; padding: 20px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .active-banner { background: var(--accent-color); color: white; border-radius: 6px; padding: 10px 16px; margin-bottom: 16px; font-weight: 500; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border-color); color: var(--label-color); font-size: 0.85em; }
+    td { padding: 8px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.78em; font-weight: 600; margin: 1px; }
+    .badge-ok { background: #d4edda; color: #155724; }
+    .badge-miss { background: #e2e3e5; color: #6c757d; }
+    @media (prefers-color-scheme: dark) {
+      .badge-ok { background: #1e4d2b; color: #a3d9a5; }
+      .badge-miss { background: #3a3a3a; color: #aaa; }
+    }
+    button { padding: 7px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+    .btn-primary { background: var(--accent-color); color: white; }
+    .btn-primary:hover { background: var(--accent-hover-color); }
+    .btn-danger { background: var(--danger-color); color: white; }
+    .btn-danger:hover { background: var(--danger-hover); }
+    .btn-primary:disabled, .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+    .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 0.85em; color: var(--label-color); }
+    .form-group input, .form-group select { padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg); color: var(--font-color); font-size: 0.9em; }
+    .status-msg { margin-top: 12px; padding: 8px 12px; border-radius: 4px; display: none; }
+    .status-ok { background: #d4edda; color: #155724; }
+    .status-err { background: #f8d7da; color: #721c24; }
+    @media (prefers-color-scheme: dark) {
+      .status-ok { background: #1e4d2b; color: #a3d9a5; }
+      .status-err { background: #4d1e24; color: #f5a0a6; }
+    }
+    details summary { cursor: pointer; color: var(--accent-color); padding: 6px 0; user-select: none; }
+    details p, details pre { margin: 8px 0; font-size: 0.88em; line-height: 1.6; }
+    details pre { background: var(--border-color); padding: 10px; border-radius: 4px; overflow-x: auto; }
+    #font-list .empty { color: var(--label-color); font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>Font Manager</h1>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/files">Files</a>
+    <a href="/settings">Settings</a>
+  </div>
+
+  <div id="active-section"></div>
+
+  <div class="card">
+    <h2>Installed Fonts</h2>
+    <div id="font-list"><em>Loading…</em></div>
+  </div>
+
+  <div class="card">
+    <h2>Upload Font File</h2>
+    <p style="margin-top:0;color:var(--label-color);font-size:0.9em;">Upload a pre-converted <code>.epdfont</code> file for one size and style variant.</p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Font name</label>
+        <input type="text" id="upload-name" placeholder="e.g. MyFont" maxlength="60" style="width:140px" />
+      </div>
+      <div class="form-group">
+        <label>Size</label>
+        <select id="upload-size">
+          <option value="12">12</option>
+          <option value="14" selected>14</option>
+          <option value="16">16</option>
+          <option value="18">18</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Style</label>
+        <select id="upload-style">
+          <option value="R">Regular</option>
+          <option value="B">Bold</option>
+          <option value="I">Italic</option>
+          <option value="BI">Bold Italic</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>.epdfont file</label>
+        <input type="file" id="upload-file" accept=".epdfont" />
+      </div>
+      <button class="btn-primary" id="upload-btn" onclick="doUpload()">Upload</button>
+    </div>
+    <div class="status-msg" id="upload-status"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>How to convert a TTF font</summary>
+      <p>Use <code>fontconvert.py</code> from <code>lib/EpdFont/scripts/</code>:</p>
+      <pre>pip install freetype-py fonttools
+
+# One file per size and style:
+python fontconvert.py --binary --compress --2bit MyFont-Regular.ttf     14 > MyFont_14_R.epdfont
+python fontconvert.py --binary --compress --2bit MyFont-Bold.ttf        14 > MyFont_14_B.epdfont
+python fontconvert.py --binary --compress --2bit MyFont-Italic.ttf      14 > MyFont_14_I.epdfont
+python fontconvert.py --binary --compress --2bit MyFont-BoldItalic.ttf  14 > MyFont_14_BI.epdfont
+# Repeat for other sizes (12, 16, 18) as needed.</pre>
+      <p>Upload each file above. Then click <strong>Activate</strong> to copy to device and restart.</p>
+    </details>
+  </div>
+
+  <script>
+    var fonts = [];
+
+    function showStatus(id, ok, msg) {
+      var el = document.getElementById(id);
+      el.className = 'status-msg ' + (ok ? 'status-ok' : 'status-err');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function styleGrid(styles) {
+      var sizes = [12, 14, 16, 18];
+      var styleKeys = ['R', 'B', 'I', 'BI'];
+      var html = '<table><tr><th>Size</th><th>R</th><th>B</th><th>I</th><th>BI</th></tr>';
+      sizes.forEach(function(sz) {
+        html += '<tr><td>' + sz + '</td>';
+        styleKeys.forEach(function(st) {
+          var has = styles && styles[sz] && styles[sz].indexOf(st) >= 0;
+          html += '<td><span class="badge ' + (has ? 'badge-ok' : 'badge-miss') + '">' + st + '</span></td>';
+        });
+        html += '</tr>';
+      });
+      return html + '</table>';
+    }
+
+    function renderFonts() {
+      var el = document.getElementById('font-list');
+      if (!fonts.length) { el.innerHTML = '<p class="empty">No fonts installed. Upload .epdfont files above.</p>'; return; }
+      var html = '';
+      fonts.forEach(function(f) {
+        html += '<div class="card" style="margin:10px 0"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
+        html += '<strong>' + f.name + '</strong>';
+        html += '<div style="display:flex;gap:8px">';
+        if (f.active) html += '<span class="badge badge-ok">Active</span>';
+        if (!f.active) html += '<button class="btn-primary" onclick="doActivate(\'' + f.name + '\')">Activate</button>';
+        html += '<button class="btn-danger" onclick="doDelete(\'' + f.name + '\')" ' + (f.active ? 'disabled title="Cannot delete the active font"' : '') + '>Delete</button>';
+        html += '</div></div>';
+        html += styleGrid(f.styles);
+        html += '</div>';
+      });
+      el.innerHTML = html;
+    }
+
+    function loadFonts() {
+      fetch('/api/fonts').then(function(r) { return r.json(); }).then(function(data) {
+        fonts = data;
+        var active = fonts.find(function(f) { return f.active; });
+        var sec = document.getElementById('active-section');
+        if (active) {
+          sec.innerHTML = '<div class="active-banner">Active custom font: <strong>' + active.name + '</strong></div>';
+        } else {
+          sec.innerHTML = '<div class="active-banner" style="background:var(--label-color)">No custom font active (using built-in)</div>';
+        }
+        renderFonts();
+      }).catch(function() {
+        document.getElementById('font-list').innerHTML = '<p class="empty">Failed to load font list.</p>';
+      });
+    }
+
+    function doUpload() {
+      var name = document.getElementById('upload-name').value.trim();
+      var size = document.getElementById('upload-size').value;
+      var style = document.getElementById('upload-style').value;
+      var fileInput = document.getElementById('upload-file');
+      var btn = document.getElementById('upload-btn');
+      if (!name) { showStatus('upload-status', false, 'Enter a font name.'); return; }
+      if (!/^[A-Za-z0-9_-]+$/.test(name)) { showStatus('upload-status', false, 'Font name: letters, digits, - and _ only.'); return; }
+      if (!fileInput.files.length) { showStatus('upload-status', false, 'Select a .epdfont file.'); return; }
+      var fd = new FormData();
+      fd.append('name', name);
+      fd.append('size', size);
+      fd.append('style', style);
+      fd.append('file', fileInput.files[0]);
+      btn.disabled = true;
+      showStatus('upload-status', true, 'Uploading…');
+      fetch('/api/fonts/upload', { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          btn.disabled = false;
+          if (d.ok) {
+            showStatus('upload-status', true, 'Uploaded: ' + d.file);
+            fileInput.value = '';
+            loadFonts();
+          } else {
+            showStatus('upload-status', false, 'Error: ' + (d.error || 'unknown'));
+          }
+        }).catch(function(e) { btn.disabled = false; showStatus('upload-status', false, 'Upload failed: ' + e); });
+    }
+
+    function doActivate(name) {
+      if (!confirm('Activate "' + name + '"? The device will restart.')) return;
+      showStatus('upload-status', true, 'Copying font to device… (this may take a few seconds)');
+      fetch('/api/fonts/activate?name=' + encodeURIComponent(name), { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.ok) {
+            showStatus('upload-status', true, 'Font activated. Device is restarting…');
+          } else {
+            showStatus('upload-status', false, 'Error: ' + (d.error || 'unknown'));
+          }
+        }).catch(function(e) { showStatus('upload-status', false, 'Failed: ' + e); });
+    }
+
+    function doDelete(name) {
+      if (!confirm('Delete font "' + name + '" from SD card?')) return;
+      fetch('/api/fonts?name=' + encodeURIComponent(name), { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.ok) loadFonts();
+          else showStatus('upload-status', false, 'Delete failed: ' + (d.error || 'unknown'));
+        }).catch(function(e) { showStatus('upload-status', false, 'Failed: ' + e); });
+    }
+
+    loadFonts();
+  </script>
+</body>
+</html>

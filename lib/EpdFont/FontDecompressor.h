@@ -2,8 +2,6 @@
 
 #include <InflateReader.h>
 
-#include <vector>
-
 #include "EpdFontData.h"
 
 class FontDecompressor {
@@ -65,15 +63,29 @@ class FontDecompressor {
   PageSlot pageSlots[MAX_PAGE_SLOTS] = {};
   uint8_t pageSlotCount = 0;
 
+  // Measured maxima across all built-in fonts:
+  //   uncompressedSize: 50 KB (notosans_18 / bookerly_18)
+  //   compressedSize:   16 KB (bookerly_18)
+  //   glyph dataLength: 500 B (bookerly_18)
+  // Static BSS arrays eliminate per-page heap alloc/free and the fragmentation it causes.
+  // Custom fonts must cap group sizes to these limits (enforced by fontconvert.py --binary).
+  static constexpr uint32_t HOT_GROUP_BUF_SIZE      = 51200;  // 50 KB uncompressed group
+  static constexpr uint32_t COMPRESSED_STAGING_SIZE = 16384;  // 16 KB compressed staging (IBitmapSource path)
+  static constexpr uint16_t HOT_GLYPH_BUF_SIZE      = 512;    // largest packed single glyph
+
   // Hot group: last decompressed group (byte-aligned) for non-prewarmed fallback path.
-  // Kept in byte-aligned format; individual glyphs are compacted on demand into hotGlyphBuf.
+  // Kept in byte-aligned format; individual glyphs are compacted on demand into _hotGlyphBuf.
   const EpdFontData* hotGroupFont = nullptr;
   uint16_t hotGroupIndex = UINT16_MAX;
-  std::vector<uint8_t> hotGroup;
+  uint32_t _hotGroupBufUsed = 0;
+  uint8_t _hotGroupBuf[HOT_GROUP_BUF_SIZE];
+
+  // Staging buffer for reading compressed group bytes before inflation (IBitmapSource path).
+  uint8_t _compressedStagingBuf[COMPRESSED_STAGING_SIZE];
 
   // Scratch buffer for compacting a single glyph from the hot group.
   // Valid until the next getBitmap() call.
-  std::vector<uint8_t> hotGlyphBuf;
+  uint8_t _hotGlyphBuf[HOT_GLYPH_BUF_SIZE];
 
   void freePageBuffer();
   void freeHotGroup();
