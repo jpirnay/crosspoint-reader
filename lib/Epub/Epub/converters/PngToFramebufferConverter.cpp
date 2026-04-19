@@ -1,6 +1,5 @@
 #include "PngToFramebufferConverter.h"
 
-#include <BitmapHelpers.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -8,7 +7,6 @@
 #include <PNGdec.h>
 
 #include <cstdlib>
-#include <memory>
 #include <new>
 
 #include "DirectPixelWriter.h"
@@ -38,105 +36,14 @@ struct PngContext {
   bool caching{false};
 
   uint8_t* grayLineBuffer{nullptr};
-
-  // When the caller requests monochrome output (RenderConfig::monochromeOutput),
-  // we run a proper 1-bit Atkinson dither (matching PngToBmpConverter's BW path)
-  // and emit only values 0 or 3, which round-trip cleanly through the BW writer's
-  // `pixelValue < 3` rule. The 4-level dither path collapses mid-grays to solid
-  // black under that rule.
-  int oneBitDitherRow{-1};
-  std::unique_ptr<Atkinson1BitDitherer> atkinson1BitDitherer;
-
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  int currentDitherRow{-1};
-  std::unique_ptr<AtkinsonDitherer> atkinsonDitherer;
-  std::unique_ptr<DiffusedBayerDitherer> diffusedBayerDitherer;
-#endif
 };
-
-// Advance the 1-bit Atkinson ditherer to the requested destination row.
-// Like the 4-level path below, this handles re-decode passes that walk source
-// rows non-monotonically by resetting and replaying when needed.
-void prepareOneBitDitherRow(PngContext& ctx, int dstY) {
-  if (!ctx.atkinson1BitDitherer) return;
-
-  if (ctx.oneBitDitherRow == -1 || dstY < ctx.oneBitDitherRow) {
-    ctx.atkinson1BitDitherer->reset();
-    ctx.oneBitDitherRow = dstY;
-    return;
-  }
-
-  while (ctx.oneBitDitherRow < dstY) {
-    ctx.atkinson1BitDitherer->nextRow();
-    ctx.oneBitDitherRow++;
-  }
-}
-
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-void prepareDitherRow(PngContext& ctx, int dstY) {
-  if (!ctx.config || !ctx.config->useDithering) return;
-
-  if (ctx.currentDitherRow == -1 || dstY < ctx.currentDitherRow) {
-    if (ctx.atkinsonDitherer) ctx.atkinsonDitherer->reset();
-    if (ctx.diffusedBayerDitherer) ctx.diffusedBayerDitherer->reset();
-    ctx.currentDitherRow = dstY;
-    return;
-  }
-
-  while (ctx.currentDitherRow < dstY) {
-    if (ctx.atkinsonDitherer) ctx.atkinsonDitherer->nextRow();
-    if (ctx.diffusedBayerDitherer) ctx.diffusedBayerDitherer->nextRow();
-    ctx.currentDitherRow++;
-  }
-}
-
-uint8_t ditherGray(PngContext& ctx, uint8_t gray, int localX, int outX, int outY) {
-  // BW mode: route through 1-bit Atkinson and emit only 0/3 so the
-  // DirectPixelWriter's `pixelValue < 3` rule maps cleanly to black/white.
-  if (ctx.atkinson1BitDitherer) {
-    return ctx.atkinson1BitDitherer->processPixel(gray, localX) ? 3 : 0;
-  }
-
-  if (!ctx.config || !ctx.config->useDithering) {
-    return quantizeGray4Level(gray);
-  }
-
-  switch (ctx.config->ditherMode) {
-    case ImageDitherMode::Atkinson:
-      if (ctx.atkinsonDitherer) {
-        return ctx.atkinsonDitherer->processPixel(gray, localX);
-      }
-      break;
-    case ImageDitherMode::DiffusedBayer:
-      if (ctx.diffusedBayerDitherer) {
-        return ctx.diffusedBayerDitherer->processPixel(gray, localX, outX, outY);
-      }
-      break;
-    case ImageDitherMode::Bayer:
-    case ImageDitherMode::COUNT:
-    default:
-      break;
-  }
-
-  return applyBayerDither4Level(gray, outX, outY);
-}
-#else
-uint8_t ditherGray(PngContext& ctx, uint8_t gray, int localX, int outX, int outY) {
-  if (ctx.atkinson1BitDitherer) {
-    return ctx.atkinson1BitDitherer->processPixel(gray, localX) ? 3 : 0;
-  }
-  (void)localX;
-  return applyBayerDither4Level(gray, outX, outY);
-}
-#endif
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
-  FsFile* f =
-      new FsFile();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transferred via void* to PNGdec callbacks
+  FsFile* f = new FsFile();
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
-    delete f;  // NOLINT(cppcoreguidelines-owning-memory)
+    delete f;
     return nullptr;
   }
   *size = f->size();
@@ -147,7 +54,7 @@ void pngCloseWithHandle(void* handle) {
   FsFile* f = reinterpret_cast<FsFile*>(handle);
   if (f) {
     f->close();
-    delete f;  // NOLINT(cppcoreguidelines-owning-memory)
+    delete f;
   }
 }
 
@@ -284,23 +191,19 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   int dstWidth = ctx->dstWidth;
   int outXBase = ctx->config->x;
   int screenWidth = ctx->screenWidth;
+  bool useDithering = ctx->config->useDithering;
   bool caching = ctx->caching;
 
   // Pre-compute orientation and render-mode state once per row
   DirectPixelWriter pw;
   pw.init(*ctx->renderer);
-  pw.beginRow(outY);
+  pw.beginRow(outY, outXBase);
 
   DirectCacheWriter cw;
   if (caching) {
     cw.init(ctx->cache.buffer, ctx->cache.bytesPerRow, ctx->cache.originX);
     cw.beginRow(outY, ctx->config->y);
   }
-
-  prepareOneBitDitherRow(*ctx, dstY);
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  prepareDitherRow(*ctx, dstY);
-#endif
 
   int srcX = 0;
   int error = 0;
@@ -310,8 +213,14 @@ int pngDrawCallback(PNGDRAW* pDraw) {
     if (outX < screenWidth) {
       uint8_t gray = ctx->grayLineBuffer[srcX];
 
-      uint8_t ditheredGray = ditherGray(*ctx, gray, dstX, outX, outY);
-      pw.writePixel(outX, ditheredGray);
+      uint8_t ditheredGray;
+      if (useDithering) {
+        ditheredGray = applyBayerDither4Level(gray, outX, outY);
+      } else {
+        ditheredGray = gray / 85;
+        if (ditheredGray > 3) ditheredGray = 3;
+      }
+      pw.writePixel(ditheredGray);
       if (caching) cw.writePixel(outX, ditheredGray);
     }
 
@@ -335,7 +244,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
     return false;
   }
 
-  std::unique_ptr<PNG> png(new (std::nothrow) PNG());
+  PNG* png = new (std::nothrow) PNG();
   if (!png) {
     LOG_ERR("PNG", "Failed to allocate PNG decoder for dimensions");
     return false;
@@ -346,6 +255,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 
   if (rc != 0) {
     LOG_ERR("PNG", "Failed to open PNG for dimensions: %d", rc);
+    delete png;
     return false;
   }
 
@@ -353,6 +263,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
   out.height = png->getHeight();
 
   png->close();
+  delete png;
   return true;
 }
 
@@ -367,7 +278,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   }
 
   // Heap-allocate PNG decoder (~42 KB) - freed at end of function
-  std::unique_ptr<PNG> png(new (std::nothrow) PNG());
+  PNG* png = new (std::nothrow) PNG();
   if (!png) {
     LOG_ERR("PNG", "Failed to allocate PNG decoder");
     return false;
@@ -383,11 +294,13 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
                      pngDrawCallback);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
+    delete png;
     return false;
   }
 
   if (!validateImageDimensions(png->getWidth(), png->getHeight(), "PNG")) {
     png->close();
+    delete png;
     return false;
   }
 
@@ -423,6 +336,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
             requiredInternal, ctx.srcWidth, pixelType, PNG_MAX_BUFFERED_PIXELS);
     LOG_ERR("PNG", "Aborting decode to avoid PNGdec internal buffer overflow");
     png->close();
+    delete png;
     return false;
   }
 
@@ -436,6 +350,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   if (!ctx.grayLineBuffer) {
     LOG_ERR("PNG", "Failed to allocate gray line buffer");
     png->close();
+    delete png;
     return false;
   }
 
@@ -456,42 +371,6 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     }
   }
 
-  // When the caller explicitly requests monochrome output, use a 1-bit Atkinson
-  // ditherer instead of the 4-level paths below. The 4-level dither produces
-  // values 1-2 for mid grays, which DirectPixelWriter then collapses to black
-  // under its `< 3` BW rule, making images render very dark in BW-only mode.
-  // The 1-bit ditherer emits only 0 or 3 so the BW writer maps cleanly to
-  // black/white.
-  if (config.monochromeOutput) {
-    ctx.atkinson1BitDitherer.reset(new (std::nothrow) Atkinson1BitDitherer(ctx.dstWidth));
-    if (!ctx.atkinson1BitDitherer) {
-      LOG_ERR("PNG", "Failed to allocate 1-bit Atkinson ditherer, falling back to 4-level dither");
-    }
-  }
-
-  if (config.useDithering && !ctx.atkinson1BitDitherer) {
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    switch (config.ditherMode) {
-      case ImageDitherMode::Atkinson:
-        ctx.atkinsonDitherer.reset(new (std::nothrow) AtkinsonDitherer(ctx.dstWidth));
-        if (!ctx.atkinsonDitherer) {
-          LOG_ERR("PNG", "Failed to allocate Atkinson ditherer, falling back to Bayer");
-        }
-        break;
-      case ImageDitherMode::DiffusedBayer:
-        ctx.diffusedBayerDitherer.reset(new (std::nothrow) DiffusedBayerDitherer(ctx.dstWidth));
-        if (!ctx.diffusedBayerDitherer) {
-          LOG_ERR("PNG", "Failed to allocate diffused Bayer ditherer, falling back to Bayer");
-        }
-        break;
-      case ImageDitherMode::Bayer:
-      case ImageDitherMode::COUNT:
-      default:
-        break;
-    }
-#endif
-  }
-
   unsigned long decodeStart = millis();
   rc = png->decode(&ctx, 0);
   unsigned long decodeTime = millis() - decodeStart;
@@ -502,10 +381,12 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Decode failed: %d", rc);
     png->close();
+    delete png;
     return false;
   }
 
   png->close();
+  delete png;
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
 
   // Write cache file if caching was enabled and buffer was allocated

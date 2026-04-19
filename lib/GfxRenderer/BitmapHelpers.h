@@ -11,6 +11,10 @@ uint8_t quantizeSimple(int gray);
 uint8_t quantize1bit(int gray, int x, int y);
 int adjustPixel(int gray);
 
+// Set true when rendering for differential LUT to use calibrated thresholds.
+// Set false (default) for factory LUT (fast/quality) — uses evenly-spaced thresholds.
+extern bool g_differentialQuantize;
+
 enum class BmpRowOrder { BottomUp, TopDown };
 
 // Populates a 1-bit BMP header in the provided memory.
@@ -127,21 +131,40 @@ class AtkinsonDitherer {
     if (adjusted < 0) adjusted = 0;
     if (adjusted > 255) adjusted = 255;
 
-    // Quantize to 4 levels — evenly-spaced midpoint thresholds for factory LUT
+    // Quantize to 4 levels
+    // Differential LUT: calibrated thresholds matching upstream (narrow darkGrey band,
+    //   biased toward light to compensate for more aggressive drive).
+    // Factory LUT (fast/quality): evenly-spaced thresholds — softer drive, linear response.
     uint8_t quantized;
     int quantizedValue;
-    if (adjusted < 43) {
-      quantized = 0;
-      quantizedValue = 0;
-    } else if (adjusted < 128) {
-      quantized = 1;
-      quantizedValue = 85;
-    } else if (adjusted < 213) {
-      quantized = 2;
-      quantizedValue = 170;
+    if (g_differentialQuantize) {
+      if (adjusted < 45) {
+        quantized = 0;
+        quantizedValue = 0;
+      } else if (adjusted < 70) {
+        quantized = 1;
+        quantizedValue = 85;
+      } else if (adjusted < 140) {
+        quantized = 2;
+        quantizedValue = 170;
+      } else {
+        quantized = 3;
+        quantizedValue = 255;
+      }
     } else {
-      quantized = 3;
-      quantizedValue = 255;
+      if (adjusted < 43) {
+        quantized = 0;
+        quantizedValue = 0;
+      } else if (adjusted < 128) {
+        quantized = 1;
+        quantizedValue = 85;
+      } else if (adjusted < 213) {
+        quantized = 2;
+        quantizedValue = 170;
+      } else {
+        quantized = 3;
+        quantizedValue = 255;
+      }
     }
 
     // Calculate error (only distribute 6/8 = 75%)
@@ -215,21 +238,37 @@ class FloydSteinbergDitherer {
     if (adjusted < 0) adjusted = 0;
     if (adjusted > 255) adjusted = 255;
 
-    // Quantize to 4 levels — evenly-spaced midpoint thresholds for factory LUT
+    // Quantize to 4 levels — see Atkinson ditherer comment for threshold rationale
     uint8_t quantized;
     int quantizedValue;
-    if (adjusted < 43) {
-      quantized = 0;
-      quantizedValue = 0;
-    } else if (adjusted < 128) {
-      quantized = 1;
-      quantizedValue = 85;
-    } else if (adjusted < 213) {
-      quantized = 2;
-      quantizedValue = 170;
+    if (g_differentialQuantize) {
+      if (adjusted < 45) {
+        quantized = 0;
+        quantizedValue = 0;
+      } else if (adjusted < 70) {
+        quantized = 1;
+        quantizedValue = 85;
+      } else if (adjusted < 140) {
+        quantized = 2;
+        quantizedValue = 170;
+      } else {
+        quantized = 3;
+        quantizedValue = 255;
+      }
     } else {
-      quantized = 3;
-      quantizedValue = 255;
+      if (adjusted < 43) {
+        quantized = 0;
+        quantizedValue = 0;
+      } else if (adjusted < 128) {
+        quantized = 1;
+        quantizedValue = 85;
+      } else if (adjusted < 213) {
+        quantized = 2;
+        quantizedValue = 170;
+      } else {
+        quantized = 3;
+        quantizedValue = 255;
+      }
     }
 
     // Calculate error

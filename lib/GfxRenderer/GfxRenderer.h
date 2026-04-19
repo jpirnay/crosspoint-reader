@@ -5,7 +5,6 @@
 
 class FontCacheManager;
 
-#include <atomic>
 #include <cstring>
 #include <map>
 #include <string>
@@ -19,7 +18,13 @@ enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 
 
 class GfxRenderer {
  public:
-  enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
+  enum RenderMode {
+    BW,             // 1-bit black/white
+    GRAYSCALE_LSB,  // Differential gray: mark pixels for LSB plane (clearScreen(0x00) + drawPixel(false))
+    GRAYSCALE_MSB,  // Differential gray: mark pixels for MSB plane (clearScreen(0x00) + drawPixel(false))
+    GRAY2_LSB,      // Factory absolute gray: encode BW RAM = bit0 (clearScreen(0x00) + drawPixel(false))
+    GRAY2_MSB,      // Factory absolute gray: encode RED RAM = bit1 (clearScreen(0x00) + drawPixel(false))
+  };
 
   // Logical screen orientation from the perspective of callers
   enum Orientation {
@@ -29,40 +34,50 @@ class GfxRenderer {
     LandscapeCounterClockwise  // 800x480 logical coordinates, native panel orientation
   };
 
+  // Selects LUT, pixel-plane encoding, and pre-flash behavior for renderGrayscale().
+  enum class GrayscaleMode {
+    FactoryFast,     // Factory absolute 2-bit (lut_factory_fast); HALF_REFRESH pre-flash to white
+    FactoryQuality,  // Factory absolute 2-bit (lut_factory_quality); HALF_REFRESH pre-flash to white
+    Differential,    // Differential 2-bit overlay (no LUT); no pre-flash, requires prior BW state
+  };
+
+  // Display state — tracks whether the physical display was last updated via a factory LUT render.
+  // BW: frameBuffer mirrors the display (menus, EPUB reader).
+  // FactoryLut: display holds a grayscale image; frameBuffer has been reset to white by
+  // cleanupGrayscaleWithFrameBuffer() and no longer represents what is visually shown.
+  enum class DisplayState { BW, FactoryLut };
+
+  // One-shot hook fired in renderGrayscaleSinglePass after renderFn() writes both planes
+  // but before they are pushed to the controller. At that moment:
+  //   lsbPlane = frameBuffer (LSB / BW RAM plane)
+  //   msbPlane = secondaryFrameBuffer (MSB / RED RAM plane)
+  // Hook is cleared automatically after firing.
+  using ScreenshotHook = void (*)(const uint8_t* lsbPlane, const uint8_t* msbPlane, int physWidth, int physHeight,
+                                  void* ctx);
+
  private:
   static constexpr size_t BW_BUFFER_CHUNK_SIZE = 8000;  // 8KB chunks to allow for non-contiguous memory
-  static constexpr unsigned int REFRESH_OVERRIDE_NONE = 0;
 
   HalDisplay& display;
-  std::atomic<int> renderMode;
-  std::atomic<int> orientation;
-  std::atomic<bool> fadingFix;
-  // Text darkness for 2-bit grayscale glyph rendering.
-  std::atomic<uint8_t> textDarkness;
-  //   0 = Normal     — true 4-level AA (raw=1 → light gray, raw=2 → dark gray)
-  //   1 = Dark       — historical default; raw=2 collapses to black
-  //   2 = Extra Dark — both AA shades go black in the grayscale plane
-  //   3 = Maximum    — grayscale pass skipped entirely; only the hard BW
-  //                    pass remains, so AA pixels render as solid black
-  //                    with the FAST waveform (no gray-LUT softening)
-  // Only affects AA pixels in GRAYSCALE_MSB / GRAYSCALE_LSB rendering of 2-bit fonts.
-  // 1-bit fonts and the BW pass are unchanged. Default is 1 to preserve historical
-  // rendering. See drawMaskFor2BitMode() in GfxRenderer.cpp for the per-level
-  // pixel breakdown and a worked example glyph.
+  RenderMode renderMode;
+  Orientation orientation;
+  bool fadingFix;
   uint8_t* frameBuffer = nullptr;
-  uint16_t panelWidth = 0;       // set in begin()
-  uint16_t panelHeight = 0;      // set in begin()
-  uint16_t panelWidthBytes = 0;  // set in begin()
-  uint32_t frameBufferSize = 0;  // set in begin()
-  size_t bwBufferChunkSize = BW_BUFFER_CHUNK_SIZE;
+  uint8_t* secondaryFrameBuffer = nullptr;  // MSB plane buffer for single-pass grayscale decode
+  uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
+  uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
+  uint16_t panelWidthBytes = HalDisplay::DISPLAY_WIDTH_BYTES;
+  uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
+  mutable DisplayState displayState = DisplayState::BW;
+  ScreenshotHook screenshotHook = nullptr;
+  void* screenshotHookCtx = nullptr;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
   // as before, concentrated in a single pointer instead of four fields.
   mutable FontCacheManager* fontCacheManager_ = nullptr;
-  mutable std::atomic<unsigned int> refreshOverride = REFRESH_OVERRIDE_NONE;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
@@ -71,22 +86,11 @@ class GfxRenderer {
   void drawPixelDither(int x, int y) const;
   template <Color color>
   void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
-  // Write a patterned horizontal span directly to the physical framebuffer using byte-level operations.
-  // phyY: physical row; phyX_start/phyX_end: inclusive physical column range.
-  // patternByte is repeated across the span; partial edge bytes are blended with existing content.
-  // Bit layout: MSB-first (bit 7 = phyX=0); 0 bits = dark pixel, 1 bits = white pixel.
-  void fillPhysicalHSpanByte(int phyY, int phyX_start, int phyX_end, uint8_t patternByte) const;
-  // Write a solid horizontal span directly to the physical framebuffer using byte-level operations.
-  // Thin wrapper around fillPhysicalHSpanByte: state=true → 0x00 (dark), false → 0xFF (white).
-  void fillPhysicalHSpan(int phyY, int phyX_start, int phyX_end, bool state) const;
+  void drawPixelToBuffer(uint8_t* buf, int x, int y) const;
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
-      : display(halDisplay),
-        renderMode(static_cast<int>(BW)),
-        orientation(static_cast<int>(Portrait)),
-        fadingFix(false),
-        textDarkness(1) {}
+      : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false) {}
   ~GfxRenderer() { freeBwBufferChunks(); }
 
   static constexpr int VIEWABLE_MARGIN_TOP = 9;
@@ -102,17 +106,16 @@ class GfxRenderer {
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
 
   // Orientation control (affects logical width/height and coordinate transforms)
-  void setOrientation(const Orientation o) { orientation.store(static_cast<int>(o), std::memory_order_relaxed); }
-  Orientation getOrientation() const { return static_cast<Orientation>(orientation.load(std::memory_order_relaxed)); }
+  void setOrientation(const Orientation o) { orientation = o; }
+  Orientation getOrientation() const { return orientation; }
 
   // Fading fix control
-  void setFadingFix(const bool enabled) { fadingFix.store(enabled, std::memory_order_relaxed); }
+  void setFadingFix(const bool enabled) { fadingFix = enabled; }
 
   // Screen ops
   int getScreenWidth() const;
   int getScreenHeight() const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
-  void setNextDisplayRefreshMode(HalDisplay::RefreshMode refreshMode) const;
   // EXPERIMENTAL: Windowed update - display only a rectangular region
   // void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
@@ -170,31 +173,50 @@ class GfxRenderer {
                            EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getTextHeight(int fontId) const;
 
-  // Grayscale functions
-  void setRenderMode(const RenderMode mode) {
-    this->renderMode.store(static_cast<int>(mode), std::memory_order_relaxed);
-  }
-  RenderMode getRenderMode() const { return static_cast<RenderMode>(renderMode.load(std::memory_order_relaxed)); }
+  DisplayState getDisplayState() const { return displayState; }
+  void setScreenshotHook(ScreenshotHook hook, void* ctx);
 
-  // Text darkness control:
-  //   0 = Normal, 1 = Dark, 2 = Extra Dark, 3 = Maximum.
-  // Only affects anti-aliased pixels in 2-bit (grayscale) glyph rendering;
-  // 1-bit fonts and the BW pass are unchanged. See drawMaskFor2BitMode() in
-  // GfxRenderer.cpp for the per-level pixel breakdown and a worked example.
-  void setTextDarkness(const uint8_t d) { textDarkness.store(d, std::memory_order_relaxed); }
-  uint8_t getTextDarkness() const { return static_cast<uint8_t>(textDarkness.load(std::memory_order_relaxed)); }
+  // Grayscale functions
+  void setRenderMode(const RenderMode mode) { this->renderMode = mode; }
+  RenderMode getRenderMode() const { return renderMode; }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
-  void displayGrayBuffer() const;
+  void displayGrayBuffer(const unsigned char* lut = nullptr, bool factoryMode = false) const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;
+  // Two-pass grayscale render. renderFn is called twice: once with the LSB render mode set
+  // (writes BW RAM plane), then with the MSB mode set (writes RED RAM plane). The method
+  // handles pre-flash (FactoryFast only), clearScreen, setRenderMode, buffer copies,
+  // displayGrayBuffer, and resets renderMode to BW on completion.
+  // storeBwBuffer / restoreBwBuffer remain the caller's responsibility.
+  // preFlashOverlayFn (optional): called after clearScreen() but before the pre-flash displayBuffer(),
+  // allowing callers to draw a loading indicator that appears during the pre-flash without an extra refresh.
+  void renderGrayscale(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*), const void* ctx,
+                       void (*preFlashOverlayFn)(const GfxRenderer&, const void*) = nullptr,
+                       const void* preFlashCtx = nullptr);
+  // Single-pass variant: calls renderFn once in GRAY2_LSB mode while simultaneously writing
+  // the MSB plane to a secondary buffer. Cuts SD card reads from 2 to 1 for file-backed renders.
+  // Falls back to two-pass on secondary buffer allocation failure.
+  void renderGrayscaleSinglePass(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*), const void* ctx,
+                                 void (*preFlashOverlayFn)(const GfxRenderer&, const void*) = nullptr,
+                                 const void* preFlashCtx = nullptr);
+
+  // Direct 2-bit XTCH plane blit using factory LUT. Caller supplies the two decoded bit planes
+  // (plane1 = BW RAM / LSB, plane2 = RED RAM / MSB) in column-major order matching XTCH encoding.
+  // Handles pre-flash, both RAM writes, factory LUT fire, and BW controller sync internally.
+  void displayXtchPlanes(const uint8_t* plane1, const uint8_t* plane2, uint16_t pageWidth, uint16_t pageHeight);
+
+  // 1-bit XTC page via the same grayscale LUT pipeline. Row-major pageBuffer (XTC: 0=black, 1=white).
+  // BW and RED RAM receive identical data since there are no intermediate gray levels.
+  void displayXtcBwPage(const uint8_t* pageBuffer, uint16_t pageWidth, uint16_t pageHeight);
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
 
   // Low level functions
   uint8_t* getFrameBuffer() const;
+  uint8_t* getSecondaryFrameBuffer() const { return secondaryFrameBuffer; }
   size_t getBufferSize() const;
   uint16_t getDisplayWidth() const { return panelWidth; }
   uint16_t getDisplayHeight() const { return panelHeight; }
