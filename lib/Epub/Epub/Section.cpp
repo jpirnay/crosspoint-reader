@@ -584,23 +584,21 @@ std::optional<uint16_t> Section::getPageForParagraphIndex(const uint16_t pIndex)
     return std::nullopt;
   }
 
-  // Find the page that contains the requested paragraph index.
-  // Each entry stores the first paragraph index for that page, so the page
-  // containing pIndex is the last page whose start paragraph is <= pIndex.
-  uint16_t resultPage = 0;
+  // Each LUT entry stores the paragraph index at page-break time — i.e. the last
+  // <p> whose start tag had been seen while page i was being laid out. Paragraph
+  // P therefore first appears on the smallest i where storedPIdx[i] >= P.
   for (uint16_t i = 0; i < count; i++) {
-    uint32_t byteOffset;
+    f.seek(paragraphLutOffset + sizeof(uint16_t) + i * ENTRY_SIZE + sizeof(uint32_t));
     uint16_t pagePIdx;
-    serialization::readPod(f, byteOffset);
     serialization::readPod(f, pagePIdx);
-    if (pagePIdx > pIndex) {
-      break;
+    if (pagePIdx >= pIndex) {
+      f.close();
+      return i;
     }
-    resultPage = i;
   }
 
   f.close();
-  return resultPage;
+  return static_cast<uint16_t>(count - 1);
 }
 
 std::optional<uint16_t> Section::getParagraphIndexForPage(const uint16_t page) const {

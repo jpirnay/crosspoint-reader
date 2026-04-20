@@ -47,33 +47,43 @@ struct ReverseState : StackState {
   const char* bestTierName = nullptr;
 
   ReverseState(const int spineIndex, const std::string& xpath) : spineIndex(spineIndex) {
-    // Parse optional /text()[N].M suffix before normalizing for element matching.
+    // Parse optional text-node suffix before normalizing for element matching.
+    // KOReader emits two shapes that both land here:
+    //   /text()[N].M  — explicit 1-based text-node index + codepoint offset
+    //   /text().M     — implicit first text-node (N=1) + codepoint offset
     std::string raw = xpath;
     for (char& c : raw) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    const std::string tnPat = "/text()[";
+    const std::string tnPat = "/text()";
     const size_t tnPos = raw.rfind(tnPat);
     if (tnPos != std::string::npos) {
-      const size_t numStart = tnPos + tnPat.size();
-      size_t numEnd = numStart;
-      while (numEnd < raw.size() && std::isdigit(static_cast<unsigned char>(raw[numEnd]))) {
-        numEnd++;
+      size_t cursor = tnPos + tnPat.size();
+      int nodeIdx = 1;
+      bool valid = true;
+      if (cursor < raw.size() && raw[cursor] == '[') {
+        cursor++;
+        size_t numEnd = cursor;
+        while (numEnd < raw.size() && std::isdigit(static_cast<unsigned char>(raw[numEnd]))) {
+          numEnd++;
+        }
+        if (numEnd > cursor && numEnd < raw.size() && raw[numEnd] == ']') {
+          nodeIdx = static_cast<int>(std::strtol(raw.substr(cursor, numEnd - cursor).c_str(), nullptr, 10));
+          cursor = numEnd + 1;
+        } else {
+          valid = false;
+        }
       }
-      if (numEnd > numStart && numEnd < raw.size() && raw[numEnd] == ']') {
-        const long nodeIdx = std::strtol(raw.substr(numStart, numEnd - numStart).c_str(), nullptr, 10);
-        if (nodeIdx >= 1) {
-          targetTextNodeIndex = static_cast<int>(nodeIdx);
-          size_t after = numEnd + 1;
-          if (after < raw.size() && raw[after] == '.') {
-            after++;
-            size_t charEnd = after;
-            while (charEnd < raw.size() && std::isdigit(static_cast<unsigned char>(raw[charEnd]))) {
-              charEnd++;
-            }
-            if (charEnd > after) {
-              const long charOff = std::strtol(raw.substr(after, charEnd - after).c_str(), nullptr, 10);
-              if (charOff >= 0) {
-                targetCharOffset = static_cast<int>(charOff);
-              }
+      if (valid && nodeIdx >= 1) {
+        targetTextNodeIndex = nodeIdx;
+        if (cursor < raw.size() && raw[cursor] == '.') {
+          cursor++;
+          size_t charEnd = cursor;
+          while (charEnd < raw.size() && std::isdigit(static_cast<unsigned char>(raw[charEnd]))) {
+            charEnd++;
+          }
+          if (charEnd > cursor) {
+            const long charOff = std::strtol(raw.substr(cursor, charEnd - cursor).c_str(), nullptr, 10);
+            if (charOff >= 0) {
+              targetCharOffset = static_cast<int>(charOff);
             }
           }
         }
