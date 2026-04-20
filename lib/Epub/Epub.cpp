@@ -45,7 +45,7 @@ bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   return true;
 }
 
-bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool useCache) {
+bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCacheMode cacheMode) {
   std::string contentOpfFilePath;
   if (!findContentOpfFile(&contentOpfFilePath)) {
     LOG_ERR("EBP", "Could not find content.opf in zip");
@@ -63,7 +63,7 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool u
   }
 
   ContentOpfParser opfParser(getCachePath(), getBasePath(), contentOpfSize,
-                             useCache ? bookMetadataCache.get() : nullptr);
+                             cacheMode == OpfCacheMode::Enabled ? bookMetadataCache.get() : nullptr);
   if (!opfParser.setup()) {
     LOG_ERR("EBP", "Could not setup content.opf parser");
     return false;
@@ -353,7 +353,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         LOG_DBG("EBP", "CSS rules cache missing or stale, attempting to parse CSS files");
         cssParser->deleteCache();
 
-        if (!parseContentOpf(bookMetadataCache->coreMetadata, false)) {
+        if (!parseContentOpf(bookMetadataCache->coreMetadata, OpfCacheMode::Disabled)) {
           LOG_ERR("EBP", "Could not parse content.opf from cached bookMetadata for CSS files");
           // continue anyway - book will work without CSS and we'll still load any inline style CSS
         }
@@ -390,7 +390,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
     LOG_ERR("EBP", "Could not begin writing content.opf pass");
     return false;
   }
-  if (!parseContentOpf(bookMetadata, true)) {
+  if (!parseContentOpf(bookMetadata, OpfCacheMode::Enabled)) {
     LOG_ERR("EBP", "Could not parse content.opf");
     return false;
   }
