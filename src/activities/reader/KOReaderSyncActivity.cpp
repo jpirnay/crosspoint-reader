@@ -651,8 +651,8 @@ bool KOReaderSyncActivity::computeLocalProgressAndChapter() {
     return false;
   }
 
-  CrossPointPosition localPos = {currentSpineIndex, currentPage, totalPagesInSpine, localParagraphIndex,
-                                 hasLocalParagraphIndex};
+  CrossPointPosition localPos = {currentSpineIndex,      currentPage,       totalPagesInSpine, localParagraphIndex,
+                                 hasLocalParagraphIndex, localXhtmlSeekHint};
   localProgress = ProgressMapper::toKOReader(epub, localPos);
 
   const int localTocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);

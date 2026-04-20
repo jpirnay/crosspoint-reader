@@ -40,6 +40,7 @@ struct KOReaderSyncSessionState {
   int totalPagesInSpine = 0;
   uint16_t paragraphIndex = 0;
   bool hasParagraphIndex = false;
+  uint32_t xhtmlSeekHint = 0;  // byte offset hint for findXPathForParagraph (0 = no hint)
   KOReaderSyncIntentState intent = KOReaderSyncIntentState::COMPARE;
   KOReaderSyncOutcomeState outcome = KOReaderSyncOutcomeState::NONE;
   int resultSpineIndex = 0;
@@ -55,6 +56,7 @@ struct KOReaderSyncSessionState {
     totalPagesInSpine = 0;
     paragraphIndex = 0;
     hasParagraphIndex = false;
+    xhtmlSeekHint = 0;
     intent = KOReaderSyncIntentState::COMPARE;
     outcome = KOReaderSyncOutcomeState::NONE;
     resultSpineIndex = 0;

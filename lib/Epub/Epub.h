@@ -10,7 +10,7 @@
 #include "Epub/BookMetadataCache.h"
 #include "Epub/css/CssParser.h"
 
-class ZipFile;
+enum class OpfCacheMode { Disabled, Enabled };
 
 class Epub {
   // the ncx file (EPUB 2)
@@ -35,7 +35,7 @@ class Epub {
   bool syntheticTocFallbackEnabled = false;
 
   bool findContentOpfFile(std::string* contentOpfFile) const;
-  bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata);
+  bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCacheMode cacheMode);
   bool parseTocNcxFile() const;
   bool parseTocNavFile() const;
   void parseCssFiles() const;

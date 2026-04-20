@@ -90,9 +90,25 @@ class ChapterHtmlSlimParser {
   // Counts <p> sibling indices (1-based, matching XPath convention) during page building.
   // Stored per page in the section cache so that XPath p[N] can be resolved to a page
   // without reparsing, and current page can generate an XPath without reparsing.
-  uint16_t xpathParagraphIndex = 0;             // current <p> sibling index (1-based)
-  int xpathBodyDepth = -1;                      // depth of the <body> element (-1 = not yet seen)
-  std::vector<uint16_t> paragraphIndexPerPage;  // <p> index at each page completion
+  uint16_t xpathParagraphIndex = 0;  // current <p> sibling index (1-based)
+  int xpathBodyDepth = -1;           // depth of the <body> element (-1 = not yet seen)
+  // Byte offset of the most recent direct-body-child element start (any tag at xpathBodyDepth+1).
+  // Recorded at the same depth condition that increments xpathParagraphIndex, so the stored
+  // offset is guaranteed to land on a body-child element boundary. This keeps the XPath forward
+  // mapper's partial-parse heuristic reliable for wrapped chapters: without this, the offset
+  // could point mid-way into a nested <div>/<section>, which confuses partialBaseDepth.
+  uint32_t lastBodyChildByteOffset = 0;
+
+  struct ParagraphLutEntry {
+    uint32_t xhtmlByteOffset;  // byte offset of most recent body-child element start at page break
+    uint16_t paragraphIndex;   // 1-based <p> index at page completion
+  };
+  std::vector<ParagraphLutEntry> paragraphLutPerPage;  // deep LUT: one entry per page
+
+  // Active parser handle during parseAndBuildPages(), nullptr otherwise.
+  // Stored as a member so page-break sites (addLineToPage, image breaks) can call
+  // XML_GetCurrentByteIndex without needing the parser threaded through every call.
+  XML_Parser activeParser = nullptr;
 
   // Footnote link tracking
   bool insideFootnoteLink = false;
@@ -154,5 +170,5 @@ class ChapterHtmlSlimParser {
   ParsedText::LineProcessResult addLineToPage(std::shared_ptr<TextBlock> line, bool lineEndsWithHyphenatedWord,
                                               bool suppressHyphenationRetry);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
-  const std::vector<uint16_t>& getParagraphIndexPerPage() const { return paragraphIndexPerPage; }
+  const std::vector<ParagraphLutEntry>& getParagraphLutPerPage() const { return paragraphLutPerPage; }
 };

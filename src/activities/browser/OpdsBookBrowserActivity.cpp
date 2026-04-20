@@ -7,6 +7,7 @@
 #include <Logging.h>
 #include <OpdsStream.h>
 #include <WiFi.h>
+#include <Xtc.h>
 #include <expat.h>
 
 #include <cctype>
@@ -15,6 +16,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "OpdsFormatLabel.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
@@ -25,7 +27,20 @@
 
 namespace {
 constexpr int PAGE_ITEMS = 23;
+constexpr int FORMAT_ITEM_HEIGHT = 30;
+constexpr int FORMAT_LIST_TOP_OFFSET = 20;
+constexpr int FORMAT_LIST_BOTTOM_PADDING = 20;
+
+int formatItemsPerPage(const Rect& contentRect) {
+  const int midY = contentRect.y + contentRect.height / 2;
+  const int listTop = midY + FORMAT_LIST_TOP_OFFSET;
+  const int listBottom = contentRect.y + contentRect.height - FORMAT_LIST_BOTTOM_PADDING;
+  const int rawAvailableHeight = listBottom - listTop;
+  const int availableHeight = rawAvailableHeight > FORMAT_ITEM_HEIGHT ? rawAvailableHeight : FORMAT_ITEM_HEIGHT;
+  const int itemsPerPage = availableHeight / FORMAT_ITEM_HEIGHT;
+  return itemsPerPage > 0 ? itemsPerPage : 1;
 }
+}  // namespace
 
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
@@ -36,6 +51,9 @@ void OpdsBookBrowserActivity::onEnter() {
   currentPath = "";  // Root path - user provides full URL in settings
   searchTemplate.clear();
   selectorIndex = 0;
+  selectedBookIndex = -1;
+  formatSelectorIndex = 0;
+  formatSelectionLabels.clear();
   consumeConfirm = false;
   consumeBack = false;
   errorMessage.clear();
@@ -52,6 +70,7 @@ void OpdsBookBrowserActivity::onExit() {
 
   entries.clear();
   navigationHistory.clear();
+  formatSelectionLabels.clear();
 }
 
 void OpdsBookBrowserActivity::loop() {
@@ -93,11 +112,51 @@ void OpdsBookBrowserActivity::loop() {
 
   if (state == BrowserState::DOWNLOADING) return;
 
+  if (state == BrowserState::FORMAT_SELECTION) {
+    if (selectedBookIndex < 0 || selectedBookIndex >= static_cast<int>(entries.size())) {
+      state = BrowserState::BROWSING;
+      requestUpdate();
+      return;
+    }
+
+    const auto& entry = entries[selectedBookIndex];
+    if (entry.acquisitionLinks.empty()) {
+      state = BrowserState::BROWSING;
+      selectedBookIndex = -1;
+      formatSelectionLabels.clear();
+      requestUpdate();
+      return;
+    }
+
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      state = BrowserState::BROWSING;
+      selectedBookIndex = -1;
+      formatSelectionLabels.clear();
+      requestUpdate();
+      return;
+    }
+
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      downloadBook(entry, entry.acquisitionLinks[formatSelectorIndex]);
+      return;
+    }
+
+    buttonNavigator.onNextRelease([this, &entry] {
+      formatSelectorIndex = ButtonNavigator::nextIndex(formatSelectorIndex, entry.acquisitionLinks.size());
+      requestUpdate();
+    });
+    buttonNavigator.onPreviousRelease([this, &entry] {
+      formatSelectorIndex = ButtonNavigator::previousIndex(formatSelectorIndex, entry.acquisitionLinks.size());
+      requestUpdate();
+    });
+    return;
+  }
+
   if (state == BrowserState::BROWSING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (!entries.empty()) {
         const auto& entry = entries[selectorIndex];
-        entry.type == OpdsEntryType::BOOK ? downloadBook(entry) : navigateToEntry(entry);
+        entry.type == OpdsEntryType::BOOK ? chooseBookFormat(entry) : navigateToEntry(entry);
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
@@ -171,6 +230,34 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
       const int barY = midY + 20;
       GUI.drawProgressBar(renderer, Rect{barX, barY, barWidth, barHeight}, downloadProgress, downloadTotal);
     }
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (state == BrowserState::FORMAT_SELECTION) {
+    const auto& entry = entries[selectedBookIndex];
+    auto title = renderer.truncatedText(UI_10_FONT_ID, entry.title.c_str(), contentRect.width - 40);
+    renderer.drawCenteredText(UI_10_FONT_ID, midY - 40, title.c_str(), true, EpdFontFamily::BOLD);
+    if (!entry.author.empty()) {
+      auto author = renderer.truncatedText(UI_10_FONT_ID, entry.author.c_str(), contentRect.width - 40);
+      renderer.drawCenteredText(UI_10_FONT_ID, midY - 10, author.c_str());
+    }
+
+    const int listTop = midY + 20;
+    const int itemsPerPage = formatItemsPerPage(contentRect);
+    const int pageStartIndex = formatSelectorIndex / itemsPerPage * itemsPerPage;
+    renderer.fillRect(contentRect.x, listTop + (formatSelectorIndex - pageStartIndex) * FORMAT_ITEM_HEIGHT - 2,
+                      contentRect.width - 1, FORMAT_ITEM_HEIGHT);
+    for (int i = pageStartIndex;
+         i < static_cast<int>(entry.acquisitionLinks.size()) && i < pageStartIndex + itemsPerPage; i++) {
+      const char* label = i < static_cast<int>(formatSelectionLabels.size()) ? formatSelectionLabels[i].c_str() : "";
+      auto item = renderer.truncatedText(UI_10_FONT_ID, label, contentRect.width - 40);
+      renderer.drawText(UI_10_FONT_ID, contentRect.x + 20, listTop + (i - pageStartIndex) * FORMAT_ITEM_HEIGHT,
+                        item.c_str(), i != formatSelectorIndex);
+    }
+
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DOWNLOAD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
@@ -292,17 +379,43 @@ void OpdsBookBrowserActivity::navigateBack() {
   }
 }
 
-void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
+// Opens a screen to allow the user to choose which format they want to download
+// if multiple formats are available. If only one format is available, the
+// download is started immediately.
+void OpdsBookBrowserActivity::chooseBookFormat(const OpdsEntry& book) {
+  if (book.acquisitionLinks.empty()) {
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
+
+  if (book.acquisitionLinks.size() == 1) {
+    downloadBook(book, book.acquisitionLinks[0]);
+    return;
+  }
+
+  selectedBookIndex = selectorIndex;
+  formatSelectorIndex = 0;
+  formatSelectionLabels = buildOpdsFormatSelectionLabels(book.acquisitionLinks, SETTINGS.opdsServerUrl);
+  state = BrowserState::FORMAT_SELECTION;
+  requestUpdate();
+}
+
+// Downloads the selected book's acquisition link and saves it to the SD card.
+void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const OpdsAcquisitionLink& acquisition) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = 0;
   downloadTotal = 0;
   requestUpdate(true);
 
-  std::string downloadUrl =
-      (book.href.rfind("http", 0) == 0) ? book.href : UrlUtils::buildUrl(SETTINGS.opdsServerUrl, book.href);
-  std::string filename =
-      "/" + StringUtils::sanitizeFilename(book.title + (book.author.empty() ? "" : " - " + book.author)) + ".epub";
+  std::string downloadUrl = (acquisition.href.rfind("http", 0) == 0)
+                                ? acquisition.href
+                                : UrlUtils::buildUrl(SETTINGS.opdsServerUrl, acquisition.href);
+  std::string filename = "/" +
+                         StringUtils::sanitizeFilename(book.title + (book.author.empty() ? "" : " - " + book.author)) +
+                         acquisition.fileExtension;
 
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
@@ -330,10 +443,20 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
 
     LOG_DBG("OPDS", "Download complete: %s", filename.c_str());
 
-    Epub(filename, "/.crosspoint").clearCache();
+    // Clear any existing cache for this book just in case it's a redownload of
+    // a previously opened book.
+    if (acquisition.mimeType == "application/epub+zip") {
+      Epub(filename, "/.crosspoint").clearCache();
+    } else if (acquisition.formatKey == "xtc" || acquisition.formatKey == "xtch") {
+      Xtc(filename, "/.crosspoint").clearCache();
+    }
+    selectedBookIndex = -1;
+    formatSelectionLabels.clear();
     state = BrowserState::BROWSING;
     requestUpdate();
   } else {
+    selectedBookIndex = -1;
+    formatSelectionLabels.clear();
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
     requestUpdate();

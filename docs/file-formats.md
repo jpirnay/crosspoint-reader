@@ -104,7 +104,7 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Version 20
+### Version 21
 
 ImHex Pattern:
 
@@ -114,7 +114,7 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 20
+#define EXPECTED_VERSION 21
 #define MAX_STRING_LENGTH 65535
 
 // === String Structure ===
@@ -206,7 +206,7 @@ struct SectionBin {
     u8 imageRendering;
     u32 pageLutOffset [[comment("Offset to page offset LUT")]];
     u32 anchorMapOffset [[comment("Offset to anchor map")]];
-    u32 paragraphLutOffset [[comment("Offset to per-page paragraph index LUT")]];
+    u32 paragraphLutOffset [[comment("Offset to per-page paragraph LUT (byte offset + <p> index)")]];
 
     Page page[pageCount];
 
@@ -223,12 +223,15 @@ struct SectionBin {
     u16 anchorCount;
     AnchorEntry anchors[anchorCount];
 
-    // === Paragraph Index LUT ===
-    // One entry per page: the 1-based <p> sibling index (XPath convention)
-    // at the time each page was completed during parsing.
-    // Used to resolve KOReader XPath p[N] positions to page numbers.
+    // === Paragraph LUT (deep entries) ===
+    // One entry per page: XHTML byte offset at the page break + 1-based <p> sibling index.
+    // xhtmlByteOffset is the Expat byte position within the decompressed spine XHTML at the
+    // moment the page break fired — used as a seek hint to avoid scanning from byte 0 when
+    // generating XPaths for upload.  0 means no hint (last page, recorded post-parse).
+    // paragraphIndex is 1-based, matching KOReader XPath p[N] convention.
+    struct ParagraphLutEntry { u32 xhtmlByteOffset; u16 paragraphIndex; };
     u16 paragraphEntryCount;
-    u16 paragraphIndexPerPage[paragraphEntryCount] [[comment("1-based <p> index at page completion")]];
+    ParagraphLutEntry paragraphLut[paragraphEntryCount];
 };
 
 // === File Parsing ===

@@ -1008,13 +1008,6 @@ void CrossPointWebServer::handleMove() const {
     server->send(403, "text/plain", "Cannot move protected item");
     return;
   }
-  if (destPath != "/") {
-    const String destName = destPath.substring(destPath.lastIndexOf('/') + 1);
-    if (isProtectedItemName(destName)) {
-      server->send(403, "text/plain", "Cannot move into protected folder");
-      return;
-    }
-  }
 
   if (!Storage.exists(itemPath.c_str())) {
     server->send(404, "text/plain", "Item not found");
@@ -1220,9 +1213,9 @@ void CrossPointWebServer::handleSettingsPage() const {
 void CrossPointWebServer::handleGetSettings() const {
   const auto& settings = getSettingsList();
 
-  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server->send(200, "application/json", "");
-  server->sendContent("[");
+  String result;
+  result.reserve(4096);
+  result += "[";
 
   char output[512];
   constexpr size_t outputSize = sizeof(output);
@@ -1236,6 +1229,8 @@ void CrossPointWebServer::handleGetSettings() const {
     doc["key"] = s.key;
     doc["name"] = I18N.get(s.nameId);
     doc["category"] = I18N.get(s.category);
+    doc["subcategory"] = s.subcategory != StrId::STR_NONE_OPT ? I18N.get(s.subcategory) : "";
+    doc["submenu"] = s.submenu != StrId::STR_NONE_OPT ? I18N.get(s.submenu) : "";
 
     switch (s.type) {
       case SettingType::TOGGLE: {
@@ -1282,21 +1277,23 @@ void CrossPointWebServer::handleGetSettings() const {
     }
 
     const size_t written = serializeJson(doc, output, outputSize);
+    const char* jsonEntry = output;
+    String dynBuffer;
     if (written >= outputSize) {
-      LOG_DBG("WEB", "Skipping oversized setting JSON for: %s", s.key);
-      continue;
+      serializeJson(doc, dynBuffer);
+      jsonEntry = dynBuffer.c_str();
     }
 
     if (seenFirst) {
-      server->sendContent(",");
+      result += ",";
     } else {
       seenFirst = true;
     }
-    server->sendContent(output);
+    result += jsonEntry;
   }
 
-  server->sendContent("]");
-  server->sendContent("");
+  result += "]";
+  server->send(200, "application/json", result);
   LOG_DBG("WEB", "Served settings API");
 }
 

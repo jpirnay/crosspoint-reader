@@ -593,7 +593,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     (self->currentPageNextY + totalImageHeightWithSpacing > self->viewportHeight)) {
                   LOG_DBG("EHP", "Image page break: currentY=%d needed=%d viewportH=%d", self->currentPageNextY,
                           totalImageHeightWithSpacing, self->viewportHeight);
-                  self->paragraphIndexPerPage.push_back(self->xpathParagraphIndex);
+                  self->paragraphLutPerPage.push_back({self->lastBodyChildByteOffset, self->xpathParagraphIndex});
                   self->completePageFn(std::move(self->currentPage));
                   self->completedPageCount++;
                   self->currentPage.reset(new Page());
@@ -687,8 +687,16 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // check so that hidden <p> elements are still counted, matching ChapterXPathIndexer's
   // counting (pure XML, no CSS). This ensures paragraph indices in the section cache LUT
   // align with KOReader's crengine XPath indices.
-  if (self->xpathBodyDepth >= 0 && self->depth == self->xpathBodyDepth + 1 && strcmp(name, "p") == 0) {
-    self->xpathParagraphIndex++;
+  // At the same time, record the byte offset of every direct-body-child element start:
+  // the forward mapper's partial-parse heuristic requires the seek hint to land on a
+  // body-child boundary, otherwise partialBaseDepth can misidentify wrapped paragraphs.
+  if (self->xpathBodyDepth >= 0 && self->depth == self->xpathBodyDepth + 1) {
+    if (self->activeParser) {
+      self->lastBodyChildByteOffset = static_cast<uint32_t>(XML_GetCurrentByteIndex(self->activeParser));
+    }
+    if (strcmp(name, "p") == 0) {
+      self->xpathParagraphIndex++;
+    }
   }
 
   if (matches(name, SKIP_TAGS, NUM_SKIP_TAGS)) {
@@ -1344,6 +1352,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   XML_SetUserData(parser, this);
   XML_SetElementHandler(parser, startElement, endElement);
   XML_SetCharacterDataHandler(parser, characterData);
+  activeParser = parser;
 
   // Compute the time taken to parse and build pages
   const uint32_t chapterStartTime = millis();
@@ -1354,6 +1363,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
       XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
       XML_SetCharacterDataHandler(parser, nullptr);
+      activeParser = nullptr;
       XML_ParserFree(parser);
       file.close();
       return false;
@@ -1376,6 +1386,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
       XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
       XML_SetCharacterDataHandler(parser, nullptr);
+      activeParser = nullptr;
       XML_ParserFree(parser);
       file.close();
       return false;
@@ -1389,6 +1400,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
       XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
       XML_SetCharacterDataHandler(parser, nullptr);
+      activeParser = nullptr;
       XML_ParserFree(parser);
       file.close();
       return false;
@@ -1400,6 +1412,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
   XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
   XML_SetCharacterDataHandler(parser, nullptr);
+  activeParser = nullptr;
   XML_ParserFree(parser);
   file.close();
 
@@ -1410,7 +1423,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
     }
-    paragraphIndexPerPage.push_back(xpathParagraphIndex);
+    paragraphLutPerPage.push_back({0u, xpathParagraphIndex});  // post-parse: no byte offset available
     completePageFn(std::move(currentPage));
     completedPageCount++;
     currentPage.reset();
@@ -1431,7 +1444,7 @@ ParsedText::LineProcessResult ChapterHtmlSlimParser::addLineToPage(std::shared_p
   }
 
   if (currentPageNextY + lineHeight > viewportHeight) {
-    paragraphIndexPerPage.push_back(xpathParagraphIndex);
+    paragraphLutPerPage.push_back({lastBodyChildByteOffset, xpathParagraphIndex});
     completePageFn(std::move(currentPage));
     completedPageCount++;
     currentPage.reset(new Page());

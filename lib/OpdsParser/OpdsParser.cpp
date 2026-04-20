@@ -1,8 +1,80 @@
 #include "OpdsParser.h"
 
+#include <FsHelpers.h>
 #include <Logging.h>
 
 #include <cstring>
+
+namespace {
+// Returns the length of href after trimming trailing slashes.
+size_t trimmedHrefLength(const char* href) {
+  size_t len = strlen(href);
+  while (len > 0 && href[len - 1] == '/') {
+    len--;
+  }
+  return len;
+}
+
+std::string_view trimmedHrefView(const char* href) { return std::string_view{href, trimmedHrefLength(href)}; }
+
+// Returns an OpdsAcquisitionLink if the type and href correspond to a supported
+// acquisition format, otherwise returns an empty OpdsAcquisitionLink.
+OpdsAcquisitionLink supportedAcquisitionLink(const char* type, const char* href) {
+  if (!type || !href || type[0] == '\0' || href[0] == '\0') {
+    return {};
+  }
+
+  // Some OPDS feeds append a trailing slash to format URLs like
+  // `/opds/book/123/kepub/`. Trim it so suffix checks work on the final segment.
+  const std::string_view trimmedHref = trimmedHrefView(href);
+
+  if (strcmp(type, "application/epub+zip") == 0) {
+    if (FsHelpers::checkFileExtension(trimmedHref, ".kepub.epub")) {
+      return {href, type, "kepub", ".kepub.epub"};
+    }
+
+    // Calibre-Web-Automated uses trailing path segments like `/kepub/` instead of
+    // filename extensions, so match `/kepub` after trimming trailing slashes.
+    if (FsHelpers::checkFileExtension(trimmedHref, ".kepub") || FsHelpers::checkFileExtension(trimmedHref, "/kepub")) {
+      // Save bare KePub downloads with an `.epub` suffix so the existing ePub
+      // reader can open them.
+      return {href, type, "kepub", ".kepub.epub"};
+    }
+    return {href, type, "epub", ".epub"};
+  }
+
+  if (strcmp(type, "text/plain") == 0) {
+    return {href, type, "txt", ".txt"};
+  }
+
+  if (strcmp(type, "text/markdown") == 0 || strcmp(type, "text/x-markdown") == 0) {
+    return {href, type, "md", ".md"};
+  }
+
+  if (FsHelpers::checkFileExtension(trimmedHref, ".xtc")) {
+    return {href, "application/vnd.xteink.xtc", "xtc", ".xtc"};
+  }
+
+  if (FsHelpers::checkFileExtension(trimmedHref, ".xth") || FsHelpers::checkFileExtension(trimmedHref, ".xtch")) {
+    return {href, "application/vnd.xteink.xtch", "xtch", ".xtch"};
+  }
+
+  return {};
+}
+
+// Determine if the given OpdsEntry's acquisition link href is already present,
+// to prevent duplicate download targets.
+bool hasEquivalentAcquisitionLink(const OpdsEntry& entry, const OpdsAcquisitionLink& candidate) {
+  const std::string_view normalizedCandidateHref = trimmedHrefView(candidate.href.c_str());
+  for (const auto& link : entry.acquisitionLinks) {
+    if (trimmedHrefView(link.href.c_str()) == normalizedCandidateHref) {
+      return true;
+    }
+  }
+
+  return false;
+}
+}  // namespace
 
 OpdsParser::OpdsParser() {
   parser = XML_ParserCreate(nullptr);
@@ -40,6 +112,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
     if (!buf) {
       errorOccured = true;
       XML_ParserFree(parser);
+      parser = nullptr;
       return length;
     }
 
@@ -49,6 +122,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
     if (XML_ParseBuffer(parser, static_cast<int>(toRead), 0) == XML_STATUS_ERROR) {
       errorOccured = true;
       XML_ParserFree(parser);
+      parser = nullptr;
       return length;
     }
     currentPos += toRead;
@@ -58,6 +132,10 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
 }
 
 void OpdsParser::flush() {
+  if (!parser) {
+    errorOccured = true;
+    return;
+  }
   if (XML_Parse(parser, nullptr, 0, XML_TRUE) != XML_STATUS_OK) {
     errorOccured = true;
     XML_ParserFree(parser);
@@ -116,10 +194,18 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
       }
 
       if (self->inEntry) {
-        if (rel && type && strstr(rel, "opds-spec.org/acquisition") != nullptr &&
-            strcmp(type, "application/epub+zip") == 0) {
-          self->currentEntry.type = OpdsEntryType::BOOK;
-          self->currentEntry.href = href;
+        if (rel && strstr(rel, "opds-spec.org/acquisition") != nullptr) {
+          const auto acquisition = supportedAcquisitionLink(type, href);
+          if (!acquisition.formatKey.empty() && !hasEquivalentAcquisitionLink(self->currentEntry, acquisition)) {
+            self->currentEntry.type = OpdsEntryType::BOOK;
+            if (self->currentEntry.acquisitionLinks.empty()) {
+              self->currentEntry.href = href;
+            } else if (self->currentEntry.acquisitionLinks.size() == 1 &&
+                       self->currentEntry.acquisitionLinks.capacity() < 3) {
+              self->currentEntry.acquisitionLinks.reserve(3);
+            }
+            self->currentEntry.acquisitionLinks.push_back(acquisition);
+          }
         } else if (type && strstr(type, "application/atom+xml") != nullptr) {
           if (self->currentEntry.type != OpdsEntryType::BOOK) {
             self->currentEntry.type = OpdsEntryType::NAVIGATION;

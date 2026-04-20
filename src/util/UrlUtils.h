@@ -19,6 +19,13 @@ std::string ensureProtocol(const std::string& url);
 std::string extractHost(const std::string& url);
 
 /**
+ * Extract hostname only from a URL (e.g., "example.com" from
+ * "http://example.com:8080/path"). Returns an empty string if no hostname can
+ * be determined.
+ */
+std::string extractHostname(const std::string& url);
+
+/**
  * Build full URL from server URL and path.
  * If path starts with /, it's an absolute path from the host root.
  * Otherwise, it's relative to the server URL.

@@ -21,6 +21,12 @@ std::string ChapterXPathIndexer::findXPathForProgress(const std::shared_ptr<Epub
   return findXPathForProgressInternal(epub, spineIndex, intraSpineProgress);
 }
 
+std::string ChapterXPathIndexer::findXPathForParagraph(const std::shared_ptr<Epub>& epub, const int spineIndex,
+                                                       const uint16_t paragraphIndex, const uint32_t seekHint,
+                                                       const uint16_t startParagraphCount) {
+  return findXPathForParagraphInternal(epub, spineIndex, paragraphIndex, seekHint, startParagraphCount);
+}
+
 bool ChapterXPathIndexer::findProgressForXPath(const std::shared_ptr<Epub>& epub, const int spineIndex,
                                                const std::string& xpath, float& outIntraSpineProgress,
                                                bool& outExactMatch) {
@@ -83,10 +89,23 @@ bool ChapterXPathIndexer::tryExtractParagraphIndexFromXPath(const std::string& x
     return false;
   }
 
-  // Only accept p[...] that is a direct child of the /body segment — reject
-  // paths with intermediate ancestor segments (e.g. /body/.../div[4]/p[1])
-  // which would collapse structurally different locations to the same index.
-  const size_t bodyEnd = (secondBody != std::string::npos ? secondBody : 0) + bodyKey.size();
+  // Only accept p[...] that is a direct child of the /body segment.
+  // The section paragraph LUT counts only direct-body-child <p> elements (matching
+  // KOReader's crengine pure-XML counting).  A nested path like /body/div[2]/p[4]
+  // cannot be mapped to our flat LUT index — the p[4] there is the 4th sibling inside
+  // div[2], not the 4th <p> child of <body>.  Deeply-nested XPaths fall through to
+  // ChapterXPathIndexer::findProgressForXPath which handles full-ancestry matching.
+  size_t bodyEnd = (secondBody != std::string::npos ? secondBody : 0) + bodyKey.size();
+  if (bodyEnd < normalized.size() && normalized[bodyEnd] == '[') {
+    const size_t idxStart = bodyEnd + 1;
+    size_t idxEnd = idxStart;
+    while (idxEnd < normalized.size() && std::isdigit(static_cast<unsigned char>(normalized[idxEnd]))) {
+      idxEnd++;
+    }
+    if (idxEnd < normalized.size() && normalized[idxEnd] == ']') {
+      bodyEnd = idxEnd + 1;
+    }
+  }
   if (pos != bodyEnd) {
     return false;
   }

@@ -245,29 +245,59 @@ std::string decompressToTempFile(const std::shared_ptr<Epub>& epub, const int sp
   return tmpPath;
 }
 
+namespace {
+// Pump the open `file` through `parser` in fixed-size chunks. Returns true on clean EOF or
+// XML_ERROR_ABORTED (caller used XML_StopParser to signal an early success). Returns false on
+// XML_GetBuffer failure or any other parse error. The file is left open — caller closes it.
+bool pumpExpatFromFile(XML_Parser parser, FsFile& file) {
+  constexpr size_t kBufSize = 1024;
+  int done;
+  do {
+    void* const buf = XML_GetBuffer(parser, kBufSize);
+    if (!buf) {
+      return false;
+    }
+    const size_t len = file.read(buf, kBufSize);
+    done = file.available() == 0;
+    if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
+      return XML_GetErrorCode(parser) == XML_ERROR_ABORTED;
+    }
+  } while (!done);
+  return true;
+}
+}  // namespace
+
 bool runParse(XML_Parser parser, const std::string& path) {
   FsFile file;
   if (!Storage.openFileForRead("KOX", path, file)) {
     return false;
   }
+  const bool ok = pumpExpatFromFile(parser, file);
+  file.close();
+  return ok;
+}
 
-  constexpr size_t kBufSize = 1024;
-  bool ok = true;
-  int done;
-  do {
-    void* const buf = XML_GetBuffer(parser, kBufSize);
-    if (!buf) {
-      ok = false;
-      break;
-    }
-    const size_t len = file.read(buf, kBufSize);
-    done = file.available() == 0;
-    if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
-      ok = (XML_GetErrorCode(parser) == XML_ERROR_ABORTED);
-      break;
-    }
-  } while (!done);
+// Starts Expat mid-document. Since the parser has no ancestor context (html/body stack is
+// missing), unmatched closing tags may appear, and callbacks emitted before the first start
+// tag can look structurally odd — an empty result is normal here. Callers
+// (ChapterXPathForwardMapper.cpp) recognise the empty result and fall back to runParse from
+// byte 0 with full document context.
+bool runParseFromOffset(XML_Parser parser, const std::string& path, const uint32_t seekBytes) {
+  if (seekBytes == 0) {
+    return runParse(parser, path);
+  }
 
+  FsFile file;
+  if (!Storage.openFileForRead("KOX", path, file)) {
+    return false;
+  }
+
+  if (!file.seek(seekBytes)) {
+    file.close();
+    return runParse(parser, path);  // fall back to full scan if seek fails
+  }
+
+  const bool ok = pumpExpatFromFile(parser, file);
   file.close();
   return ok;
 }

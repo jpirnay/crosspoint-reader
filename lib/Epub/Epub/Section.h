@@ -32,6 +32,12 @@ class Section {
   void buildTocBoundaries(const std::vector<std::pair<std::string, uint16_t>>& anchors);
   void buildTocBoundariesFromFile(FsFile& f);
 
+  // Open the section file and seek to the first paragraph LUT entry, validating the header
+  // and LUT bounds against fileSize. On success, returns true with `outLutStart` set to the
+  // byte offset of the first entry (just past the count) and `outCount` to the entry count.
+  // Caller is responsible for closing `outFile`. Returns false on any I/O or validation error.
+  bool readParagraphLutHeader(FsFile& outFile, uint16_t& outCount, uint32_t& outLutStart) const;
+
  public:
   uint16_t pageCount = 0;
   int currentPage = 0;
@@ -68,7 +74,7 @@ class Section {
   std::optional<uint16_t> getPageForAnchor(const std::string& anchor) const;
 
   // Look up the page number for a paragraph index (1-based, from XPath p[N]).
-  // Uses the per-page paragraph index LUT stored in the section cache.
+  // Uses the per-page paragraph LUT stored in the section cache.
   // Returns nullopt if the paragraph LUT is not available (old cache format).
   std::optional<uint16_t> getPageForParagraphIndex(uint16_t pIndex) const;
 
@@ -76,4 +82,11 @@ class Section {
   // Returns the 1-based paragraph index of the last <p> element on or before the page.
   // Returns nullopt if the paragraph LUT is not available (old cache format).
   std::optional<uint16_t> getParagraphIndexForPage(uint16_t page) const;
+
+  // Look up the XHTML byte offset recorded at the page break that started the given page.
+  // This is the Expat byte position within the decompressed spine XHTML file — useful as a
+  // seek hint for findXPathForParagraph to avoid scanning from byte 0 on large chapters.
+  // Returns nullopt if the paragraph LUT is unavailable (old cache format) or offset is 0
+  // (last page, recorded after parse completion).
+  std::optional<uint32_t> getXhtmlByteOffsetForPage(uint16_t page) const;
 };

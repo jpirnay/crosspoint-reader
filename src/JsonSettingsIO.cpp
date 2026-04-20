@@ -82,6 +82,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   sync["totalPagesInSpine"] = s.koReaderSyncSession.totalPagesInSpine;
   sync["paragraphIndex"] = s.koReaderSyncSession.paragraphIndex;
   sync["hasParagraphIndex"] = s.koReaderSyncSession.hasParagraphIndex;
+  sync["xhtmlSeekHint"] = s.koReaderSyncSession.xhtmlSeekHint;
   sync["intent"] = static_cast<uint8_t>(s.koReaderSyncSession.intent);
   sync["outcome"] = static_cast<uint8_t>(s.koReaderSyncSession.outcome);
   sync["resultSpineIndex"] = s.koReaderSyncSession.resultSpineIndex;
@@ -134,6 +135,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   s.koReaderSyncSession.totalPagesInSpine = sync["totalPagesInSpine"] | 0;
   s.koReaderSyncSession.paragraphIndex = sync["paragraphIndex"] | (uint16_t)0;
   s.koReaderSyncSession.hasParagraphIndex = sync["hasParagraphIndex"] | false;
+  s.koReaderSyncSession.xhtmlSeekHint = sync["xhtmlSeekHint"] | (uint32_t)0;
   s.koReaderSyncSession.intent =
       static_cast<KOReaderSyncIntentState>(sync["intent"] | static_cast<uint8_t>(KOReaderSyncIntentState::COMPARE));
   s.koReaderSyncSession.outcome =

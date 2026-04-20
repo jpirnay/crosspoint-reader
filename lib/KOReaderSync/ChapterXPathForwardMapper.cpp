@@ -124,6 +124,127 @@ size_t getTotalTextBytesCached(const std::shared_ptr<Epub>& epub, const int spin
 
 }  // namespace
 
+// Paragraph-targeted forward mapper.
+// Counts direct-body-child <p> elements (matching ChapterHtmlSlimParser's xpathBodyDepth guard)
+// and stops at the Nth one, emitting its full-ancestry XPath.  The seek hint avoids scanning
+// from byte 0 when the section LUT has a byte offset for a nearby page break.
+namespace {
+
+struct ParagraphState : StackState {
+  int spineIndex;
+  uint16_t targetParagraph;  // 1-based
+  uint16_t paragraphCount = 0;
+  std::string result;
+  XML_Parser parser = nullptr;
+  // When parsing from a seek offset, the DOM context (html/body ancestors) is missing from
+  // the parser's perspective.  partialParse=true relaxes the bodyIdx() check and instead
+  // counts any <p> at depth 0 relative to the first element seen (a heuristic that works
+  // because we know we're already inside <body> in the source document).
+  bool partialParse = false;
+  int partialBaseDepth = -1;  // stack depth when the first element is seen in partial mode
+
+  ParagraphState(const int spineIndex, const uint16_t targetParagraph, const uint16_t startParagraphCount,
+                 const bool partialParse)
+      : spineIndex(spineIndex),
+        targetParagraph(targetParagraph),
+        paragraphCount(startParagraphCount),
+        partialParse(partialParse) {}
+};
+
+void XMLCALL paragraphStartCb(void* ud, const XML_Char* rawName, const XML_Char**) {
+  auto* s = static_cast<ParagraphState*>(ud);
+  s->pushElement(rawName);
+  if (!s->result.empty() || s->stack.empty() || s->stack.back().tag != "p") {
+    return;
+  }
+
+  bool isDirectBodyChild = false;
+  if (s->partialParse) {
+    // In partial mode the DOM context (html/body ancestors) is absent from the parser.
+    // We record the stack depth of the first element encountered as the body-equivalent
+    // depth; direct body children are one level deeper.  This only works for flat EPUBs
+    // where paragraphs are direct children of <body> — for wrapped chapters the partial
+    // parse will find nothing and the caller retries from byte 0 with full context.
+    if (s->partialBaseDepth < 0) {
+      s->partialBaseDepth = static_cast<int>(s->stack.size()) - 1;
+    }
+    isDirectBodyChild = (static_cast<int>(s->stack.size()) - 1 == s->partialBaseDepth);
+  } else {
+    const int bi = s->bodyIdx();
+    isDirectBodyChild = (bi >= 0 && static_cast<int>(s->stack.size()) == bi + 2);
+  }
+
+  if (isDirectBodyChild) {
+    s->paragraphCount++;
+    if (s->paragraphCount >= s->targetParagraph) {
+      s->result = s->currentXPath(s->spineIndex);
+      if (s->parser) {
+        XML_StopParser(s->parser, XML_FALSE);
+      }
+    }
+  }
+}
+
+void XMLCALL paragraphEndCb(void* ud, const XML_Char*) { static_cast<ParagraphState*>(ud)->popElement(); }
+
+}  // namespace
+
+std::string findXPathForParagraphInternal(const std::shared_ptr<Epub>& epub, const int spineIndex,
+                                          const uint16_t paragraphIndex, const uint32_t seekHint,
+                                          const uint16_t startParagraphCount) {
+  if (!epub || paragraphIndex == 0) {
+    return "";
+  }
+
+  const std::string tmpPath = decompressToTempFile(epub, spineIndex);
+  if (tmpPath.empty()) {
+    return "";
+  }
+
+  const bool partialParse = seekHint > 0;
+  ParagraphState state(spineIndex, paragraphIndex, partialParse ? startParagraphCount : 0, partialParse);
+  XML_Parser parser = XML_ParserCreate(nullptr);
+  if (!parser) {
+    Storage.remove(tmpPath.c_str());
+    return "";
+  }
+
+  state.parser = parser;
+  XML_SetUserData(parser, &state);
+  XML_SetElementHandler(parser, paragraphStartCb, paragraphEndCb);
+  // No character data handler needed — we only care about element structure.
+  XML_SetDefaultHandlerExpand(parser, parserDefaultCb<ParagraphState>);
+
+  // Use seek hint from section LUT if available — avoids scanning the whole chapter.
+  // If the partial parse misses the target (e.g. the hint overshot), retry from byte 0.
+  runParseFromOffset(parser, tmpPath, seekHint);
+
+  if (state.result.empty() && seekHint > 0) {
+    // Partial parse missed — reset and retry from beginning with full-document context.
+    XML_ParserFree(parser);
+    parser = XML_ParserCreate(nullptr);
+    if (!parser) {
+      LOG_ERR("KOX", "XML_ParserCreate failed on retry: spine=%d p[%u] tmp=%s", spineIndex, paragraphIndex,
+              tmpPath.c_str());
+    } else {
+      ParagraphState fullState(spineIndex, paragraphIndex, 0, false);
+      fullState.parser = parser;
+      XML_SetUserData(parser, &fullState);
+      XML_SetElementHandler(parser, paragraphStartCb, paragraphEndCb);
+      XML_SetDefaultHandlerExpand(parser, parserDefaultCb<ParagraphState>);
+      runParse(parser, tmpPath);
+      state.result = fullState.result;
+    }
+  }
+
+  XML_ParserFree(parser);
+  Storage.remove(tmpPath.c_str());
+
+  LOG_DBG("KOX", "Paragraph: spine=%d p[%u] seekHint=%u -> %s", spineIndex, paragraphIndex, seekHint,
+          state.result.empty() ? "(not found)" : state.result.c_str());
+  return state.result;
+}
+
 std::string findXPathForProgressInternal(const std::shared_ptr<Epub>& epub, const int spineIndex,
                                          const float intraSpineProgress) {
   const std::string tmpPath = decompressToTempFile(epub, spineIndex);

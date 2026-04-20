@@ -34,7 +34,7 @@ class KOReaderSyncActivity final : public Activity {
  public:
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 int currentSpineIndex, int currentPage, int totalPagesInSpine,
-                                uint16_t paragraphIndex = 0, bool hasParagraphIndex = false,
+                                uint16_t paragraphIndex = 0, bool hasParagraphIndex = false, uint32_t xhtmlSeekHint = 0,
                                 KOReaderSyncIntentState syncIntent = KOReaderSyncIntentState::COMPARE)
       : Activity("KOReaderSync", renderer, mappedInput),
         epubPath(epubPath),
@@ -43,6 +43,7 @@ class KOReaderSyncActivity final : public Activity {
         totalPagesInSpine(totalPagesInSpine),
         localParagraphIndex(paragraphIndex),
         hasLocalParagraphIndex(hasParagraphIndex),
+        localXhtmlSeekHint(xhtmlSeekHint),
         syncIntent(syncIntent),
         remoteProgress{},
         remotePosition{},
@@ -75,6 +76,7 @@ class KOReaderSyncActivity final : public Activity {
   int totalPagesInSpine;
   uint16_t localParagraphIndex;
   bool hasLocalParagraphIndex;
+  uint32_t localXhtmlSeekHint;
   KOReaderSyncIntentState syncIntent = KOReaderSyncIntentState::COMPARE;
 
   State state = WIFI_SELECTION;

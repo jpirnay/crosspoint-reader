@@ -66,6 +66,28 @@ class ChapterXPathIndexer {
   static bool tryExtractSpineIndexFromXPath(const std::string& xpath, int& outSpineIndex);
 
   /**
+   * Find the full-ancestry XPath for the Nth direct-body-child <p> element.
+   *
+   * Counts only <p> elements that are direct children of <body>, matching the semantics
+   * of the section paragraph LUT built by ChapterHtmlSlimParser.
+   *
+   * @param epub Loaded EPUB instance
+   * @param spineIndex Spine item index to parse
+   * @param paragraphIndex 1-based paragraph index (from section LUT or XPath p[N])
+   * @param seekHint Optional XHTML byte offset to start scanning from (0 = from beginning).
+   *                 Pass Section::getXhtmlByteOffsetForPage() to avoid scanning the whole file.
+   * @param startParagraphCount Optional seed count (default 0) of direct-body-child <p> elements
+   *                 that precede the seekHint position. Should be provided when seekHint > 0 to
+   *                 avoid counting from scratch mid-document; callers should pass the paragraph
+   *                 index of the LUT entry at the seek page minus 1. If the partial parse with
+   *                 this seed doesn't find the target, the function falls back to runParse from
+   *                 byte 0 and re-counts with startParagraphCount = 0.
+   * @return Full-ancestry XPath like "/body/DocFragment[N]/body/div[1]/p[3]", or empty on failure
+   */
+  static std::string findXPathForParagraph(const std::shared_ptr<Epub>& epub, int spineIndex, uint16_t paragraphIndex,
+                                           uint32_t seekHint = 0, uint16_t startParagraphCount = 0);
+
+  /**
    * Extract the paragraph index from a KOReader XPath.
    * Looks for the first /p[N] segment after /body/ and returns N (1-based).
    *
