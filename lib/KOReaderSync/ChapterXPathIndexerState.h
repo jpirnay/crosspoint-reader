@@ -54,6 +54,8 @@ struct StackState {
     }
   }
 
+  void onCharData(const XML_Char*, int) {}
+
   int bodyIdx() const {
     for (int i = static_cast<int>(stack.size()) - 1; i >= 0; i--) {
       if (stack[i].tag == "body") {
