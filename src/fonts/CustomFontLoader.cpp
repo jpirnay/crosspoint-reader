@@ -146,7 +146,7 @@ bool CustomFontLoader::loadStyle(EpdFontFamily::Style style) {
   const size_t metricsSize = glyphBytes + intervalBytes + groupBytes + kernLBytes + kernRBytes + kernMBytes + ligBytes;
 
   if (ESP.getFreeHeap() < HEAP_GUARD_BYTES + metricsSize) {
-    LOG_WRN("CFL", "Heap guard: %u free, need %u+%u for style %s", ESP.getFreeHeap(), HEAP_GUARD_BYTES, metricsSize,
+    LOG_ERR("CFL", "Heap guard: %u free, need %u+%u for style %s", ESP.getFreeHeap(), HEAP_GUARD_BYTES, metricsSize,
             styleChar(style));
     return false;
   }

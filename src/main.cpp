@@ -231,7 +231,7 @@ void setup() {
       SETTINGS.cachedCustomFontId = customFontLoader.fontId();
       customFontLoader.registerWithRenderer(renderer);
     } else {
-      LOG_WRN("MAIN", "Custom font '%s' failed to load — falling back to Bookerly", SETTINGS.customFontName);
+      LOG_ERR("MAIN", "Custom font '%s' failed to load — falling back to Bookerly", SETTINGS.customFontName);
       SETTINGS.fontFamily = CrossPointSettings::BOOKERLY;
       SETTINGS.saveToFile();
     }
