@@ -228,8 +228,8 @@ class CrossPointSettings {
   // Reader font settings
   uint8_t fontFamily = BOOKERLY;
   uint8_t fontSize = MEDIUM;
-  char customFontName[64] = {};   // base name of the active custom font family (empty = none)
-  int cachedCustomFontId = 0;     // runtime-only: font ID registered by CustomFontLoader
+  char customFontName[64] = {};  // base name of the active custom font family (empty = none)
+  int cachedCustomFontId = 0;    // runtime-only: font ID registered by CustomFontLoader
   uint8_t lineSpacing = NORMAL;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes)
@@ -289,11 +289,15 @@ class CrossPointSettings {
   // Returns the nominal point size for the selected font size enum (12/14/16/18).
   uint8_t getReaderFontPt() const {
     switch (fontSize) {
-      case SMALL:       return 12;
-      case LARGE:       return 16;
-      case EXTRA_LARGE: return 18;
+      case SMALL:
+        return 12;
+      case LARGE:
+        return 16;
+      case EXTRA_LARGE:
+        return 18;
       case MEDIUM:
-      default:          return 14;
+      default:
+        return 14;
     }
   }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <EpdFont.h>
 #include <EpdFontFamily.h>
@@ -8,8 +9,6 @@
 
 #include <cstdint>
 #include <vector>
-
-#include <Arduino.h>
 
 /// Loads a custom EPD font family from SPIFFS into heap (metrics only).
 /// Bitmap data stays in SPIFFS and is streamed on demand via SpiffsBitmapSource.
@@ -23,7 +22,7 @@ class CustomFontLoader {
  public:
   static constexpr size_t HEAP_GUARD_BYTES = 80 * 1024;
 
-  static constexpr const char* SD_FONTS_DIR    = "/fonts";
+  static constexpr const char* SD_FONTS_DIR = "/fonts";
   static constexpr const char* SPIFFS_FONT_DIR = "/font";
   static constexpr const char* SPIFFS_FONT_JSON = "/font/font.json";
 
@@ -67,9 +66,9 @@ class CustomFontLoader {
  private:
   // .epdfont file header (48 bytes)
   struct __attribute__((packed)) EpdFontHeader {
-    char     magic[4];            // "EPDF"
-    uint8_t  version;             // 1
-    uint8_t  flags;               // bit0=is2Bit, bit1=hasKerning, bit2=hasLigatures
+    char magic[4];    // "EPDF"
+    uint8_t version;  // 1
+    uint8_t flags;    // bit0=is2Bit, bit1=hasKerning, bit2=hasLigatures
     uint16_t glyphCount;
     uint32_t groupCount;
     uint32_t intervalCount;
@@ -77,10 +76,10 @@ class CustomFontLoader {
     uint32_t kernRightCount;
     uint32_t kernMatrixSize;
     uint32_t ligatureCount;
-    uint8_t  advanceY;
-    uint8_t  reserved0;
-    int16_t  ascender;
-    int16_t  descender;
+    uint8_t advanceY;
+    uint8_t reserved0;
+    int16_t ascender;
+    int16_t descender;
     uint16_t kernLeftClassCount;
     uint16_t kernRightClassCount;
     uint32_t bitmapSize;
@@ -89,11 +88,11 @@ class CustomFontLoader {
   static_assert(sizeof(EpdFontHeader) == 48, "EpdFontHeader must be 48 bytes");
 
   struct StyleSlot {
-    uint8_t*           metricsBlock = nullptr;  // one malloc per loaded style
-    EpdFontData        data = {};
+    uint8_t* metricsBlock = nullptr;  // one malloc per loaded style
+    EpdFontData data = {};
     SpiffsBitmapSource bitmapSrc;
-    EpdFont            font{&data};
-    bool               loaded = false;
+    EpdFont font{&data};
+    bool loaded = false;
 
     void release() {
       bitmapSrc.close();
@@ -104,11 +103,11 @@ class CustomFontLoader {
     }
   };
 
-  StyleSlot _styles[4];   // 0=Regular 1=Bold 2=Italic 3=BoldItalic
-  char      _name[64] = {};
-  uint8_t   _pt = 0;
-  int       _fontId = 0;
-  bool      _loaded = false;
+  StyleSlot _styles[4];  // 0=Regular 1=Bold 2=Italic 3=BoldItalic
+  char _name[64] = {};
+  uint8_t _pt = 0;
+  int _fontId = 0;
+  bool _loaded = false;
 
   static const char* styleChar(EpdFontFamily::Style style);
   bool loadStyle(EpdFontFamily::Style style);

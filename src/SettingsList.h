@@ -189,8 +189,8 @@ inline const std::vector<SettingInfo> list = {
         "koMatchMethod", StrId::STR_KOREADER_SYNC),
 
     // --- Custom font selection (JSON-persisted name, not shown in device UI) ---
-    SettingInfo::String(StrId::STR_NONE_OPT, SETTINGS.customFontName, sizeof(SETTINGS.customFontName),
-                        "customFontName", StrId::STR_NONE_OPT),
+    SettingInfo::String(StrId::STR_NONE_OPT, SETTINGS.customFontName, sizeof(SETTINGS.customFontName), "customFontName",
+                        StrId::STR_NONE_OPT),
 
     // --- OPDS Browser (web-only, uses CrossPointSettings char arrays) ---
     SettingInfo::String(StrId::STR_OPDS_SERVER_URL, SETTINGS.opdsServerUrl, sizeof(SETTINGS.opdsServerUrl),

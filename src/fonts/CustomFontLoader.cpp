@@ -17,17 +17,21 @@ static constexpr size_t COPY_BUF_SIZE = 4096;
 
 const char* CustomFontLoader::styleChar(EpdFontFamily::Style style) {
   switch (style) {
-    case EpdFontFamily::BOLD:        return "B";
-    case EpdFontFamily::ITALIC:      return "I";
-    case EpdFontFamily::BOLD_ITALIC: return "BI";
-    default:                         return "R";
+    case EpdFontFamily::BOLD:
+      return "B";
+    case EpdFontFamily::ITALIC:
+      return "I";
+    case EpdFontFamily::BOLD_ITALIC:
+      return "BI";
+    default:
+      return "R";
   }
 }
 
 EpdFontFamily CustomFontLoader::buildFamily() const {
-  const EpdFont* r  = _styles[EpdFontFamily::REGULAR].loaded     ? &_styles[EpdFontFamily::REGULAR].font     : nullptr;
-  const EpdFont* b  = _styles[EpdFontFamily::BOLD].loaded        ? &_styles[EpdFontFamily::BOLD].font        : nullptr;
-  const EpdFont* i  = _styles[EpdFontFamily::ITALIC].loaded      ? &_styles[EpdFontFamily::ITALIC].font      : nullptr;
+  const EpdFont* r = _styles[EpdFontFamily::REGULAR].loaded ? &_styles[EpdFontFamily::REGULAR].font : nullptr;
+  const EpdFont* b = _styles[EpdFontFamily::BOLD].loaded ? &_styles[EpdFontFamily::BOLD].font : nullptr;
+  const EpdFont* i = _styles[EpdFontFamily::ITALIC].loaded ? &_styles[EpdFontFamily::ITALIC].font : nullptr;
   const EpdFont* bi = _styles[EpdFontFamily::BOLD_ITALIC].loaded ? &_styles[EpdFontFamily::BOLD_ITALIC].font : nullptr;
   return EpdFontFamily(r, b, i, bi);
 }
@@ -97,8 +101,7 @@ bool CustomFontLoader::loadStyle(EpdFontFamily::Style style) {
   if (_styles[si].loaded) return true;
 
   char path[128];
-  snprintf(path, sizeof(path), "%s/%s_%u_%s.epdfont",
-           SPIFFS_FONT_DIR, _name, _pt, styleChar(style));
+  snprintf(path, sizeof(path), "%s/%s_%u_%s.epdfont", SPIFFS_FONT_DIR, _name, _pt, styleChar(style));
 
   File f = SPIFFS.open(path, FILE_READ);
   if (!f) {
@@ -133,19 +136,18 @@ bool CustomFontLoader::loadStyle(EpdFontFamily::Style style) {
   // Compute metrics segment size
   // sizeof(EpdGlyph) = 16 (uint32_t dataOffset at offset 12 due to padding after uint16_t dataLength)
   // sizeof(EpdFontGroup) = 20 (uint32_t firstGlyphIndex at offset 16 due to padding after uint16_t glyphCount)
-  const size_t glyphBytes    = hdr.glyphCount    * sizeof(EpdGlyph);
+  const size_t glyphBytes = hdr.glyphCount * sizeof(EpdGlyph);
   const size_t intervalBytes = hdr.intervalCount * sizeof(EpdUnicodeInterval);
-  const size_t groupBytes    = hdr.groupCount    * sizeof(EpdFontGroup);
-  const size_t kernLBytes    = hdr.kernLeftCount  * sizeof(EpdKernClassEntry);
-  const size_t kernRBytes    = hdr.kernRightCount * sizeof(EpdKernClassEntry);
-  const size_t kernMBytes    = hdr.kernMatrixSize * sizeof(int8_t);
-  const size_t ligBytes      = hdr.ligatureCount  * sizeof(EpdLigaturePair);
-  const size_t metricsSize   = glyphBytes + intervalBytes + groupBytes
-                             + kernLBytes + kernRBytes + kernMBytes + ligBytes;
+  const size_t groupBytes = hdr.groupCount * sizeof(EpdFontGroup);
+  const size_t kernLBytes = hdr.kernLeftCount * sizeof(EpdKernClassEntry);
+  const size_t kernRBytes = hdr.kernRightCount * sizeof(EpdKernClassEntry);
+  const size_t kernMBytes = hdr.kernMatrixSize * sizeof(int8_t);
+  const size_t ligBytes = hdr.ligatureCount * sizeof(EpdLigaturePair);
+  const size_t metricsSize = glyphBytes + intervalBytes + groupBytes + kernLBytes + kernRBytes + kernMBytes + ligBytes;
 
   if (ESP.getFreeHeap() < HEAP_GUARD_BYTES + metricsSize) {
-    LOG_WRN("CFL", "Heap guard: %u free, need %u+%u for style %s",
-            ESP.getFreeHeap(), HEAP_GUARD_BYTES, metricsSize, styleChar(style));
+    LOG_WRN("CFL", "Heap guard: %u free, need %u+%u for style %s", ESP.getFreeHeap(), HEAP_GUARD_BYTES, metricsSize,
+            styleChar(style));
     return false;
   }
 
@@ -175,42 +177,48 @@ bool CustomFontLoader::loadStyle(EpdFontFamily::Style style) {
   StyleSlot& slot = _styles[si];
   uint8_t* p = block;
 
-  slot.data.glyph     = reinterpret_cast<const EpdGlyph*>(p);          p += glyphBytes;
-  slot.data.intervals = reinterpret_cast<const EpdUnicodeInterval*>(p); p += intervalBytes;
-  slot.data.groups    = reinterpret_cast<const EpdFontGroup*>(p);       p += groupBytes;
+  slot.data.glyph = reinterpret_cast<const EpdGlyph*>(p);
+  p += glyphBytes;
+  slot.data.intervals = reinterpret_cast<const EpdUnicodeInterval*>(p);
+  p += intervalBytes;
+  slot.data.groups = reinterpret_cast<const EpdFontGroup*>(p);
+  p += groupBytes;
 
-  slot.data.intervalCount  = hdr.intervalCount;
-  slot.data.groupCount     = static_cast<uint16_t>(hdr.groupCount);
-  slot.data.glyphToGroup   = nullptr;  // contiguous-group format
-  slot.data.advanceY       = hdr.advanceY;
-  slot.data.ascender       = hdr.ascender;
-  slot.data.descender      = hdr.descender;
-  slot.data.is2Bit         = (hdr.flags & 0x01) != 0;
-  slot.data.bitmap         = nullptr;  // not used — bitmapSource handles this
+  slot.data.intervalCount = hdr.intervalCount;
+  slot.data.groupCount = static_cast<uint16_t>(hdr.groupCount);
+  slot.data.glyphToGroup = nullptr;  // contiguous-group format
+  slot.data.advanceY = hdr.advanceY;
+  slot.data.ascender = hdr.ascender;
+  slot.data.descender = hdr.descender;
+  slot.data.is2Bit = (hdr.flags & 0x01) != 0;
+  slot.data.bitmap = nullptr;  // not used — bitmapSource handles this
 
   if (hdr.flags & 0x02) {
-    slot.data.kernLeftClasses  = reinterpret_cast<const EpdKernClassEntry*>(p); p += kernLBytes;
-    slot.data.kernRightClasses = reinterpret_cast<const EpdKernClassEntry*>(p); p += kernRBytes;
-    slot.data.kernMatrix       = reinterpret_cast<const int8_t*>(p);            p += kernMBytes;
-    slot.data.kernLeftEntryCount  = static_cast<uint16_t>(hdr.kernLeftCount);
+    slot.data.kernLeftClasses = reinterpret_cast<const EpdKernClassEntry*>(p);
+    p += kernLBytes;
+    slot.data.kernRightClasses = reinterpret_cast<const EpdKernClassEntry*>(p);
+    p += kernRBytes;
+    slot.data.kernMatrix = reinterpret_cast<const int8_t*>(p);
+    p += kernMBytes;
+    slot.data.kernLeftEntryCount = static_cast<uint16_t>(hdr.kernLeftCount);
     slot.data.kernRightEntryCount = static_cast<uint16_t>(hdr.kernRightCount);
-    slot.data.kernLeftClassCount  = static_cast<uint8_t>(hdr.kernLeftClassCount);
+    slot.data.kernLeftClassCount = static_cast<uint8_t>(hdr.kernLeftClassCount);
     slot.data.kernRightClassCount = static_cast<uint8_t>(hdr.kernRightClassCount);
   } else {
-    slot.data.kernLeftClasses  = nullptr;
+    slot.data.kernLeftClasses = nullptr;
     slot.data.kernRightClasses = nullptr;
-    slot.data.kernMatrix       = nullptr;
-    slot.data.kernLeftEntryCount  = 0;
+    slot.data.kernMatrix = nullptr;
+    slot.data.kernLeftEntryCount = 0;
     slot.data.kernRightEntryCount = 0;
-    slot.data.kernLeftClassCount  = 0;
+    slot.data.kernLeftClassCount = 0;
     slot.data.kernRightClassCount = 0;
   }
 
   if (hdr.flags & 0x04) {
-    slot.data.ligaturePairs     = reinterpret_cast<const EpdLigaturePair*>(p);
+    slot.data.ligaturePairs = reinterpret_cast<const EpdLigaturePair*>(p);
     slot.data.ligaturePairCount = hdr.ligatureCount;
   } else {
-    slot.data.ligaturePairs     = nullptr;
+    slot.data.ligaturePairs = nullptr;
     slot.data.ligaturePairCount = 0;
   }
 
@@ -278,9 +286,7 @@ bool CustomFontLoader::ensureStyle(EpdFontFamily::Style style) {
 // registerWithRenderer
 // ---------------------------------------------------------------------------
 
-void CustomFontLoader::registerWithRenderer(GfxRenderer& renderer) {
-  renderer.insertFont(_fontId, buildFamily());
-}
+void CustomFontLoader::registerWithRenderer(GfxRenderer& renderer) { renderer.insertFont(_fontId, buildFamily()); }
 
 // ---------------------------------------------------------------------------
 // copyFamilyToSpiffs — atomic SD → SPIFFS copy, font.json last
@@ -333,8 +339,8 @@ bool CustomFontLoader::copyFamilyToSpiffs(const char* name) {
   for (uint8_t sz : sizes) {
     for (const char* st : styles) {
       char sdPath[128], spiffsPath[128];
-      snprintf(sdPath,     sizeof(sdPath),     "%s/%s/%s_%u_%s.epdfont", SD_FONTS_DIR, name, name, sz, st);
-      snprintf(spiffsPath, sizeof(spiffsPath),  "%s/%s_%u_%s.epdfont",   SPIFFS_FONT_DIR, name, sz, st);
+      snprintf(sdPath, sizeof(sdPath), "%s/%s/%s_%u_%s.epdfont", SD_FONTS_DIR, name, name, sz, st);
+      snprintf(spiffsPath, sizeof(spiffsPath), "%s/%s_%u_%s.epdfont", SPIFFS_FONT_DIR, name, sz, st);
 
       if (!Storage.exists(sdPath)) continue;
 

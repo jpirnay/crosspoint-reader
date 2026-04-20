@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SPIFFS.h>
+
 #include <cstdint>
 
 /// Manages the SPIFFS partition used for the active custom font slot.
@@ -9,8 +10,8 @@
 class HalSpiffs {
  public:
   static constexpr const char* OWNERSHIP_MARKER = "/.crosspoint_spiffs";
-  static constexpr const char* FONT_DIR         = "/font";
-  static constexpr const char* FONT_JSON         = "/font/font.json";
+  static constexpr const char* FONT_DIR = "/font";
+  static constexpr const char* FONT_JSON = "/font/font.json";
 
   /// Mount SPIFFS, format if foreign (no ownership marker), write marker.
   /// `maxOpenFiles`: passed to SPIFFS.begin; 8 is sufficient for concurrent reads.

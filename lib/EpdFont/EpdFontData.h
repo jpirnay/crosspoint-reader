@@ -125,12 +125,12 @@ typedef struct {
   const uint16_t* glyphToGroup;               ///< Per-glyph group ID (nullptr for contiguous-group fonts)
   const EpdKernClassEntry* kernLeftClasses;   ///< Sorted left-side class map (nullptr if none)
   const EpdKernClassEntry* kernRightClasses;  ///< Sorted right-side class map (nullptr if none)
-  const int8_t* kernMatrix;              ///< Flat leftClassCount x rightClassCount matrix, 4.4 fixed-point in pixels
-  uint16_t kernLeftEntryCount;           ///< Entries in kernLeftClasses
-  uint16_t kernRightEntryCount;          ///< Entries in kernRightClasses
-  uint8_t kernLeftClassCount;            ///< Number of distinct left classes (matrix rows)
-  uint8_t kernRightClassCount;           ///< Number of distinct right classes (matrix cols)
-  const EpdLigaturePair* ligaturePairs;  ///< Sorted ligature pair table (nullptr if none)
-  uint32_t ligaturePairCount;            ///< Number of entries in ligaturePairs
-  IBitmapSource* bitmapSource = nullptr; ///< Non-null for custom/SPIFFS fonts; null for built-ins (use bitmap ptr)
+  const int8_t* kernMatrix;               ///< Flat leftClassCount x rightClassCount matrix, 4.4 fixed-point in pixels
+  uint16_t kernLeftEntryCount;            ///< Entries in kernLeftClasses
+  uint16_t kernRightEntryCount;           ///< Entries in kernRightClasses
+  uint8_t kernLeftClassCount;             ///< Number of distinct left classes (matrix rows)
+  uint8_t kernRightClassCount;            ///< Number of distinct right classes (matrix cols)
+  const EpdLigaturePair* ligaturePairs;   ///< Sorted ligature pair table (nullptr if none)
+  uint32_t ligaturePairCount;             ///< Number of entries in ligaturePairs
+  IBitmapSource* bitmapSource = nullptr;  ///< Non-null for custom/SPIFFS fonts; null for built-ins (use bitmap ptr)
 } EpdFontData;

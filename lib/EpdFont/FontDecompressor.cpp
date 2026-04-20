@@ -8,7 +8,6 @@
 
 #include "IBitmapSource.h"
 
-
 FontDecompressor::~FontDecompressor() { deinit(); }
 
 bool FontDecompressor::init() {

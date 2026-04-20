@@ -198,8 +198,8 @@ void CrossPointWebServer::begin() {
   // Font manager endpoints
   server->on("/fonts", HTTP_GET, [this] { handleFontManagerPage(); });
   server->on("/api/fonts", HTTP_GET, [this] { handleGetFonts(); });
-  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUploadPost(upload); },
-                                              [this] { handleFontUpload(upload); });
+  server->on(
+      "/api/fonts/upload", HTTP_POST, [this] { handleFontUploadPost(upload); }, [this] { handleFontUpload(upload); });
   server->on("/api/fonts/activate", HTTP_POST, [this] { handleFontActivate(); });
   server->on("/api/fonts", HTTP_DELETE, [this] { handleFontDelete(); });
 
@@ -1585,8 +1585,8 @@ void CrossPointWebServer::handleGetFonts() const {
   for (const auto& name : families) {
     JsonDocument doc;
     doc["name"] = name;
-    doc["active"] = (SETTINGS.fontFamily == CrossPointSettings::CUSTOM &&
-                     strcmp(SETTINGS.customFontName, name.c_str()) == 0);
+    doc["active"] =
+        (SETTINGS.fontFamily == CrossPointSettings::CUSTOM && strcmp(SETTINGS.customFontName, name.c_str()) == 0);
 
     // Scan present styles per size
     JsonObject stylesObj = doc["styles"].to<JsonObject>();
@@ -1594,8 +1594,8 @@ void CrossPointWebServer::handleGetFonts() const {
       JsonArray arr = stylesObj[String(sz)].to<JsonArray>();
       for (const char* st : STYLES) {
         char path[128];
-        snprintf(path, sizeof(path), "%s/%s/%s_%u_%s.epdfont",
-                 CustomFontLoader::SD_FONTS_DIR, name.c_str(), name.c_str(), sz, st);
+        snprintf(path, sizeof(path), "%s/%s/%s_%u_%s.epdfont", CustomFontLoader::SD_FONTS_DIR, name.c_str(),
+                 name.c_str(), sz, st);
         if (Storage.exists(path)) arr.add(String(st));
       }
       if (arr.size() == 0) stylesObj.remove(String(sz));
@@ -1625,20 +1625,26 @@ void CrossPointWebServer::handleFontUpload(UploadState& state) const {
     state.error = "";
     state.bufferPos = 0;
 
-    const String name  = server->hasArg("name")  ? server->arg("name")  : "";
-    const String sz    = server->hasArg("size")   ? server->arg("size")  : "14";
-    const String style = server->hasArg("style")  ? server->arg("style") : "R";
+    const String name = server->hasArg("name") ? server->arg("name") : "";
+    const String sz = server->hasArg("size") ? server->arg("size") : "14";
+    const String style = server->hasArg("style") ? server->arg("style") : "R";
 
-    if (name.isEmpty() || name.length() > 60) { state.error = "Invalid font name"; return; }
+    if (name.isEmpty() || name.length() > 60) {
+      state.error = "Invalid font name";
+      return;
+    }
 
     // Validate name: letters, digits, hyphens, underscores only
     for (char c : name) {
-      if (!isAlphaNumeric(c) && c != '-' && c != '_') { state.error = "Invalid characters in font name"; return; }
+      if (!isAlphaNumeric(c) && c != '-' && c != '_') {
+        state.error = "Invalid characters in font name";
+        return;
+      }
     }
 
     // Build destination path on SD
     char dirPath[128], filePath[160];
-    snprintf(dirPath,  sizeof(dirPath),  "%s/%s", CustomFontLoader::SD_FONTS_DIR, name.c_str());
+    snprintf(dirPath, sizeof(dirPath), "%s/%s", CustomFontLoader::SD_FONTS_DIR, name.c_str());
     snprintf(filePath, sizeof(filePath), "%s/%s_%s_%s.epdfont", dirPath, name.c_str(), sz.c_str(), style.c_str());
 
     Storage.mkdir(dirPath);
@@ -1669,7 +1675,7 @@ void CrossPointWebServer::handleFontUpload(UploadState& state) const {
         memcpy(state.buffer.data() + state.bufferPos, data, n);
         state.bufferPos += n;
         data += n;
-        rem  -= n;
+        rem -= n;
         if (state.bufferPos >= UploadState::UPLOAD_BUFFER_SIZE) {
           if (state.file.write(state.buffer.data(), state.bufferPos) != state.bufferPos) {
             state.error = "Write error";
@@ -1710,7 +1716,8 @@ void CrossPointWebServer::handleFontUploadPost(UploadState& state) const {
     JsonDocument err;
     err["ok"] = false;
     err["error"] = state.error.isEmpty() ? "Upload failed" : state.error;
-    String json; serializeJson(err, json);
+    String json;
+    serializeJson(err, json);
     server->send(400, "application/json", json);
     return;
   }
@@ -1739,8 +1746,8 @@ void CrossPointWebServer::handleFontUploadPost(UploadState& state) const {
     bool hasR = false;
     for (const char* st : STYLES) {
       char path[160];
-      snprintf(path, sizeof(path), "%s/%s/%s_%u_%s.epdfont",
-               CustomFontLoader::SD_FONTS_DIR, name.c_str(), name.c_str(), sz, st);
+      snprintf(path, sizeof(path), "%s/%s/%s_%u_%s.epdfont", CustomFontLoader::SD_FONTS_DIR, name.c_str(), name.c_str(),
+               sz, st);
       HalFile f;
       if (!Storage.openFileForRead("FONT", path, f)) continue;
       if (strcmp(st, "R") == 0) hasR = true;
@@ -1759,9 +1766,9 @@ void CrossPointWebServer::handleFontUploadPost(UploadState& state) const {
   manifest["is2bit"] = true;
 
   char jsonPath[128];
-  snprintf(jsonPath, sizeof(jsonPath), "%s/%s/font.json",
-           CustomFontLoader::SD_FONTS_DIR, name.c_str());
-  String manifestStr; serializeJson(manifest, manifestStr);
+  snprintf(jsonPath, sizeof(jsonPath), "%s/%s/font.json", CustomFontLoader::SD_FONTS_DIR, name.c_str());
+  String manifestStr;
+  serializeJson(manifest, manifestStr);
   Storage.writeFile(jsonPath, manifestStr);
 
   JsonDocument resp;
@@ -1769,7 +1776,8 @@ void CrossPointWebServer::handleFontUploadPost(UploadState& state) const {
   resp["name"] = name;
   resp["file"] = state.fileName;
   resp["fontId"] = fontId;
-  String json; serializeJson(resp, json);
+  String json;
+  serializeJson(resp, json);
   server->send(200, "application/json", json);
 }
 
@@ -1783,8 +1791,7 @@ void CrossPointWebServer::handleFontActivate() {
 
   // Verify family exists on SD with at least one Regular file
   char jsonPath[128];
-  snprintf(jsonPath, sizeof(jsonPath), "%s/%s/font.json",
-           CustomFontLoader::SD_FONTS_DIR, name.c_str());
+  snprintf(jsonPath, sizeof(jsonPath), "%s/%s/font.json", CustomFontLoader::SD_FONTS_DIR, name.c_str());
   if (!Storage.exists(jsonPath)) {
     server->send(404, "application/json", "{\"ok\":false,\"error\":\"Font not found on SD\"}");
     return;
@@ -1818,8 +1825,7 @@ void CrossPointWebServer::handleFontDelete() const {
   }
 
   // Refuse to delete the currently active font
-  if (SETTINGS.fontFamily == CrossPointSettings::CUSTOM &&
-      strcmp(SETTINGS.customFontName, name.c_str()) == 0) {
+  if (SETTINGS.fontFamily == CrossPointSettings::CUSTOM && strcmp(SETTINGS.customFontName, name.c_str()) == 0) {
     server->send(409, "application/json", "{\"ok\":false,\"error\":\"Cannot delete the active font\"}");
     return;
   }
