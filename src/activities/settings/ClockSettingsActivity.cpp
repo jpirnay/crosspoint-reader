@@ -13,7 +13,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-
 namespace {
 const StrId timeZoneNames[CrossPointSettings::TIMEZONE_COUNT] = {
     StrId::STR_TZ_UTC,       StrId::STR_TZ_CET,  StrId::STR_TZ_EET,       StrId::STR_TZ_MSK,
