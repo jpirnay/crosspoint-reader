@@ -248,7 +248,7 @@ float CrossPointSettings::getReaderLineCompression() const {
         case WIDE:
           return 1.0f;
       }
-    case CUSTOM:
+    case CUSTOM_FONT:
       switch (lineSpacing) {
         case TIGHT:
           return 0.90f;
@@ -320,7 +320,7 @@ int CrossPointSettings::getReaderFontId() const {
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
       }
-    case CUSTOM:
+    case CUSTOM_FONT:
       return cachedCustomFontId;
   }
 }

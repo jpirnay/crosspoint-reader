@@ -83,6 +83,11 @@ class FontDecompressor {
   // Staging buffer for reading compressed group bytes before inflation (IBitmapSource path).
   uint8_t _compressedStagingBuf[COMPRESSED_STAGING_SIZE];
 
+  // Scratch buffer for compacting a single glyph out of the byte-aligned hot group
+  // before returning it from getBitmap(). Also acts as the source when storing into
+  // the per-glyph LRU cache.
+  uint8_t _hotGlyphBuf[HOT_GLYPH_BUF_SIZE];
+
   // Per-glyph LRU cache: caches packed glyph bitmaps decompressed from the hot group.
   // Avoids re-decompressing the same group when a glyph is requested repeatedly outside
   // the page buffer (e.g. space, punctuation, ligature glyphs across pages).

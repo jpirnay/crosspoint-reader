@@ -224,7 +224,8 @@ void setup() {
   setupDisplayAndFonts();
 
   // Custom font boot sequence — must run after setupDisplayAndFonts() so renderer is ready.
-  if (HalSpiffs::ready() && SETTINGS.fontFamily == CrossPointSettings::CUSTOM && SETTINGS.customFontName[0] != '\0') {
+  if (HalSpiffs::ready() && SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT &&
+      SETTINGS.customFontName[0] != '\0') {
     const uint8_t pt = SETTINGS.getReaderFontPt();
     if (customFontLoader.init(SETTINGS.customFontName, pt)) {
       SETTINGS.cachedCustomFontId = customFontLoader.fontId();

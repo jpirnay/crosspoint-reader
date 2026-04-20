@@ -173,7 +173,7 @@ HalSpiffs::init(8);  // before settings load
 
 // After setupDisplayAndFonts():
 if (HalSpiffs::ready()
-    && SETTINGS.fontFamily == CrossPointSettings::CUSTOM
+    && SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT
     && SETTINGS.customFontName[0] != '\0') {
   const uint8_t pt = SETTINGS.getReaderFontPt();
   if (customFontLoader.init(SETTINGS.customFontName, pt)) {

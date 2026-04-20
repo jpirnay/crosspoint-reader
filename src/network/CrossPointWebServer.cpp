@@ -1586,7 +1586,7 @@ void CrossPointWebServer::handleGetFonts() const {
     JsonDocument doc;
     doc["name"] = name;
     doc["active"] =
-        (SETTINGS.fontFamily == CrossPointSettings::CUSTOM && strcmp(SETTINGS.customFontName, name.c_str()) == 0);
+        (SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT && strcmp(SETTINGS.customFontName, name.c_str()) == 0);
 
     // Scan present styles per size
     JsonObject stylesObj = doc["styles"].to<JsonObject>();
@@ -1804,7 +1804,7 @@ void CrossPointWebServer::handleFontActivate() {
   }
   esp_task_wdt_reset();
 
-  SETTINGS.fontFamily = CrossPointSettings::CUSTOM;
+  SETTINGS.fontFamily = CrossPointSettings::CUSTOM_FONT;
   strncpy(SETTINGS.customFontName, name.c_str(), sizeof(SETTINGS.customFontName) - 1);
   SETTINGS.customFontName[sizeof(SETTINGS.customFontName) - 1] = '\0';
   SETTINGS.saveToFile();
@@ -1825,7 +1825,7 @@ void CrossPointWebServer::handleFontDelete() const {
   }
 
   // Refuse to delete the currently active font
-  if (SETTINGS.fontFamily == CrossPointSettings::CUSTOM && strcmp(SETTINGS.customFontName, name.c_str()) == 0) {
+  if (SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT && strcmp(SETTINGS.customFontName, name.c_str()) == 0) {
     server->send(409, "application/json", "{\"ok\":false,\"error\":\"Cannot delete the active font\"}");
     return;
   }
