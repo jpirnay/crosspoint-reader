@@ -584,17 +584,19 @@ std::optional<uint16_t> Section::getPageForParagraphIndex(const uint16_t pIndex)
     return std::nullopt;
   }
 
-  // Find the first page whose paragraph index >= pIndex.
-  uint16_t resultPage = count - 1;  // default to last page
+  // Find the page that contains the requested paragraph index.
+  // Each entry stores the first paragraph index for that page, so the page
+  // containing pIndex is the last page whose start paragraph is <= pIndex.
+  uint16_t resultPage = 0;
   for (uint16_t i = 0; i < count; i++) {
     uint32_t byteOffset;
     uint16_t pagePIdx;
     serialization::readPod(f, byteOffset);
     serialization::readPod(f, pagePIdx);
-    if (pagePIdx >= pIndex) {
-      resultPage = i;
+    if (pagePIdx > pIndex) {
       break;
     }
+    resultPage = i;
   }
 
   f.close();
