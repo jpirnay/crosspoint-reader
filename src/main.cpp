@@ -209,8 +209,6 @@ void setup() {
     return;
   }
 
-  HalSpiffs::init(8);
-
   HalSystem::checkPanic();
   HalSystem::clearPanic();  // TODO: move this to an activity when we have one to display the panic info
   SETTINGS.loadFromFile();
@@ -222,6 +220,14 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   setupDisplayAndFonts();
+
+  // SPIFFS init may take several seconds when a format is required (first
+  // boot or reclaim from foreign contents). The callback fires only then, so
+  // normal boots stay silent and fast.
+  HalSpiffs::init(8, []() {
+    activityManager.goToFullScreenMessage("Preparing font storage... (first boot only)", EpdFontFamily::BOLD);
+    activityManager.loop();
+  });
 
   // Custom font boot sequence — must run after setupDisplayAndFonts() so renderer is ready.
   if (HalSpiffs::ready() && SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT &&

@@ -4,12 +4,13 @@
 
 bool HalSpiffs::_ready = false;
 
-bool HalSpiffs::init(uint8_t maxOpenFiles) {
+bool HalSpiffs::init(uint8_t maxOpenFiles, FormatStartCallback onFormatStart) {
   _ready = false;
 
   if (!SPIFFS.begin(false, "/spiffs", maxOpenFiles)) {
     // Mount failed — format and retry once
     LOG_DBG("SPIFFS", "Mount failed; formatting");
+    if (onFormatStart) onFormatStart();
     if (!SPIFFS.format()) {
       LOG_ERR("SPIFFS", "Format failed");
       return false;
@@ -20,7 +21,7 @@ bool HalSpiffs::init(uint8_t maxOpenFiles) {
     }
   }
 
-  if (!ensureOwnership()) {
+  if (!ensureOwnership(onFormatStart)) {
     return false;
   }
 
@@ -29,13 +30,14 @@ bool HalSpiffs::init(uint8_t maxOpenFiles) {
   return true;
 }
 
-bool HalSpiffs::ensureOwnership() {
+bool HalSpiffs::ensureOwnership(FormatStartCallback onFormatStart) {
   if (SPIFFS.exists(OWNERSHIP_MARKER)) {
     return true;  // already ours
   }
 
   // Foreign content present — wipe and reformat
   LOG_DBG("SPIFFS", "No ownership marker — formatting to reclaim partition");
+  if (onFormatStart) onFormatStart();
   SPIFFS.end();
   if (!SPIFFS.format()) {
     LOG_ERR("SPIFFS", "Format failed during ownership claim");

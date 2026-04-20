@@ -13,10 +13,18 @@ class HalSpiffs {
   static constexpr const char* FONT_DIR = "/font";
   static constexpr const char* FONT_JSON = "/font/font.json";
 
+  /// Invoked once, just before a (potentially multi-second) SPIFFS format,
+  /// so the caller can put a message on the display. Only fires when a format
+  /// is actually about to happen — fast boots (marker already present) are
+  /// silent.
+  using FormatStartCallback = void (*)();
+
   /// Mount SPIFFS, format if foreign (no ownership marker), write marker.
   /// `maxOpenFiles`: passed to SPIFFS.begin; 8 is sufficient for concurrent reads.
+  /// `onFormatStart`: optional, invoked before a format begins so the UI can
+  /// tell the user why the boot is pausing.
   /// Returns true if SPIFFS is ready for use.
-  static bool init(uint8_t maxOpenFiles = 8);
+  static bool init(uint8_t maxOpenFiles = 8, FormatStartCallback onFormatStart = nullptr);
 
   /// True after a successful init().
   static bool ready() { return _ready; }
@@ -27,5 +35,5 @@ class HalSpiffs {
  private:
   static bool _ready;
 
-  static bool ensureOwnership();
+  static bool ensureOwnership(FormatStartCallback onFormatStart);
 };
