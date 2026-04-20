@@ -25,6 +25,14 @@ class CustomFontLoader {
   static constexpr const char* SD_FONTS_DIR = "/fonts";
   static constexpr const char* SPIFFS_FONT_DIR = "/font";
   static constexpr const char* SPIFFS_FONT_JSON = "/font/font.json";
+  static constexpr size_t MAX_NAME_LEN = 60;
+
+  /// Validate a user-supplied font family name. Accepts only letters, digits,
+  /// '-' and '_'; rejects empty or overlong names. Used as a defence-in-depth
+  /// check before any path is constructed from the name (upload, activate,
+  /// delete, SD scan echo). Keeps all attacker-controlled name handling in one
+  /// place so we can't forget a gate on a new handler.
+  static bool isValidName(const char* name);
 
   CustomFontLoader() = default;
   ~CustomFontLoader() { release(); }

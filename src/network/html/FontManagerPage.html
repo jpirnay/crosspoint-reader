@@ -145,6 +145,12 @@ python fontconvert.py --binary --compress --2bit MyFont-BoldItalic.ttf  14 > MyF
       el.style.display = 'block';
     }
 
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
     function styleGrid(styles) {
       var sizes = [12, 14, 16, 18];
       var styleKeys = ['R', 'B', 'I', 'BI'];
@@ -165,17 +171,27 @@ python fontconvert.py --binary --compress --2bit MyFont-BoldItalic.ttf  14 > MyF
       if (!fonts.length) { el.innerHTML = '<p class="empty">No fonts installed. Upload .epdfont files above.</p>'; return; }
       var html = '';
       fonts.forEach(function(f) {
+        var safeName = escapeHtml(f.name);
         html += '<div class="card" style="margin:10px 0"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
-        html += '<strong>' + f.name + '</strong>';
+        html += '<strong>' + safeName + '</strong>';
         html += '<div style="display:flex;gap:8px">';
         if (f.active) html += '<span class="badge badge-ok">Active</span>';
-        if (!f.active) html += '<button class="btn-primary" onclick="doActivate(\'' + f.name + '\')">Activate</button>';
-        html += '<button class="btn-danger" onclick="doDelete(\'' + f.name + '\')" ' + (f.active ? 'disabled title="Cannot delete the active font"' : '') + '>Delete</button>';
+        if (!f.active) html += '<button class="btn-primary" data-action="activate" data-name="' + safeName + '">Activate</button>';
+        html += '<button class="btn-danger" data-action="delete" data-name="' + safeName + '"' + (f.active ? ' disabled title="Cannot delete the active font"' : '') + '>Delete</button>';
         html += '</div></div>';
         html += styleGrid(f.styles);
         html += '</div>';
       });
       el.innerHTML = html;
+      // Event delegation avoids splicing attacker-controlled names into onclick strings.
+      el.querySelectorAll('button[data-action]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var action = btn.getAttribute('data-action');
+          var name = btn.getAttribute('data-name');
+          if (action === 'activate') doActivate(name);
+          else if (action === 'delete') doDelete(name);
+        });
+      });
     }
 
     function loadFonts() {
@@ -184,7 +200,7 @@ python fontconvert.py --binary --compress --2bit MyFont-BoldItalic.ttf  14 > MyF
         var active = fonts.find(function(f) { return f.active; });
         var sec = document.getElementById('active-section');
         if (active) {
-          sec.innerHTML = '<div class="active-banner">Active custom font: <strong>' + active.name + '</strong></div>';
+          sec.innerHTML = '<div class="active-banner">Active custom font: <strong>' + escapeHtml(active.name) + '</strong></div>';
         } else {
           sec.innerHTML = '<div class="active-banner" style="background:var(--label-color)">No custom font active (using built-in)</div>';
         }

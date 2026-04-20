@@ -1629,17 +1629,9 @@ void CrossPointWebServer::handleFontUpload(UploadState& state) const {
     const String sz = server->hasArg("size") ? server->arg("size") : "14";
     const String style = server->hasArg("style") ? server->arg("style") : "R";
 
-    if (name.isEmpty() || name.length() > 60) {
+    if (!CustomFontLoader::isValidName(name.c_str())) {
       state.error = "Invalid font name";
       return;
-    }
-
-    // Validate name: letters, digits, hyphens, underscores only
-    for (char c : name) {
-      if (!isAlphaNumeric(c) && c != '-' && c != '_') {
-        state.error = "Invalid characters in font name";
-        return;
-      }
     }
 
     // Build destination path on SD
@@ -1784,8 +1776,8 @@ void CrossPointWebServer::handleFontUploadPost(UploadState& state) const {
 // POST /api/fonts/activate?name=X
 void CrossPointWebServer::handleFontActivate() {
   const String name = server->hasArg("name") ? server->arg("name") : "";
-  if (name.isEmpty()) {
-    server->send(400, "application/json", "{\"ok\":false,\"error\":\"Missing name\"}");
+  if (!CustomFontLoader::isValidName(name.c_str())) {
+    server->send(400, "application/json", "{\"ok\":false,\"error\":\"Invalid name\"}");
     return;
   }
 
@@ -1819,8 +1811,8 @@ void CrossPointWebServer::handleFontActivate() {
 // DELETE /api/fonts?name=X
 void CrossPointWebServer::handleFontDelete() const {
   const String name = server->hasArg("name") ? server->arg("name") : "";
-  if (name.isEmpty()) {
-    server->send(400, "application/json", "{\"ok\":false,\"error\":\"Missing name\"}");
+  if (!CustomFontLoader::isValidName(name.c_str())) {
+    server->send(400, "application/json", "{\"ok\":false,\"error\":\"Invalid name\"}");
     return;
   }
 

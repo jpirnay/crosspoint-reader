@@ -15,6 +15,18 @@ static constexpr size_t COPY_BUF_SIZE = 4096;
 // Helpers
 // ---------------------------------------------------------------------------
 
+bool CustomFontLoader::isValidName(const char* name) {
+  if (!name || !name[0]) return false;
+  size_t len = 0;
+  for (const char* p = name; *p; ++p, ++len) {
+    if (len >= MAX_NAME_LEN) return false;
+    const unsigned char c = static_cast<unsigned char>(*p);
+    const bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-' || c == '_';
+    if (!ok) return false;
+  }
+  return true;
+}
+
 const char* CustomFontLoader::styleChar(EpdFontFamily::Style style) {
   switch (style) {
     case EpdFontFamily::BOLD:
@@ -47,9 +59,10 @@ bool CustomFontLoader::readFontJson(const char* jsonPath, std::vector<int>& outS
   }
 
   char buf[512];
-  f.read(reinterpret_cast<uint8_t*>(buf), len);
-  buf[len] = '\0';
+  const size_t got = f.read(reinterpret_cast<uint8_t*>(buf), len);
   f.close();
+  if (got != len) return false;
+  buf[len] = '\0';
 
   JsonDocument doc;
   if (deserializeJson(doc, buf) != DeserializationError::Ok) return false;
@@ -79,10 +92,15 @@ std::vector<String> CustomFontLoader::discoverFamilies() {
       char nameBuf[64];
       entry.getName(nameBuf, sizeof(nameBuf));
 
-      // Check for font.json inside
-      String jsonPath = String(SD_FONTS_DIR) + "/" + nameBuf + "/font.json";
-      if (Storage.exists(jsonPath.c_str())) {
-        result.push_back(String(nameBuf));
+      // Silently skip dirs whose names wouldn't pass the upload-side validator.
+      // Defence-in-depth: prevents a sideloaded dir name with odd characters
+      // from surfacing in the web UI (where it would be echoed into HTML/JSON)
+      // or from being accepted by later path-building code.
+      if (isValidName(nameBuf)) {
+        String jsonPath = String(SD_FONTS_DIR) + "/" + nameBuf + "/font.json";
+        if (Storage.exists(jsonPath.c_str())) {
+          result.push_back(String(nameBuf));
+        }
       }
     }
     entry.close();
@@ -302,7 +320,7 @@ bool CustomFontLoader::copyFamilyToSpiffs(const char* name) {
   // Ensure SPIFFS directory exists (SPIFFS has no real dirs, but paths need the prefix)
   // Just proceed — SPIFFS doesn't require mkdir.
 
-  auto copyOneFile = [&](const char* sdPath, const char* spiffsPath) -> bool {
+  auto copyOneFile = [&](const char* sdPath, const char* spiffsPath, bool checkMagic) -> bool {
     HalFile src;
     if (!Storage.openFileForRead("CFL", sdPath, src)) return false;
 
@@ -320,9 +338,19 @@ bool CustomFontLoader::copyFamilyToSpiffs(const char* name) {
     }
 
     bool ok = true;
+    bool magicChecked = !checkMagic;
     while (src.available() > 0) {
       const int bytesRead = src.read(buf, COPY_BUF_SIZE);
       if (bytesRead <= 0) break;
+      // Validate .epdfont magic on the very first read so we don't commit a
+      // half-valid file to SPIFFS and later fail at first render.
+      if (!magicChecked) {
+        if (bytesRead < 4 || memcmp(buf, "EPDF", 4) != 0) {
+          ok = false;
+          break;
+        }
+        magicChecked = true;
+      }
       if (dst.write(buf, static_cast<size_t>(bytesRead)) != static_cast<size_t>(bytesRead)) {
         ok = false;
         break;
@@ -331,6 +359,9 @@ bool CustomFontLoader::copyFamilyToSpiffs(const char* name) {
     free(buf);
     dst.close();
     src.close();
+    if (!ok) {
+      SPIFFS.remove(spiffsPath);
+    }
     return ok;
   };
 
@@ -344,7 +375,7 @@ bool CustomFontLoader::copyFamilyToSpiffs(const char* name) {
 
       if (!Storage.exists(sdPath)) continue;
 
-      if (!copyOneFile(sdPath, spiffsPath)) {
+      if (!copyOneFile(sdPath, spiffsPath, /*checkMagic=*/true)) {
         LOG_ERR("CFL", "Failed to copy %s → %s", sdPath, spiffsPath);
         HalSpiffs::clearFontSlot();
         return false;
@@ -363,7 +394,7 @@ bool CustomFontLoader::copyFamilyToSpiffs(const char* name) {
   // Copy font.json last — this is the atomic commit point
   char sdJsonPath[128];
   snprintf(sdJsonPath, sizeof(sdJsonPath), "%s/%s/font.json", SD_FONTS_DIR, name);
-  if (!copyOneFile(sdJsonPath, SPIFFS_FONT_JSON)) {
+  if (!copyOneFile(sdJsonPath, SPIFFS_FONT_JSON, /*checkMagic=*/false)) {
     LOG_ERR("CFL", "Failed to copy font.json for '%s'", name);
     HalSpiffs::clearFontSlot();
     return false;
