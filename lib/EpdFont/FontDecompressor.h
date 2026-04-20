@@ -69,9 +69,9 @@ class FontDecompressor {
   //   glyph dataLength: 500 B (bookerly_18)
   // Static BSS arrays eliminate per-page heap alloc/free and the fragmentation it causes.
   // Custom fonts must cap group sizes to these limits (enforced by fontconvert.py --binary).
-  static constexpr uint32_t HOT_GROUP_BUF_SIZE      = 51200;  // 50 KB uncompressed group
+  static constexpr uint32_t HOT_GROUP_BUF_SIZE = 51200;       // 50 KB uncompressed group
   static constexpr uint32_t COMPRESSED_STAGING_SIZE = 16384;  // 16 KB compressed staging (IBitmapSource path)
-  static constexpr uint16_t HOT_GLYPH_BUF_SIZE      = 512;    // largest packed single glyph
+  static constexpr uint16_t HOT_GLYPH_BUF_SIZE = 512;         // largest packed single glyph
 
   // Hot group: last decompressed group (byte-aligned) for non-prewarmed fallback path.
   // Kept in byte-aligned format; individual glyphs are compacted on demand into _hotGlyphBuf.
@@ -83,9 +83,24 @@ class FontDecompressor {
   // Staging buffer for reading compressed group bytes before inflation (IBitmapSource path).
   uint8_t _compressedStagingBuf[COMPRESSED_STAGING_SIZE];
 
-  // Scratch buffer for compacting a single glyph from the hot group.
-  // Valid until the next getBitmap() call.
-  uint8_t _hotGlyphBuf[HOT_GLYPH_BUF_SIZE];
+  // Per-glyph LRU cache: caches packed glyph bitmaps decompressed from the hot group.
+  // Avoids re-decompressing the same group when a glyph is requested repeatedly outside
+  // the page buffer (e.g. space, punctuation, ligature glyphs across pages).
+  // 16 entries × 512 B = 8 KB BSS. Open-addressing hash keyed by (fontData, glyphIndex).
+  static constexpr uint8_t GLYPH_CACHE_SIZE = 16;
+
+  struct GlyphCacheEntry {
+    const EpdFontData* fontData = nullptr;
+    uint32_t glyphIndex = UINT32_MAX;
+    uint32_t lastUsed = 0;
+    uint8_t bitmap[HOT_GLYPH_BUF_SIZE];
+  };
+  GlyphCacheEntry _glyphCache[GLYPH_CACHE_SIZE];
+  uint32_t _glyphCacheCounter = 0;
+
+  int glyphCacheLookup(const EpdFontData* fontData, uint32_t glyphIndex) const;
+  int glyphCacheLruSlot() const;
+  void glyphCacheStore(const EpdFontData* fontData, uint32_t glyphIndex, const uint8_t* packed);
 
   void freePageBuffer();
   void freeHotGroup();
