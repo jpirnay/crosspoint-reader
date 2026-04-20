@@ -1,7 +1,6 @@
 #pragma once
 #include <OpdsParser.h>
 
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,7 +13,16 @@
  */
 class OpdsBookBrowserActivity final : public Activity {
  public:
-  enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
+  enum class BrowserState {
+    CHECK_WIFI,
+    WIFI_SELECTION,
+    LOADING,
+    BROWSING,
+    FORMAT_SELECTION,
+    DOWNLOADING,
+    ERROR,
+    SEARCH_INPUT
+  };
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("OpdsBookBrowser", renderer, mappedInput), buttonNavigator() {}
@@ -34,6 +42,9 @@ class OpdsBookBrowserActivity final : public Activity {
   bool consumeConfirm = false;
   bool consumeBack = false;  // Added missing member
   int selectorIndex = 0;
+  int selectedBookIndex = -1;
+  int formatSelectorIndex = 0;
+  std::vector<std::string> formatSelectionLabels;
   std::string errorMessage;
   std::string statusMessage;
   size_t downloadProgress = 0;
@@ -45,7 +56,8 @@ class OpdsBookBrowserActivity final : public Activity {
   void fetchFeed(const std::string& path);
   void navigateToEntry(const OpdsEntry& entry);
   void navigateBack();
-  void downloadBook(const OpdsEntry& book);
+  void downloadBook(const OpdsEntry& book, const OpdsAcquisitionLink& acquisition);
+  void chooseBookFormat(const OpdsEntry& book);
   void fetchOsdTemplate(const std::string& osdUrl);
   void launchSearch();
   void performSearch(const std::string& query);

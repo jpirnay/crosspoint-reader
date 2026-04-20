@@ -13,6 +13,13 @@ enum class OpdsEntryType {
   BOOK         // Downloadable book
 };
 
+struct OpdsAcquisitionLink {
+  std::string href;
+  std::string mimeType;
+  std::string formatKey;
+  std::string fileExtension;
+};
+
 /**
  * Represents an entry from an OPDS feed (either a navigation link or a book).
  */
@@ -22,6 +29,7 @@ struct OpdsEntry {
   std::string author;  // Only for books
   std::string href;    // Navigation URL or epub download URL
   std::string id;
+  std::vector<OpdsAcquisitionLink> acquisitionLinks;
 };
 
 // Legacy alias for backward compatibility
