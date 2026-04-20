@@ -2,13 +2,17 @@
 
 #include <GfxRenderer.h>
 #include <HalClock.h>
+#include <HalGPIO.h>
 #include <I18n.h>
+
+#include <string>
 
 #include "CrossPointSettings.h"
 #include "DetectTimezoneActivity.h"
 #include "SyncTimeActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+
 
 namespace {
 const StrId timeZoneNames[CrossPointSettings::TIMEZONE_COUNT] = {
@@ -96,10 +100,19 @@ void ClockSettingsActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer,
                  Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
                  tr(STR_CLOCK_SETTINGS));
+
+  const char* batteryWarning = tr(STR_CLOCK_SETTINGS_WARNING_BATTERY);
+  const char* driftWarning = tr(STR_CLOCK_SETTINGS_WARNING_DRIFT);
+
+  std::string warning = driftWarning;
+  if (!gpio.deviceIsX3()) {
+    warning = std::string(batteryWarning) + "; " + driftWarning;
+  }
+
   GUI.drawSubHeader(renderer,
                     Rect(contentRect.x, contentRect.y + metrics.topPadding + metrics.headerHeight, contentRect.width,
                          metrics.tabBarHeight),
-                    tr(STR_CLOCK_SETTINGS_WARNING));
+                    warning.c_str());
 
   const int contentTop =
       contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
