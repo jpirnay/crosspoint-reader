@@ -159,12 +159,25 @@
       background-color: #d68910;
     }
 
+    .move-action-btn {
+      background-color: #2980b9;
+    }
+
+    .move-action-btn:hover {
+      background-color: #2471a3;
+    }
+
     .delete-action-btn {
       background-color: #e74c3c;
     }
 
     .delete-action-btn:hover {
       background-color: #c0392b;
+    }
+
+    .action-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
     }
 
     /* Drag & drop overlay */
@@ -1786,7 +1799,8 @@
     <div class="action-buttons">
       <button class="action-btn upload-action-btn" onclick="openUploadModal()">📤 Upload</button>
       <button class="action-btn folder-action-btn" onclick="openFolderModal()">📁 New Folder</button>
-      <button class="action-btn delete-action-btn" onclick="openDeleteSelectedModal()">🗑️ Delete Selected</button>
+      <button id="moveActionBtn" class="action-btn move-action-btn" onclick="openMoveSelectedModal()" disabled>➡️ Move</button>
+      <button id="deleteActionBtn" class="action-btn delete-action-btn" onclick="openDeleteSelectedModal()" disabled>🗑️ Delete</button>
     </div>
   </div>
 
@@ -2042,12 +2056,10 @@
   <div class="modal-overlay" id="moveModal">
     <div class="modal">
       <button class="modal-close" onclick="closeMoveModal()">&times;</button>
-      <h3>📂 Move File</h3>
+      <h3>➡️ Move File</h3>
       <div class="folder-form">
         <p class="file-info">Moving <strong id="moveItemName"></strong></p>
-        <input type="text" id="moveDestPath" class="folder-input" list="moveFolderOptions"
-          placeholder="/Destination/Folder">
-        <datalist id="moveFolderOptions"></datalist>
+        <select id="moveDestPath" class="folder-input"></select>
         <input type="hidden" id="moveItemPath">
         <button class="move-btn-confirm" onclick="confirmMove()">Move</button>
         <button class="delete-btn-cancel" onclick="closeMoveModal()">Cancel</button>
@@ -2093,6 +2105,8 @@
       if (!notification) {
         notification = document.createElement('div');
         notification.id = 'notification';
+        notification.setAttribute('role', 'status');
+        notification.setAttribute('aria-live', 'polite');
         notification.style.cssText = `
         position: fixed;
         top: 20px;
@@ -2109,6 +2123,9 @@
         document.body.appendChild(notification);
       }
 
+      // Cancel any in-flight hide timer so a new message is not prematurely dismissed
+      clearTimeout(notification._hideTimeout);
+
       // Set styles based on type
       const styles = {
         'success': 'background-color: #27ae60;',
@@ -2124,7 +2141,7 @@
       notification.style.transform = 'translateX(0)';
 
       // Auto-hide after 5 seconds
-      setTimeout(() => {
+      notification._hideTimeout = setTimeout(() => {
         notification.style.opacity = '0';
         notification.style.transform = 'translateX(100%)';
         setTimeout(() => {
@@ -2226,14 +2243,17 @@
             if (!folderPath.endsWith("/")) folderPath += "/";
             folderPath += file.name;
 
+            const isProtected = file.name.startsWith('.');
             // Checkbox cell + folder row
             fileTableContent += `<tr class="folder-row">`;
-            fileTableContent += `<td><input type="checkbox" class="select-item" data-path="${encodeURIComponent(folderPath)}" data-name="${escapeHtml(file.name)}" data-type="folder"></td>`;
+            fileTableContent += isProtected
+              ? '<td style="text-align:center"></td>'
+              : `<td style="text-align:center"><input type="checkbox" class="select-item" data-path="${encodeURIComponent(folderPath)}" data-name="${escapeHtml(file.name)}" data-type="folder"></td>`;
             fileTableContent += `<td><span class="file-icon">📁</span><a href="/files?path=${encodeURIComponent(folderPath)}" class="folder-link">${escapeHtml(file.name)}</a><span class="folder-badge">FOLDER</span></td>`;
             fileTableContent += '<td>Folder</td>';
             fileTableContent += '<td>-</td>';
             fileTableContent += `<td class="actions-col"><div class="action-icon-group">`;
-            fileTableContent += `<button class="move-btn" onclick="openMoveModal('${file.name.replaceAll("'", "\\'")}', '${folderPath.replaceAll("'", "\\'")}', true)" title="Move folder">📂</button>`;
+            fileTableContent += `<button class="move-btn" onclick="openMoveModalForItem('${file.name.replaceAll("'", "\\'")}', '${folderPath.replaceAll("'", "\\'")}', true)" title="Move folder">📂</button>`;
             fileTableContent += `<button class="rename-btn" onclick="openRenameModal('${file.name.replaceAll("'", "\\'")}', '${folderPath.replaceAll("'", "\\'")}', true)" title="Rename folder">✏️</button>`;
             fileTableContent += `<button class="delete-btn" onclick="openDeleteModal('${file.name.replaceAll("'", "\\'")}', '${folderPath.replaceAll("'", "\\'")}', true)" title="Delete folder">🗑️</button>`;
             fileTableContent += `</div></td>`;
@@ -2253,7 +2273,7 @@
             fileTableContent += `<td>${file.name.split('.').pop().toUpperCase()}</td>`;
             fileTableContent += `<td>${formatFileSize(file.size)}</td>`;
             fileTableContent += `<td class="actions-col"><div class="action-icon-group">`;
-            fileTableContent += `<button class="move-btn" onclick="openMoveModal('${file.name.replaceAll("'", "\\'")}', '${filePath.replaceAll("'", "\\'")}' )" title="Move file">📂</button>`;
+            fileTableContent += `<button class="move-btn" onclick="openMoveModalForItem('${file.name.replaceAll("'", "\\'")}', '${filePath.replaceAll("'", "\\'")}', false)" title="Move file">📂</button>`;
             fileTableContent += `<button class="rename-btn" onclick="openRenameModal('${file.name.replaceAll("'", "\\'")}', '${filePath.replaceAll("'", "\\'")}' )" title="Rename file">✏️</button>`;
             fileTableContent += `<button class="delete-btn" onclick="openDeleteModal('${file.name.replaceAll("'", "\\'")}', '${filePath.replaceAll("'", "\\'")}', false)" title="Delete file">🗑️</button>`;
             fileTableContent += `</div></td>`;
@@ -2263,6 +2283,10 @@
 
         fileTableContent += '</table>';
         fileTable.innerHTML = fileTableContent;
+        document.getElementById('file-table').addEventListener('change', function(e) {
+          if (e.target.classList.contains('select-item')) updateToolbarState();
+        });
+        updateToolbarState();
       }
     }
 
@@ -3195,6 +3219,7 @@
       document.querySelectorAll('.select-item').forEach(cb => {
         cb.checked = checked;
       });
+      updateToolbarState();
     }
 
     function getSelectedItems() {
@@ -3207,6 +3232,14 @@
         });
       });
       return items;
+    }
+
+    function updateToolbarState() {
+      const items = getSelectedItems();
+      const fileCount = items.filter(it => !it.isFolder).length;
+      const folderCount = items.filter(it => it.isFolder).length;
+      document.getElementById('deleteActionBtn').disabled = items.length === 0;
+      document.getElementById('moveActionBtn').disabled = fileCount === 0 || folderCount > 0;
     }
 
     // Open delete modal for currently selected checkboxes
@@ -5545,6 +5578,8 @@
       options.add('/');
       const parent = getParentPath(currentPath);
       if (parent) options.add(parent);
+      options.add('/.sleep');
+      options.add('/.crosspoint');
 
       async function fetchFolders(path) {
         try {
@@ -5575,25 +5610,70 @@
         });
       }
 
-      const dataList = document.getElementById('moveFolderOptions');
-      dataList.innerHTML = '';
-      Array.from(options).sort().forEach(path => {
+      const select = document.getElementById('moveDestPath');
+      const prevValue = select.value;
+      select.innerHTML = '';
+
+      const currentNormalized = currentPath === '/' ? '/' : currentPath;
+      const normalFolders = Array.from(options).filter(p => !p.startsWith('/.'));
+      const currentFolder = normalFolders.find(p => p === currentNormalized);
+      const otherFolders = normalFolders.filter(p => p !== currentNormalized);
+      const protectedFolders = Array.from(options).filter(p => p === '/.crosspoint' || p === '/.sleep');
+
+      if (currentFolder !== undefined) {
+        const option = document.createElement('option');
+        option.value = currentFolder;
+        option.textContent = currentFolder + ' (current)';
+        option.disabled = true;
+        option.selected = true;
+        select.appendChild(option);
+      }
+      otherFolders.sort().forEach(path => {
         const option = document.createElement('option');
         option.value = path;
-        dataList.appendChild(option);
+        option.textContent = path;
+        select.appendChild(option);
       });
+      if (protectedFolders.length > 0) {
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = '── System ──';
+        select.appendChild(sep);
+        protectedFolders.sort().forEach(path => {
+          const option = document.createElement('option');
+          option.value = path;
+          option.textContent = path;
+          select.appendChild(option);
+        });
+      }
+
+      select.value = prevValue;
+      if (!select.value || select.options[select.selectedIndex] && select.options[select.selectedIndex].disabled) {
+        for (let i = 0; i < select.options.length; i++) {
+          if (!select.options[i].disabled) { select.value = select.options[i].value; break; }
+        }
+      }
     }
 
-    function openMoveModal(name, path, isFolder = false) {
-      const icon = isFolder ? '📁' : '📄';
-      document.getElementById('moveItemName').textContent = icon + ' ' + name;
-      document.getElementById('moveItemPath').value = path;
-      document.getElementById('moveDestPath').value = currentPath === '/' ? '/' : currentPath;
+    function openMoveModal(items) {
+      const label = items.length === 1
+        ? '📄 ' + items[0].name
+        : `📄 ${items.length} files`;
+      document.getElementById('moveItemName').textContent = label;
+      document.getElementById('moveItemPath').value = JSON.stringify(items.map(it => it.path));
       document.getElementById('moveModal').classList.add('open');
       loadMoveFolderOptions();
-      setTimeout(() => {
-        document.getElementById('moveDestPath').focus();
-      }, 50);
+    }
+
+    function openMoveSelectedModal() {
+      const items = getSelectedItems().filter(it => !it.isFolder);
+      if (items.length === 0) return;
+      openMoveModal(items);
+    }
+
+    function openMoveModalForItem(name, path, isFolder) {
+      const icon = isFolder ? '📁' : '📄';
+      openMoveModal([{ name: icon + ' ' + name, path: path, isFolder: !!isFolder }]);
     }
 
     function closeMoveModal() {
@@ -5601,36 +5681,44 @@
     }
 
     function confirmMove() {
-      const path = document.getElementById('moveItemPath').value;
+      const paths = JSON.parse(document.getElementById('moveItemPath').value);
       const destPath = normalizePath(document.getElementById('moveDestPath').value);
 
       if (!destPath) {
-        alert('Please enter a destination folder.');
+        showNotification('Please select a destination folder.', 'warning');
         return;
       }
 
-      const formData = new FormData();
-      formData.append('path', path);
-      formData.append('dest', destPath);
+      closeMoveModal();
+      let hasErrors = false;
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/move', true);
-
-      xhr.onload = function () {
-        if (xhr.status === 200) {
-          window.location.reload();
-        } else {
-          alert('Failed to move: ' + xhr.responseText);
+      function moveNext(index) {
+        if (index >= paths.length) {
+          if (!hasErrors) window.location.reload();
+          return;
         }
-        closeMoveModal();
-      };
+        const formData = new FormData();
+        formData.append('path', paths[index]);
+        formData.append('dest', destPath);
 
-      xhr.onerror = function () {
-        alert('Failed to move - network error');
-        closeMoveModal();
-      };
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/move', true);
+        xhr.onload = function() {
+          if (xhr.status !== 200) {
+            hasErrors = true;
+            showNotification('Failed to move ' + paths[index] + ': ' + xhr.responseText, 'error');
+          }
+          moveNext(index + 1);
+        };
+        xhr.onerror = function() {
+          hasErrors = true;
+          showNotification('Failed to move ' + paths[index] + ' - network error', 'error');
+          moveNext(index + 1);
+        };
+        xhr.send(formData);
+      }
 
-      xhr.send(formData);
+      moveNext(0);
     }
     hydrate();
   </script>

@@ -72,6 +72,19 @@
       background-color: var(--accent-hover-color);
       color: white;
     }
+    .section-header {
+      font-size: 0.75em;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-color);
+      padding: 14px 0 4px;
+      border-bottom: 1px solid var(--accent-color);
+      margin-bottom: 4px;
+    }
+    .section-header:first-child {
+      padding-top: 0;
+    }
     .setting-row {
       display: flex;
       justify-content: space-between;
@@ -369,7 +382,15 @@
 
       for (const category in groups) {
         html += '<div class="card"><h2>' + escapeHtml(category) + '</h2>';
+        let lastSection = null;
         groups[category].forEach(function(s) {
+          // Each item carries either a subcategory or a submenu label as its section heading.
+          // Both are treated identically: a new label triggers a section header row.
+          const section = s.subcategory || s.submenu || null;
+          if (section && section !== lastSection) {
+            html += '<div class="section-header">' + escapeHtml(section) + '</div>';
+            lastSection = section;
+          }
           html += '<div class="setting-row">' +
             '<span class="setting-name">' + escapeHtml(s.name) + '</span>' +
             '<span class="setting-control">' + renderControl(s) + '</span>' +
