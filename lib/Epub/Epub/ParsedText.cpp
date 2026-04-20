@@ -17,6 +17,30 @@ constexpr int MAX_COST = std::numeric_limits<int>::max();
 
 namespace {
 
+// Closing punctuation that should not have extra space inserted before it during justification.
+// Includes common closing brackets/quotes and sentence-ending marks.
+bool isClosingPunctuation(const uint32_t cp) {
+  switch (cp) {
+    case '.':
+    case ',':
+    case '!':
+    case '?':
+    case ':':
+    case ';':
+    case ')':
+    case ']':
+    case '}':
+    case 0x00BB:  // »
+    case 0x203A:  // ›
+    case 0x2019:  // '  right single quotation mark
+    case 0x201D:  // "  right double quotation mark
+    case 0x2026:  // … ellipsis
+      return true;
+    default:
+      return false;
+  }
+}
+
 // Soft hyphen byte pattern used throughout EPUBs (UTF-8 for U+00AD).
 constexpr char SOFT_HYPHEN_UTF8[] = "\xC2\xAD";
 constexpr size_t SOFT_HYPHEN_BYTES = 2;
@@ -330,11 +354,19 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
       int cost;
       if (j == totalWordCount - 1) {
-        cost = 0;  // Last line
+        cost = 0;  // Last line — no penalty regardless of looseness
       } else {
         const int remainingSpace = effectivePageWidth - currlen;
-        // Use long long for the square to prevent overflow
-        const long long cost_ll = static_cast<long long>(remainingSpace) * remainingSpace + dp[j + 1];
+        // Knuth-Plass style demerits:
+        //   badness  = (gap/lineWidth)³ × 10000, clamped to [0, 10000]
+        //   demerits = (1 + badness)²
+        // Cubic badness strongly penalises very loose lines while being
+        // lenient on moderately loose ones, producing visually balanced paragraphs.
+        const long long b_num = static_cast<long long>(remainingSpace) * remainingSpace * remainingSpace;
+        const long long b_den = static_cast<long long>(effectivePageWidth) * effectivePageWidth * effectivePageWidth;
+        const int badness = (b_den > 0) ? static_cast<int>(std::min(b_num * 10000LL / b_den, 10000LL)) : 10000;
+        const long long demerits = static_cast<long long>(1 + badness) * (1 + badness);
+        const long long cost_ll = demerits + dp[j + 1];
 
         if (cost_ll > MAX_COST) {
           cost = MAX_COST;
@@ -767,9 +799,12 @@ ParsedText::LineProcessResult ParsedText::extractLine(
 
   for (size_t wordIdx = 0; wordIdx < lineWordCount; wordIdx++) {
     lineWordWidthSum += wordWidths[lastBreakAt + wordIdx];
-    // Count gaps: each word after the first creates a gap, unless it's a continuation
+    // Count gaps: each word after the first creates a gap, unless it's a continuation.
+    // Gaps before closing punctuation (. , ) » etc.) are excluded from justification
+    // distribution so they stay at natural space width.
     if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
-      actualGapCount++;
+      const bool beforeClosing = isClosingPunctuation(firstCodepoint(words[lastBreakAt + wordIdx]));
+      if (!beforeClosing) actualGapCount++;
       totalNaturalGaps +=
           renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
                                    firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
@@ -825,9 +860,12 @@ ParsedText::LineProcessResult ParsedText::extractLine(
         gap = renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
                                        firstCodepoint(words[lastBreakAt + wordIdx + 1]),
                                        wordStyles[lastBreakAt + wordIdx]);
-      }
-      if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
-        gap += justifyExtra;
+        // Don't stretch the gap before closing punctuation — it looks wrong with
+        // extra space before ".", ")", "»" etc.
+        const bool nextIsClosing = isClosingPunctuation(firstCodepoint(words[lastBreakAt + wordIdx + 1]));
+        if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine && !nextIsClosing) {
+          gap += justifyExtra;
+        }
       }
       xpos += wordWidths[lastBreakAt + wordIdx] + gap;
     }
