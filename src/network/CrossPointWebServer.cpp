@@ -9,6 +9,8 @@
 #include <esp_task_wdt.h>
 
 #include <algorithm>
+#include <cstring>
+#include <cstdio>
 
 #include "CrossPointSettings.h"
 #include "SettingsList.h"
@@ -113,6 +115,69 @@ bool isProtectedItemName(const String& name) {
     }
   }
   return false;
+}
+
+bool shouldHideItem(const char* name) {
+  if (!SETTINGS.showHiddenFiles && name[0] == '.') {
+    return true;
+  }
+  for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
+    if (strcmp(name, HIDDEN_ITEMS[i]) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static size_t appendJsonString(char* dest, size_t destSize, const char* value) {
+  if (destSize == 0) {
+    return SIZE_MAX;
+  }
+  size_t pos = 0;
+  dest[pos++] = '"';
+  for (const unsigned char* p = reinterpret_cast<const unsigned char*>(value); *p != '\0'; ++p) {
+    unsigned char c = *p;
+    if (c == '"' || c == '\\') {
+      if (pos + 2 >= destSize) return SIZE_MAX;
+      dest[pos++] = '\\';
+      dest[pos++] = c;
+    } else if (c == '\b') {
+      if (pos + 2 >= destSize) return SIZE_MAX;
+      dest[pos++] = '\\';
+      dest[pos++] = 'b';
+    } else if (c == '\f') {
+      if (pos + 2 >= destSize) return SIZE_MAX;
+      dest[pos++] = '\\';
+      dest[pos++] = 'f';
+    } else if (c == '\n') {
+      if (pos + 2 >= destSize) return SIZE_MAX;
+      dest[pos++] = '\\';
+      dest[pos++] = 'n';
+    } else if (c == '\r') {
+      if (pos + 2 >= destSize) return SIZE_MAX;
+      dest[pos++] = '\\';
+      dest[pos++] = 'r';
+    } else if (c == '\t') {
+      if (pos + 2 >= destSize) return SIZE_MAX;
+      dest[pos++] = '\\';
+      dest[pos++] = 't';
+    } else if (c < 0x20) {
+      if (pos + 6 >= destSize) return SIZE_MAX;
+      static const char hex[] = "0123456789abcdef";
+      dest[pos++] = '\\';
+      dest[pos++] = 'u';
+      dest[pos++] = '0';
+      dest[pos++] = '0';
+      dest[pos++] = hex[(c >> 4) & 0x0F];
+      dest[pos++] = hex[c & 0x0F];
+    } else {
+      if (pos + 1 >= destSize) return SIZE_MAX;
+      dest[pos++] = c;
+    }
+  }
+  if (pos >= destSize) return SIZE_MAX;
+  dest[pos++] = '"';
+  return pos;
 }
 }  // namespace
 
@@ -476,7 +541,7 @@ void CrossPointWebServer::handleStatusFast() const {
   server->send(200, "application/json", json);
 }
 
-void CrossPointWebServer::scanFiles(const char* path, const std::function<void(FileInfo)>& callback) const {
+void CrossPointWebServer::scanFiles(const char* path, const std::function<void(const char* name, size_t size, bool isDirectory, bool isEpub)>& callback) const {
   FsFile root = Storage.open(path);
   if (!root) {
     LOG_DBG("WEB", "Failed to open directory: %s", path);
@@ -495,35 +560,13 @@ void CrossPointWebServer::scanFiles(const char* path, const std::function<void(F
   char name[500];
   while (file) {
     file.getName(name, sizeof(name));
-    auto fileName = String(name);
-
-    // Skip hidden items (starting with ".")
-    bool shouldHide = !SETTINGS.showHiddenFiles && fileName.startsWith(".");
-
-    // Check against explicitly hidden items list
-    if (!shouldHide) {
-      for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-        if (fileName.equals(HIDDEN_ITEMS[i])) {
-          shouldHide = true;
-          break;
-        }
-      }
-    }
+    bool shouldHide = shouldHideItem(name);
 
     if (!shouldHide) {
-      FileInfo info;
-      info.name = fileName;
-      info.isDirectory = file.isDirectory();
-
-      if (info.isDirectory) {
-        info.size = 0;
-        info.isEpub = false;
-      } else {
-        info.size = file.size();
-        info.isEpub = isEpubFile(info.name);
-      }
-
-      callback(info);
+      const bool isDirectory = file.isDirectory();
+      const size_t size = isDirectory ? 0 : file.size();
+      const bool isEpub = !isDirectory && isEpubFile(name);
+      callback(name, size, isDirectory, isEpub);
     }
 
     file.close();
@@ -535,6 +578,8 @@ void CrossPointWebServer::scanFiles(const char* path, const std::function<void(F
 }
 
 bool CrossPointWebServer::isEpubFile(const String& filename) const { return FsHelpers::hasEpubExtension(filename); }
+
+bool CrossPointWebServer::isEpubFile(const char* filename) const { return FsHelpers::hasEpubExtension(filename); }
 
 void CrossPointWebServer::handleFileList() const {
   sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
@@ -555,36 +600,60 @@ void CrossPointWebServer::handleFileListData() const {
     }
   }
 
+  LOG_DBG("WEB", "[MEM] Free heap before file list data: %d bytes", ESP.getFreeHeap());
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
   server->sendContent("[");
   char output[512];
   constexpr size_t outputSize = sizeof(output);
   bool seenFirst = false;
-  JsonDocument doc;
 
-  scanFiles(currentPath.c_str(), [this, &output, &doc, seenFirst](const FileInfo& info) mutable {
-    doc.clear();
-    doc["name"] = info.name;
-    doc["size"] = info.size;
-    doc["isDirectory"] = info.isDirectory;
-    doc["isEpub"] = info.isEpub;
-
-    const size_t written = serializeJson(doc, output, outputSize);
-    if (written >= outputSize) {
-      // JSON output truncated; skip this entry to avoid sending malformed JSON
-      LOG_DBG("WEB", "Skipping file entry with oversized JSON for name: %s", info.name.c_str());
-      return;
-    }
-
+  scanFiles(currentPath.c_str(), [this, &output, outputSize, &seenFirst](const char* name, size_t size, bool isDirectory, bool isEpub) mutable {
     if (seenFirst) {
       server->sendContent(",");
     } else {
       seenFirst = true;
     }
+
+    const char* prefix = "{\"name\":";
+    const size_t prefixLen = strlen(prefix);
+    if (prefixLen >= outputSize) {
+      LOG_DBG("WEB", "Skipping file entry with oversized JSON prefix for name: %s", name);
+      return;
+    }
+    memcpy(output, prefix, prefixLen);
+    size_t pos = prefixLen;
+
+    const size_t nameLen = appendJsonString(output + pos, outputSize - pos, name);
+    if (nameLen == SIZE_MAX) {
+      LOG_DBG("WEB", "Skipping file entry with oversized JSON name: %s", name);
+      return;
+    }
+    pos += nameLen;
+
+    const char* middle = ",\"size\":";
+    const size_t middleLen = strlen(middle);
+    if (pos + middleLen >= outputSize) {
+      LOG_DBG("WEB", "Skipping file entry with oversized JSON middle for name: %s", name);
+      return;
+    }
+    memcpy(output + pos, middle, middleLen);
+    pos += middleLen;
+
+    int written = snprintf(output + pos, outputSize - pos, "%u,\"isDirectory\":%s,\"isEpub\":%s}",
+                           static_cast<unsigned int>(size), isDirectory ? "true" : "false",
+                           isEpub ? "true" : "false");
+    if (written < 0 || static_cast<size_t>(written) >= outputSize - pos) {
+      LOG_DBG("WEB", "Skipping file entry with oversized JSON tail for name: %s", name);
+      return;
+    }
+    pos += static_cast<size_t>(written);
+    output[pos] = '\0';
+
     server->sendContent(output);
   });
   server->sendContent("]");
+  LOG_DBG("WEB", "[MEM] Free heap after file list data: %d bytes", ESP.getFreeHeap());
   // End of streamed response, empty chunk to signal client
   server->sendContent("");
   LOG_DBG("WEB", "Served file listing page for path: %s", currentPath.c_str());
@@ -1580,7 +1649,7 @@ void CrossPointWebServer::handleGetFonts() const {
   bool first = true;
 
   for (const auto& name : families) {
-    JsonDocument doc;
+    StaticJsonDocument<1024> doc;
     doc["name"] = name;
     doc["active"] =
         (SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT && strcmp(SETTINGS.customFontName, name.c_str()) == 0);
