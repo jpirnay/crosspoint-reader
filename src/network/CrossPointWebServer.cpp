@@ -167,8 +167,7 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Setting up routes...");
   server->on("/", HTTP_GET, [this] { handleWelcomePage(); });
   server->on("/systeminfo", HTTP_GET, [this] { handleSystemInfoPage(); });
-  server->on("/files", HTTP_GET, [this] { handeFiles(); });
-  server->on("/fonts", HTTP_GET, [this] { handleFonts(); });
+  server->on("/files", HTTP_GET, [this] { handleFiles(); });
   server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
 
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
@@ -366,18 +365,11 @@ static void sendHtmlContent(WebServer* server, const char* data, size_t len) {
   server->send_P(200, "text/html", data, len);
 }
 
-void CrossPointWebServer::handeFiles() const {
+void CrossPointWebServer::handleFiles() const {
   int32_t t0 = millis();
   sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
   int32_t t1 = millis();
   LOG_DBG("WEB", "Served file manager page in %d ms", t1 - t0);
-}
-
-void CrossPointWebServer::handleFonts() const {
-  int32_t t0 = millis();
-  sendHtmlContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml));
-  int32_t t1 = millis();
-  LOG_DBG("WEB", "Served fonts page in %d ms", t1 - t0);
 }
 
 void CrossPointWebServer::handleWelcomePage() const {
