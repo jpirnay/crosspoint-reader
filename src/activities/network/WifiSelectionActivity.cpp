@@ -1,8 +1,10 @@
 #include "WifiSelectionActivity.h"
 
 #include <GfxRenderer.h>
+#include <HTTPClient.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <NetworkClient.h>
 #include <WiFi.h>
 #include <esp_mac.h>
 
@@ -13,6 +15,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/QrUtils.h"
 
 namespace {
 
@@ -263,6 +266,30 @@ void WifiSelectionActivity::attemptConnection() {
   }
 }
 
+bool WifiSelectionActivity::checkCaptivePortal() {
+  // Probe a known HTTP endpoint that returns 204 on open internet.
+  // Captive portals intercept this and return a redirect (3xx) or 200 with a login page.
+  NetworkClient client;
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  http.setTimeout(5000);
+  if (!http.begin(client, "http://connectivitycheck.gstatic.com/generate_204")) {
+    return false;
+  }
+  const int code = http.GET();
+  String location = http.getLocation();
+  http.end();
+
+  if (code == 204) {
+    return false;  // Open internet, no captive portal
+  }
+
+  // Any redirect or unexpected 200 means a captive portal is intercepting.
+  captivePortalUrl = location.length() > 0 ? location.c_str() : "http://connectivitycheck.gstatic.com/generate_204";
+  LOG_DBG("WIFI", "Captive portal detected (HTTP %d), URL: %s", code, captivePortalUrl.c_str());
+  return true;
+}
+
 void WifiSelectionActivity::checkConnectionStatus() {
   if (state != WifiSelectionState::CONNECTING && state != WifiSelectionState::AUTO_CONNECTING) {
     return;
@@ -283,6 +310,13 @@ void WifiSelectionActivity::checkConnectionStatus() {
     {
       RenderLock lock(*this);
       WIFI_STORE.setLastConnectedSsid(selectedSSID);
+    }
+
+    // Check for captive portal before declaring success
+    if (checkCaptivePortal()) {
+      state = WifiSelectionState::CAPTIVE_PORTAL;
+      requestUpdate();
+      return;
     }
 
     // If we entered a new password, ask if user wants to save it
@@ -399,6 +433,24 @@ void WifiSelectionActivity::loop() {
       startWifiScan();
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       // Skip forgetting, go back to network list
+      startWifiScan();
+    }
+    return;
+  }
+
+  // Handle captive portal state - user must authorize on another device
+  if (state == WifiSelectionState::CAPTIVE_PORTAL) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      // User says they've completed browser auth - proceed as connected
+      if (!usedSavedPassword && !enteredPassword.empty()) {
+        state = WifiSelectionState::SAVE_PROMPT;
+        savePromptSelection = 0;
+        requestUpdate();
+      } else {
+        onComplete(true);
+      }
+    } else if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      WiFi.disconnect();
       startWifiScan();
     }
     return;
@@ -538,6 +590,9 @@ void WifiSelectionActivity::render(RenderLock&&) {
       break;
     case WifiSelectionState::FORGET_PROMPT:
       renderForgetPrompt();
+      break;
+    case WifiSelectionState::CAPTIVE_PORTAL:
+      renderCaptivePortal();
       break;
   }
 
@@ -716,6 +771,90 @@ void WifiSelectionActivity::renderForgetPrompt() const {
 
   // Use centralized button hints
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+void WifiSelectionActivity::renderCaptivePortal() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+
+  const int pageWidth = renderer.getScreenWidth();
+  const int maxWidth = pageWidth - metrics.contentSidePadding * 2;
+  const int lh12 = renderer.getLineHeight(UI_12_FONT_ID);
+  const int lh10 = renderer.getLineHeight(UI_10_FONT_ID);
+  const int lhSmall = renderer.getLineHeight(SMALL_FONT_ID);
+  const int sp = metrics.verticalSpacing;
+  constexpr int QR_SIZE = 320;
+
+  // Pre-compute URL line count so we can vertically centre everything
+  const char* url = captivePortalUrl.c_str();
+  int urlLineCount = 0;
+  {
+    int rem = static_cast<int>(captivePortalUrl.size());
+    int off = 0;
+    while (rem > 0) {
+      int lo = 1, hi = rem;
+      while (lo < hi) {
+        const int mid = (lo + hi + 1) / 2;
+        char tmp[512];
+        snprintf(tmp, sizeof(tmp), "%.*s", mid, url + off);
+        if (renderer.getTextWidth(SMALL_FONT_ID, tmp) <= maxWidth)
+          lo = mid;
+        else
+          hi = mid - 1;
+      }
+      urlLineCount++;
+      off += lo;
+      rem -= lo;
+    }
+  }
+
+  const int totalHeight = lh12 + sp       // title
+                          + lh10          // hint line 1
+                          + lh10 + sp     // hint line 2
+                          + QR_SIZE + sp  // QR code
+                          + urlLineCount * lhSmall;
+
+  // contentRect covers the full screen minus button hints; subtract the header
+  // and sub-header that render() always draws above us.
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight;
+  const int contentBottom = contentRect.y + contentRect.height;
+  int y = contentTop + (contentBottom - contentTop - totalHeight) / 2;
+
+  renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_CAPTIVE_PORTAL_DETECTED), true, EpdFontFamily::BOLD);
+  y += lh12 + sp;
+  renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_CAPTIVE_PORTAL_HINT_1));
+  y += lh10;
+  renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_CAPTIVE_PORTAL_HINT_2));
+  y += lh10 + sp;
+
+  const int qrX = contentRect.x + (contentRect.width - QR_SIZE) / 2;
+  QrUtils::drawQrCode(renderer, Rect{qrX, y, QR_SIZE, QR_SIZE}, captivePortalUrl);
+  y += QR_SIZE + sp;
+
+  // Split URL into as many lines as needed
+  int remaining = static_cast<int>(captivePortalUrl.size());
+  int offset = 0;
+  while (remaining > 0) {
+    int lo = 1, hi = remaining;
+    while (lo < hi) {
+      const int mid = (lo + hi + 1) / 2;
+      char tmp[512];
+      snprintf(tmp, sizeof(tmp), "%.*s", mid, url + offset);
+      if (renderer.getTextWidth(SMALL_FONT_ID, tmp) <= maxWidth)
+        lo = mid;
+      else
+        hi = mid - 1;
+    }
+    char line[512];
+    snprintf(line, sizeof(line), "%.*s", lo, url + offset);
+    renderer.drawCenteredText(SMALL_FONT_ID, y, line);
+    y += lhSmall;
+    offset += lo;
+    remaining -= lo;
+  }
+
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CAPTIVE_PORTAL_DONE), "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 

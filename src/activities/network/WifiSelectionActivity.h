@@ -28,7 +28,8 @@ enum class WifiSelectionState {
   CONNECTED,          // Successfully connected
   SAVE_PROMPT,        // Asking user if they want to save the password
   CONNECTION_FAILED,  // Connection failed
-  FORGET_PROMPT       // Asking user if they want to forget the network
+  FORGET_PROMPT,      // Asking user if they want to forget the network
+  CAPTIVE_PORTAL      // Connected but network requires web-based login
 };
 
 /**
@@ -87,13 +88,17 @@ class WifiSelectionActivity final : public Activity {
   void renderSavePrompt() const;
   void renderConnectionFailed() const;
   void renderForgetPrompt() const;
+  void renderCaptivePortal() const;
 
   void startWifiScan();
   void processWifiScanResults();
   void selectNetwork(int index);
   void attemptConnection();
   void checkConnectionStatus();
+  bool checkCaptivePortal();
   std::string getSignalStrengthIndicator(int32_t rssi) const;
+
+  std::string captivePortalUrl;
 
   void onComplete(bool connected);
 
