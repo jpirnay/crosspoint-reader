@@ -88,9 +88,10 @@ class CrossPointWebServer {
   bool isEpubFile(const String& filename) const;
 
   // Request handlers
-  void handleRoot() const;
+  void handeFiles() const;
   void handleWelcomePage() const;
   void handleSystemInfoPage() const;
+  void handleFonts() const;
   void handleJszip() const;
   void handleNotFound() const;
   void handleStatus() const;
