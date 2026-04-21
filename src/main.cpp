@@ -26,6 +26,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "components/UITheme.h"
+#include "esp_ota_ops.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
@@ -180,6 +181,7 @@ void setupDisplayAndFonts() {
 }
 
 void setup() {
+  esp_ota_mark_app_valid_cancel_rollback();
   HalSystem::begin();
   gpio.begin();
   powerManager.begin();
