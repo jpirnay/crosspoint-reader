@@ -12,7 +12,7 @@ bool g_differentialQuantize = false;
 constexpr bool USE_BRIGHTNESS = true;        // true: apply brightness/gamma adjustments
 constexpr int BRIGHTNESS_BOOST = 0;          // No boost — quality LUT already renders slightly lighter
 constexpr bool GAMMA_CORRECTION = false;     // Gamma curve (brightens midtones)
-constexpr float CONTRAST_FACTOR = 1.2f;      // Contrast boost for quality LUT (softer drive needs more contrast)
+constexpr float CONTRAST_FACTOR = 1.0f;      // No contrast adjustment
 constexpr bool USE_NOISE_DITHERING = false;  // Hash-based noise dithering
 
 // Integer approximation of gamma correction (brightens midtones)
