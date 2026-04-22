@@ -247,6 +247,15 @@ void resetSessionClientForRetry() {
   }
 }
 
+void applyAuthHeaders(esp_http_client_handle_t client) {
+  esp_http_client_set_header(client, "Accept", "application/vnd.koreader.v1+json");
+  esp_http_client_set_header(client, "x-auth-user", KOREADER_STORE.getUsername().c_str());
+  esp_http_client_set_header(client, "x-auth-key", KOREADER_STORE.getMd5Password().c_str());
+
+  std::string credentials = KOREADER_STORE.getUsername() + ":" + KOREADER_STORE.getPassword();
+  esp_http_client_set_header(client, "Authorization", ("Basic " + base64Encode(credentials)).c_str());
+}
+
 // Create configured esp_http_client with small TLS buffers
 esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
                                       esp_http_client_method_t method = HTTP_METHOD_GET) {
@@ -256,14 +265,7 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
     esp_http_client_set_url(g_sessionClient, url);
     esp_http_client_set_method(g_sessionClient, method);
 
-    // KOSync auth headers
-    esp_http_client_set_header(g_sessionClient, "Accept", "application/vnd.koreader.v1+json");
-    esp_http_client_set_header(g_sessionClient, "x-auth-user", KOREADER_STORE.getUsername().c_str());
-    esp_http_client_set_header(g_sessionClient, "x-auth-key", KOREADER_STORE.getMd5Password().c_str());
-
-    std::string credentials = KOREADER_STORE.getUsername() + ":" + KOREADER_STORE.getPassword();
-    std::string authHeader = "Basic " + base64Encode(credentials);
-    esp_http_client_set_header(g_sessionClient, "Authorization", authHeader.c_str());
+    applyAuthHeaders(g_sessionClient);
     return g_sessionClient;
   }
 
@@ -285,15 +287,7 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (!client) return nullptr;
 
-  // KOSync auth headers
-  esp_http_client_set_header(client, "Accept", "application/vnd.koreader.v1+json");
-  esp_http_client_set_header(client, "x-auth-user", KOREADER_STORE.getUsername().c_str());
-  esp_http_client_set_header(client, "x-auth-key", KOREADER_STORE.getMd5Password().c_str());
-
-  // HTTP Basic Auth for Calibre-Web-Automated compatibility
-  std::string credentials = KOREADER_STORE.getUsername() + ":" + KOREADER_STORE.getPassword();
-  std::string authHeader = "Basic " + base64Encode(credentials);
-  esp_http_client_set_header(client, "Authorization", authHeader.c_str());
+  applyAuthHeaders(client);
 
   if (g_keepSessionOpen) {
     g_sessionClient = client;
@@ -302,6 +296,13 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
   return client;
 }
 }  // namespace
+
+// Returns true if credentials are present; logs and returns false otherwise.
+static inline bool hasCredentials() {
+  if (KOREADER_STORE.hasCredentials()) return true;
+  LOG_INF("KOSync", "No credentials configured");
+  return false;
+}
 
 void KOReaderSyncClient::beginPersistentSession() {
   g_keepSessionOpen = true;
@@ -318,16 +319,13 @@ void KOReaderSyncClient::endPersistentSession() {
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::registerUser() {
-  if (!KOREADER_STORE.hasCredentials()) {
-    LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
-  }
+  if (!hasCredentials()) return NO_CREDENTIALS;
 
   beginRequest("register");
   if (!checkHeapForTls()) return NETWORK_ERROR;
 
   std::string url = KOREADER_STORE.getBaseUrl() + "/users/create";
-  LOG_DBG("KOSync", "Registering user: %s (heap: %u, contig: %u)", url.c_str(), lastHeapAtFailure,
+  LOG_INF("KOSync", "Registering user: %s (heap: %u, contig: %u)", url.c_str(), lastHeapAtFailure,
           lastContigHeapAtFailure);
 
   JsonDocument doc;
@@ -390,10 +388,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::registerUser() {
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
-  if (!KOREADER_STORE.hasCredentials()) {
-    LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
-  }
+  if (!hasCredentials()) return NO_CREDENTIALS;
 
   beginRequest("auth");
   if (!checkHeapForTls()) return NETWORK_ERROR;
@@ -436,10 +431,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 
 KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& documentHash,
                                                           KOReaderProgress& outProgress) {
-  if (!KOREADER_STORE.hasCredentials()) {
-    LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
-  }
+  if (!hasCredentials()) return NO_CREDENTIALS;
 
   beginRequest("get progress");
   if (!checkHeapForTls()) return NETWORK_ERROR;
@@ -522,7 +514,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     if (doc["progress"].isNull()) {
       std::string jsonDump;
       serializeJson(doc, jsonDump);
-      LOG_DBG("KOSync", "Empty progress payload — treating as not found | payload=%s", jsonDump.c_str());
+      LOG_INF("KOSync", "Empty progress payload — treating as not found | payload=%s", jsonDump.c_str());
       return NOT_FOUND;
     }
 
@@ -533,23 +525,20 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     outProgress.deviceId = doc["device_id"].as<std::string>();
     outProgress.timestamp = doc["timestamp"].as<int64_t>();
 
-    LOG_DBG("KOSync", "Got progress: %.2f%% at %s", outProgress.percentage * 100, outProgress.progress.c_str());
+    LOG_INF("KOSync", "Got progress: %.2f%% at %s", outProgress.percentage * 100, outProgress.progress.c_str());
     return OK;
   }
 
   if (httpCode == 401) return AUTH_FAILED;
   if (httpCode == 404) {
-    LOG_DBG("KOSync", "GET progress returned 404 for %s - treating as NOT_FOUND", url.c_str());
+    LOG_INF("KOSync", "GET progress returned 404 for %s - treating as NOT_FOUND", url.c_str());
     return NOT_FOUND;
   }
   return SERVER_ERROR;
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress) {
-  if (!KOREADER_STORE.hasCredentials()) {
-    LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
-  }
+  if (!hasCredentials()) return NO_CREDENTIALS;
 
   beginRequest("update progress");
   if (!checkHeapForTls()) return NETWORK_ERROR;
@@ -569,7 +558,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   std::string body;
   serializeJson(doc, body);
 
-  LOG_DBG("KOSync", "Request body: %s", body.c_str());
+  LOG_INF("KOSync", "Request body: %s", body.c_str());
 
   ResponseBuffer buf;
   ResponseBuffer* activeBuf = effectiveResponseBuffer(&buf);
