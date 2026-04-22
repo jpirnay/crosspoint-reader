@@ -107,9 +107,12 @@ typedef struct {
   uint32_t ligatureCp;  ///< Codepoint of the replacement ligature glyph
 } __attribute__((packed)) EpdLigaturePair;
 
+// Forward declaration — IBitmapSource.h provides the full definition.
+class IBitmapSource;
+
 /// Data stored for FONT AS A WHOLE
 typedef struct {
-  const uint8_t* bitmap;                ///< Glyph bitmaps, concatenated
+  const uint8_t* bitmap;                ///< Glyph bitmaps, concatenated (nullptr for custom/SPIFFS fonts)
   const EpdGlyph* glyph;                ///< Glyph array
   const EpdUnicodeInterval* intervals;  ///< Valid unicode intervals for this font
   uint32_t intervalCount;               ///< Number of unicode intervals.
@@ -122,11 +125,12 @@ typedef struct {
   const uint16_t* glyphToGroup;               ///< Per-glyph group ID (nullptr for contiguous-group fonts)
   const EpdKernClassEntry* kernLeftClasses;   ///< Sorted left-side class map (nullptr if none)
   const EpdKernClassEntry* kernRightClasses;  ///< Sorted right-side class map (nullptr if none)
-  const int8_t* kernMatrix;              ///< Flat leftClassCount x rightClassCount matrix, 4.4 fixed-point in pixels
-  uint16_t kernLeftEntryCount;           ///< Entries in kernLeftClasses
-  uint16_t kernRightEntryCount;          ///< Entries in kernRightClasses
-  uint8_t kernLeftClassCount;            ///< Number of distinct left classes (matrix rows)
-  uint8_t kernRightClassCount;           ///< Number of distinct right classes (matrix cols)
-  const EpdLigaturePair* ligaturePairs;  ///< Sorted ligature pair table (nullptr if none)
-  uint32_t ligaturePairCount;            ///< Number of entries in ligaturePairs
+  const int8_t* kernMatrix;               ///< Flat leftClassCount x rightClassCount matrix, 4.4 fixed-point in pixels
+  uint16_t kernLeftEntryCount;            ///< Entries in kernLeftClasses
+  uint16_t kernRightEntryCount;           ///< Entries in kernRightClasses
+  uint8_t kernLeftClassCount;             ///< Number of distinct left classes (matrix rows)
+  uint8_t kernRightClassCount;            ///< Number of distinct right classes (matrix cols)
+  const EpdLigaturePair* ligaturePairs;   ///< Sorted ligature pair table (nullptr if none)
+  uint32_t ligaturePairCount;             ///< Number of entries in ligaturePairs
+  IBitmapSource* bitmapSource = nullptr;  ///< Non-null for custom/SPIFFS fonts; null for built-ins (use bitmap ptr)
 } EpdFontData;

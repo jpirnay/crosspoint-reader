@@ -6,6 +6,8 @@
 
 #include <cstdlib>
 
+#include "IBitmapSource.h"
+
 FontDecompressor::~FontDecompressor() { deinit(); }
 
 bool FontDecompressor::init() {
@@ -36,6 +38,12 @@ void FontDecompressor::freeHotGroup() {
   hotGroupFont = nullptr;
   hotGroupIndex = UINT16_MAX;
   _hotGroupBufUsed = 0;
+  for (auto& e : _glyphCache) {
+    e.fontData = nullptr;
+    e.glyphIndex = UINT32_MAX;
+    e.lastUsed = 0;
+  }
+  _glyphCacheCounter = 0;
 }
 
 uint16_t FontDecompressor::getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex) {
@@ -67,7 +75,23 @@ bool FontDecompressor::decompressGroup(const EpdFontData* fontData, uint16_t gro
   const uint32_t tDecomp = millis();
   inflateReader.init(false);
 
-  inflateReader.setSource(&fontData->bitmap[group.compressedOffset], group.compressedSize);
+  if (fontData->bitmapSource) {
+    // Custom/SPIFFS font: read compressed bytes via IBitmapSource into staging buffer
+    if (group.compressedSize > COMPRESSED_STAGING_SIZE) {
+      LOG_ERR("FDC", "Group %u compressed size %lu exceeds COMPRESSED_STAGING_SIZE %lu", groupIndex,
+              group.compressedSize, COMPRESSED_STAGING_SIZE);
+      return false;
+    }
+    if (!fontData->bitmapSource->read(group.compressedOffset, _compressedStagingBuf, group.compressedSize)) {
+      stats.decompressTimeMs += millis() - tDecomp;
+      LOG_ERR("FDC", "IBitmapSource read failed for group %u", groupIndex);
+      return false;
+    }
+    inflateReader.setSource(_compressedStagingBuf, group.compressedSize);
+  } else {
+    // Built-in font: direct pointer into flash rodata
+    inflateReader.setSource(&fontData->bitmap[group.compressedOffset], group.compressedSize);
+  }
 
   if (!inflateReader.read(outBuf, outSize)) {
     stats.decompressTimeMs += millis() - tDecomp;
@@ -131,7 +155,37 @@ void FontDecompressor::compactSingleGlyph(const uint8_t* alignedSrc, uint8_t* pa
   if (outBits > 0) packedDst[writeIdx] = outByte << (8 - outBits);
 }
 
-// --- getBitmap: page buffer → hot group → decompress ---
+// --- Per-glyph LRU cache helpers ---
+
+int FontDecompressor::glyphCacheLookup(const EpdFontData* fontData, uint32_t glyphIndex) const {
+  // LRU eviction overwrites slots in-place, so probing cannot stop early on an empty entry.
+  // Full scan of 16 entries is negligible (16 comparisons).
+  for (uint8_t i = 0; i < GLYPH_CACHE_SIZE; i++) {
+    const auto& e = _glyphCache[i];
+    if (e.fontData == fontData && e.glyphIndex == glyphIndex) return i;
+  }
+  return -1;
+}
+
+int FontDecompressor::glyphCacheLruSlot() const {
+  uint8_t lru = 0;
+  for (uint8_t i = 1; i < GLYPH_CACHE_SIZE; i++) {
+    if (_glyphCache[i].glyphIndex == UINT32_MAX) return i;  // prefer empty
+    if (_glyphCache[i].lastUsed < _glyphCache[lru].lastUsed) lru = i;
+  }
+  return lru;
+}
+
+void FontDecompressor::glyphCacheStore(const EpdFontData* fontData, uint32_t glyphIndex, const uint8_t* packed) {
+  const int slot = glyphCacheLruSlot();
+  auto& e = _glyphCache[slot];
+  e.fontData = fontData;
+  e.glyphIndex = glyphIndex;
+  e.lastUsed = ++_glyphCacheCounter;
+  memcpy(e.bitmap, packed, fontData->glyph[glyphIndex].dataLength);
+}
+
+// --- getBitmap: page buffer → glyph cache → hot group → decompress ---
 
 const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex) {
   const uint32_t tStart = micros();
@@ -164,6 +218,17 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
         right = mid - 1;
     }
     break;  // Found the right slot but glyph wasn't in it; don't check other slots
+  }
+
+  // Check per-glyph LRU cache (custom/SPIFFS fonts only — built-ins never reach here via hot group)
+  if (fontData->bitmapSource) {
+    const int ci = glyphCacheLookup(fontData, glyphIndex);
+    if (ci >= 0) {
+      _glyphCache[ci].lastUsed = ++_glyphCacheCounter;
+      stats.cacheHits++;
+      stats.getBitmapTimeUs += micros() - tStart;
+      return _glyphCache[ci].bitmap;
+    }
   }
 
   // Fallback: hot group slot
@@ -203,6 +268,12 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
 
   uint32_t alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
   compactSingleGlyph(&_hotGroupBuf[alignedOff], _hotGlyphBuf, glyph->width, glyph->height);
+
+  // Store in per-glyph cache for custom/SPIFFS fonts so repeated requests avoid
+  // re-decompressing the group (e.g. common chars like space, 'e', ligatures).
+  if (fontData->bitmapSource && glyph->dataLength <= HOT_GLYPH_BUF_SIZE) {
+    glyphCacheStore(fontData, glyphIndex, _hotGlyphBuf);
+  }
 
   stats.getBitmapTimeUs += micros() - tStart;
   return _hotGlyphBuf;
@@ -308,7 +379,8 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
   stats.uniqueGroupsAccessed = groupCount;
 
-  // Sort neededGroups by ascending group index so flash reads are sequential.
+  // Sort neededGroups by ascending group index so SPIFFS/flash reads are sequential.
+  // Group data is stored in index order in the file, so index order == file offset order.
   // Uses insertion sort — groupCount is bounded at 128, typically <14 for Latin fonts.
   for (uint8_t i = 1; i < groupCount; i++) {
     uint16_t key = neededGroups[i];

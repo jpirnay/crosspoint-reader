@@ -45,7 +45,7 @@ class CrossPointWebServer {
     std::vector<uint8_t> buffer;
     size_t bufferPos = 0;
 
-    UploadState() { buffer.resize(UPLOAD_BUFFER_SIZE); }
+    UploadState() {}  // buffer allocated lazily on first upload start
   } upload;
 
   CrossPointWebServer();
@@ -88,7 +88,7 @@ class CrossPointWebServer {
   bool isEpubFile(const String& filename) const;
 
   // Request handlers
-  void handleRoot() const;
+  void handleFiles() const;
   void handleWelcomePage() const;
   void handleSystemInfoPage() const;
   void handleJszip() const;
@@ -109,4 +109,12 @@ class CrossPointWebServer {
   void handleSettingsPage() const;
   void handleGetSettings() const;
   void handlePostSettings();
+
+  // Font manager handlers
+  void handleFontManagerPage() const;
+  void handleGetFonts() const;
+  void handleFontUpload(UploadState& state) const;
+  void handleFontUploadPost(UploadState& state) const;
+  void handleFontActivate();
+  void handleFontDelete() const;
 };

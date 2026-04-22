@@ -1,8 +1,10 @@
 #pragma once
 
 #include <Arduino.h>
+#include <HalSpiffs.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <SPIFFS.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
@@ -34,6 +36,9 @@ struct SystemStatus {
   uint64_t sdTotalBytes;
   uint64_t sdUsedBytes;
   uint64_t sdFreeBytes;
+  bool spiffsReady;
+  uint64_t spiffsTotalBytes;
+  uint64_t spiffsUsedBytes;
 
   static SystemStatus collectFast() {
     SystemStatus s;
@@ -67,6 +72,9 @@ struct SystemStatus {
     s.sdTotalBytes = 0;
     s.sdUsedBytes = 0;
     s.sdFreeBytes = 0;
+    s.spiffsReady = HalSpiffs::ready();
+    s.spiffsTotalBytes = s.spiffsReady ? static_cast<uint64_t>(SPIFFS.totalBytes()) : 0;
+    s.spiffsUsedBytes = s.spiffsReady ? static_cast<uint64_t>(SPIFFS.usedBytes()) : 0;
 
     const wifi_mode_t mode = WiFi.getMode();
     const bool isAP = (mode == WIFI_MODE_AP) || (mode == WIFI_MODE_APSTA);

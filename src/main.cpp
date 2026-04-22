@@ -7,13 +7,13 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <HalSpiffs.h>
 #include <HalStorage.h>
 #include <HalSystem.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <SPI.h>
 #include <builtinFonts/all.h>
-#include <esp_ota_ops.h>
 
 #include <cstring>
 
@@ -28,6 +28,7 @@
 #include "activities/ActivityManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "fonts/CustomFontLoader.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -36,6 +37,7 @@ GfxRenderer renderer(display);
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 FontCacheManager fontCacheManager(renderer.getFontMap());
+CustomFontLoader customFontLoader;
 
 // Fonts
 EpdFont bookerly14RegularFont(&bookerly_14_regular);
@@ -89,30 +91,6 @@ EpdFont notosans18BoldItalicFont(&notosans_18_bolditalic);
 EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, &notosans18ItalicFont,
                                    &notosans18BoldItalicFont);
 
-EpdFont opendyslexic8RegularFont(&opendyslexic_8_regular);
-EpdFont opendyslexic8BoldFont(&opendyslexic_8_bold);
-EpdFont opendyslexic8ItalicFont(&opendyslexic_8_italic);
-EpdFont opendyslexic8BoldItalicFont(&opendyslexic_8_bolditalic);
-EpdFontFamily opendyslexic8FontFamily(&opendyslexic8RegularFont, &opendyslexic8BoldFont, &opendyslexic8ItalicFont,
-                                      &opendyslexic8BoldItalicFont);
-EpdFont opendyslexic10RegularFont(&opendyslexic_10_regular);
-EpdFont opendyslexic10BoldFont(&opendyslexic_10_bold);
-EpdFont opendyslexic10ItalicFont(&opendyslexic_10_italic);
-EpdFont opendyslexic10BoldItalicFont(&opendyslexic_10_bolditalic);
-EpdFontFamily opendyslexic10FontFamily(&opendyslexic10RegularFont, &opendyslexic10BoldFont, &opendyslexic10ItalicFont,
-                                       &opendyslexic10BoldItalicFont);
-EpdFont opendyslexic12RegularFont(&opendyslexic_12_regular);
-EpdFont opendyslexic12BoldFont(&opendyslexic_12_bold);
-EpdFont opendyslexic12ItalicFont(&opendyslexic_12_italic);
-EpdFont opendyslexic12BoldItalicFont(&opendyslexic_12_bolditalic);
-EpdFontFamily opendyslexic12FontFamily(&opendyslexic12RegularFont, &opendyslexic12BoldFont, &opendyslexic12ItalicFont,
-                                       &opendyslexic12BoldItalicFont);
-EpdFont opendyslexic14RegularFont(&opendyslexic_14_regular);
-EpdFont opendyslexic14BoldFont(&opendyslexic_14_bold);
-EpdFont opendyslexic14ItalicFont(&opendyslexic_14_italic);
-EpdFont opendyslexic14BoldItalicFont(&opendyslexic_14_bolditalic);
-EpdFontFamily opendyslexic14FontFamily(&opendyslexic14RegularFont, &opendyslexic14BoldFont, &opendyslexic14ItalicFont,
-                                       &opendyslexic14BoldItalicFont);
 #endif  // OMIT_FONTS
 
 EpdFont smallFont(&notosans_8_regular);
@@ -169,10 +147,6 @@ void setupDisplayAndFonts() {
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_8_FONT_ID, opendyslexic8FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_10_FONT_ID, opendyslexic10FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_12_FONT_ID, opendyslexic12FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_14_FONT_ID, opendyslexic14FontFamily);
 #endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
@@ -181,13 +155,6 @@ void setupDisplayAndFonts() {
 }
 
 void setup() {
-  {
-    esp_ota_img_states_t otaState;
-    const esp_partition_t* running = esp_ota_get_running_partition();
-    if (esp_ota_get_state_partition(running, &otaState) == ESP_OK && otaState == ESP_OTA_IMG_PENDING_VERIFY) {
-      esp_ota_mark_app_valid_cancel_rollback();
-    }
-  }
   HalSystem::begin();
   gpio.begin();
   powerManager.begin();
@@ -253,6 +220,28 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   setupDisplayAndFonts();
+
+  // SPIFFS init may take several seconds when a format is required (first
+  // boot or reclaim from foreign contents). The callback fires only then, so
+  // normal boots stay silent and fast.
+  HalSpiffs::init(8, []() {
+    activityManager.goToFullScreenMessage("Preparing font storage... (first boot only)", EpdFontFamily::BOLD);
+    activityManager.loop();
+  });
+
+  // Custom font boot sequence — must run after setupDisplayAndFonts() so renderer is ready.
+  if (HalSpiffs::ready() && SETTINGS.fontFamily == CrossPointSettings::CUSTOM_FONT &&
+      SETTINGS.customFontName[0] != '\0') {
+    const uint8_t pt = SETTINGS.getReaderFontPt();
+    if (customFontLoader.init(SETTINGS.customFontName, pt)) {
+      SETTINGS.cachedCustomFontId = customFontLoader.fontId();
+      customFontLoader.registerWithRenderer(renderer);
+    } else {
+      LOG_ERR("MAIN", "Custom font '%s' failed to load — falling back to Bookerly", SETTINGS.customFontName);
+      SETTINGS.fontFamily = CrossPointSettings::BOOKERLY;
+      SETTINGS.saveToFile();
+    }
+  }
 
   activityManager.goToBoot();
 
