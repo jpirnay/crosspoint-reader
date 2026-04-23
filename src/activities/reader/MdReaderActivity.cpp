@@ -7,11 +7,13 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
 #include <numeric>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
+#include "MdReaderTocSelectionActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
@@ -19,8 +21,18 @@
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;
+constexpr size_t MAX_LINE_LENGTH = 64 * 1024;
+constexpr unsigned long HEADING_SKIP_MS = 700;
 constexpr uint32_t CACHE_MAGIC = 0x4D4B4449;  // "MKDI"
 constexpr uint8_t CACHE_VERSION = 3;          // Bumped: nested list indent + task checkboxes
+
+static std::string flattenHeadingText(const MdParser::ParsedLine& parsed) {
+  std::string result;
+  for (const auto& span : parsed.spans) {
+    result += span.text;
+  }
+  return result;
+}
 }  // namespace
 
 void MdReaderActivity::onEnter() {
@@ -38,9 +50,161 @@ void MdReaderActivity::onEnter() {
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "");
+  RECENT_BOOKS.addBook(filePath, fileName, "", "", "");
 
   requestUpdate();
+}
+
+void MdReaderActivity::assignHeadingPageNumbers() {
+  if (pageOffsets.empty()) {
+    return;
+  }
+  for (auto& heading : headings) {
+    const auto it = std::upper_bound(pageOffsets.begin(), pageOffsets.end(), heading.offset);
+    heading.pageIndex = static_cast<int>((it == pageOffsets.begin()) ? 0 : (it - pageOffsets.begin() - 1));
+  }
+}
+
+int MdReaderActivity::getHeadingIndexForOffset(size_t offset) const {
+  if (headings.empty()) {
+    return -1;
+  }
+  int index = -1;
+  for (int i = 0; i < static_cast<int>(headings.size()); i++) {
+    if (headings[i].offset <= offset) {
+      index = i;
+    } else {
+      break;
+    }
+  }
+  return index;
+}
+
+void MdReaderActivity::jumpToHeading(bool next) {
+  if (headings.empty() || pageOffsets.empty()) {
+    return;
+  }
+
+  const size_t currentOffset = (currentPage >= 0 && currentPage < totalPages) ? pageOffsets[currentPage] : 0;
+  int headingIndex = getHeadingIndexForOffset(currentOffset);
+
+  if (headingIndex < 0) {
+    headingIndex = next ? 0 : static_cast<int>(headings.size()) - 1;
+  } else {
+    headingIndex += next ? 1 : -1;
+  }
+
+  if (headingIndex < 0) {
+    headingIndex = 0;
+  } else if (headingIndex >= static_cast<int>(headings.size())) {
+    headingIndex = static_cast<int>(headings.size()) - 1;
+  }
+
+  const size_t headingOffset = headings[headingIndex].offset;
+  const auto it = std::upper_bound(pageOffsets.begin(), pageOffsets.end(), headingOffset);
+  if (it == pageOffsets.begin()) {
+    currentPage = 0;
+  } else {
+    currentPage = static_cast<int>(it - pageOffsets.begin() - 1);
+  }
+  currentHeadingIndex = headingIndex;
+  requestUpdate();
+}
+
+void MdReaderActivity::scanHeadings() {
+  headings.clear();
+  if (!txt) {
+    return;
+  }
+
+  const size_t fileSize = txt->getFileSize();
+  if (fileSize == 0) {
+    return;
+  }
+
+  std::string pending;
+  size_t pendingOffset = 0;
+  bool hasPending = false;
+  bool inCodeBlock = false;
+
+  pageBuffer.resize(CHUNK_SIZE + 1);
+  size_t offset = 0;
+
+  while (offset < fileSize) {
+    const size_t toRead = std::min(CHUNK_SIZE, fileSize - offset);
+    if (!txt->readContent(pageBuffer.data(), offset, toRead)) {
+      return;
+    }
+    pageBuffer[toRead] = '\0';
+
+    size_t pos = 0;
+    while (pos < toRead) {
+      size_t lineEnd = pos;
+      while (lineEnd < toRead && pageBuffer[lineEnd] != '\n') {
+        lineEnd++;
+      }
+
+      const bool hasNewline = (lineEnd < toRead && pageBuffer[lineEnd] == '\n');
+      const bool fileHasMore = (offset + toRead < fileSize);
+      const size_t rawLen = lineEnd - pos;
+      const bool hasCR = (rawLen > 0 && pageBuffer[pos + rawLen - 1] == '\r');
+      const size_t displayLen = hasCR ? rawLen - 1 : rawLen;
+      const size_t lineStartOffset = hasPending ? pendingOffset : (offset + pos);
+
+      std::string rawLine;
+      if (hasPending) {
+        rawLine = std::move(pending);
+        pending.clear();
+        hasPending = false;
+      }
+      rawLine.append(reinterpret_cast<char*>(pageBuffer.data() + pos), displayLen);
+
+      if (!hasNewline && fileHasMore) {
+        if (!hasPending) {
+          pendingOffset = lineStartOffset;
+        }
+        pending = std::move(rawLine);
+        hasPending = true;
+        break;
+      }
+
+      if (MdParser::isCodeFence(rawLine)) {
+        inCodeBlock = !inCodeBlock;
+      }
+      const MdParser::ParsedLine parsed = MdParser::parseLine(rawLine, inCodeBlock);
+      if (parsed.blockType == MdParser::BlockType::Header1 || parsed.blockType == MdParser::BlockType::Header2 ||
+          parsed.blockType == MdParser::BlockType::Header3) {
+        int level = 1;
+        if (parsed.blockType == MdParser::BlockType::Header2) {
+          level = 2;
+        } else if (parsed.blockType == MdParser::BlockType::Header3) {
+          level = 3;
+        }
+        headings.push_back({lineStartOffset, level, flattenHeadingText(parsed)});
+      }
+
+      pos = hasNewline ? lineEnd + 1 : lineEnd;
+    }
+
+    offset += toRead;
+  }
+
+  if (hasPending) {
+    if (MdParser::isCodeFence(pending)) {
+      inCodeBlock = !inCodeBlock;
+    }
+    const MdParser::ParsedLine parsed = MdParser::parseLine(pending, inCodeBlock);
+    if (parsed.blockType == MdParser::BlockType::Header1 || parsed.blockType == MdParser::BlockType::Header2 ||
+        parsed.blockType == MdParser::BlockType::Header3) {
+      int level = 1;
+      if (parsed.blockType == MdParser::BlockType::Header2) {
+        level = 2;
+      } else if (parsed.blockType == MdParser::BlockType::Header3) {
+        level = 3;
+      }
+      headings.push_back({pendingOffset, level, flattenHeadingText(parsed)});
+    }
+  }
 }
 
 void MdReaderActivity::onExit() {
@@ -68,17 +232,40 @@ void MdReaderActivity::loop() {
     return;
   }
 
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !headings.empty()) {
+    currentHeadingIndex = getHeadingIndexForOffset(pageOffsets[currentPage]);
+    ReaderUtils::enforceExitFullRefresh(renderer);
+    startActivityForResult(
+        std::make_unique<MdReaderTocSelectionActivity>(renderer, mappedInput, headings, currentHeadingIndex),
+        [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            currentPage = std::get<PageResult>(result.data).page;
+            currentHeadingIndex = getHeadingIndexForOffset(pageOffsets[currentPage]);
+            requestUpdate();
+          }
+        });
+    return;
+  }
+
   auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
 
+  const bool headingSkip = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > HEADING_SKIP_MS;
+  if (headingSkip && !headings.empty()) {
+    jumpToHeading(nextTriggered);
+    return;
+  }
+
   if (prevTriggered && currentPage > 0) {
     currentPage--;
+    currentHeadingIndex = getHeadingIndexForOffset(pageOffsets[currentPage]);
     requestUpdate();
   } else if (nextTriggered) {
     if (currentPage < totalPages - 1) {
       currentPage++;
+      currentHeadingIndex = getHeadingIndexForOffset(pageOffsets[currentPage]);
       requestUpdate();
     } else {
       onGoHome();
@@ -107,6 +294,9 @@ void MdReaderActivity::initializeReader() {
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
   const int lineHeight = renderer.getLineHeight(cachedFontId);
 
+  pageBuffer.reserve(CHUNK_SIZE + 1);
+  scanHeadings();
+
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
@@ -116,6 +306,7 @@ void MdReaderActivity::initializeReader() {
     buildPageIndex();
     savePageIndexCache();
   }
+  assignHeadingPageNumbers();
 
   loadProgress();
 
@@ -259,42 +450,57 @@ bool MdReaderActivity::loadPageAtOffset(size_t offset, bool startInCodeBlock, st
     return false;
   }
 
-  size_t chunkSize = std::min(CHUNK_SIZE, fileSize - offset);
-  auto* buffer = static_cast<uint8_t*>(malloc(chunkSize + 1));
-  if (!buffer) {
-    LOG_ERR("MDR", "Failed to allocate %zu bytes", chunkSize);
+  size_t bufferSize = std::min(CHUNK_SIZE, fileSize - offset);
+  pageBuffer.resize(bufferSize + 1);
+  if (!txt->readContent(pageBuffer.data(), offset, bufferSize)) {
     return false;
   }
-
-  if (!txt->readContent(buffer, offset, chunkSize)) {
-    free(buffer);
-    return false;
-  }
-  buffer[chunkSize] = '\0';
+  pageBuffer[bufferSize] = '\0';
 
   bool inCodeBlock = startInCodeBlock;
   size_t pos = 0;
 
-  while (pos < chunkSize && static_cast<int>(outLines.size()) < linesPerPage) {
-    // Find end of line
+  while (pos < bufferSize && static_cast<int>(outLines.size()) < linesPerPage) {
+    // Find end of line and extend the read buffer if we are at chunk boundary.
     size_t lineEnd = pos;
-    while (lineEnd < chunkSize && buffer[lineEnd] != '\n') {
+    while (lineEnd < bufferSize && pageBuffer[lineEnd] != '\n') {
       lineEnd++;
     }
 
-    // Check if we have a complete line
-    bool lineComplete = (lineEnd < chunkSize) || (offset + lineEnd >= fileSize);
+    while (lineEnd == bufferSize && offset + bufferSize < fileSize && bufferSize < MAX_LINE_LENGTH) {
+      size_t extra = std::min(CHUNK_SIZE, fileSize - offset - bufferSize);
+      if (bufferSize + extra > MAX_LINE_LENGTH) {
+        extra = MAX_LINE_LENGTH - bufferSize;
+      }
+      if (extra == 0) {
+        break;
+      }
 
+      pageBuffer.resize(bufferSize + extra + 1);
+      if (!txt->readContent(pageBuffer.data() + bufferSize, offset + bufferSize, extra)) {
+        return false;
+      }
+      bufferSize += extra;
+      pageBuffer[bufferSize] = '\0';
+
+      while (lineEnd < bufferSize && pageBuffer[lineEnd] != '\n') {
+        lineEnd++;
+      }
+    }
+
+    const bool isAtBufferEnd = (lineEnd == bufferSize);
+    const bool isEOF = (offset + bufferSize >= fileSize);
+    const bool lineComplete = (lineEnd < bufferSize) || isEOF || (isAtBufferEnd && bufferSize >= MAX_LINE_LENGTH);
     if (!lineComplete && !outLines.empty()) {
       // Incomplete line at chunk boundary and we already have content — stop here
       break;
     }
 
     size_t lineContentLen = lineEnd - pos;
-    bool hasCR = (lineContentLen > 0 && buffer[pos + lineContentLen - 1] == '\r');
+    bool hasCR = (lineContentLen > 0 && pageBuffer[pos + lineContentLen - 1] == '\r');
     size_t displayLen = hasCR ? lineContentLen - 1 : lineContentLen;
 
-    std::string rawLine(reinterpret_cast<char*>(buffer + pos), displayLen);
+    std::string rawLine(reinterpret_cast<char*>(pageBuffer.data() + pos), displayLen);
 
     // Check for code fence toggle
     bool wasFence = false;
@@ -363,8 +569,6 @@ bool MdReaderActivity::loadPageAtOffset(size_t offset, bool startInCodeBlock, st
   }
 
   endInCodeBlock = inCodeBlock;
-  free(buffer);
-
   return !outLines.empty();
 }
 

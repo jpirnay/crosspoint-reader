@@ -167,7 +167,7 @@ void ReaderActivity::onEnter() {
       return;
     }
     onGoToXtcReader(std::move(xtc));
-  } else if (isMdFile(initialBookPath)) {
+  } else if (isMDFile(initialBookPath)) {
     auto txt = loadTxt(initialBookPath);
     if (!txt) {
       onGoBack();

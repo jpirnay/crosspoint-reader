@@ -17,6 +17,17 @@ static std::string trimLeft(const std::string& s) {
   return s.substr(i);
 }
 
+static bool isWordChar(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
+
+static bool isUnderscoreEmphasis(const std::string& text, size_t pos, size_t count) {
+  if (pos == 0 || pos + count >= text.size()) {
+    return true;
+  }
+  const char before = text[pos - 1];
+  const char after = text[pos + count];
+  return !(isWordChar(before) && isWordChar(after));
+}
+
 static bool isHorizontalRuleLine(const std::string& line) {
   // Must be at least 3 chars of the same marker (-, *, _) with optional spaces
   if (line.size() < 3) return false;
@@ -65,6 +76,11 @@ std::vector<Span> parseInline(const std::string& text) {
 
     // *** or ___ — toggle both bold and italic
     if ((c == '*' || c == '_') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
+      if (c == '_' && !isUnderscoreEmphasis(text, i, 3)) {
+        current.append(3, c);
+        i += 3;
+        continue;
+      }
       emitSpan();
       bold = !bold;
       italic = !italic;
@@ -74,6 +90,11 @@ std::vector<Span> parseInline(const std::string& text) {
 
     // ** or __ — toggle bold
     if ((c == '*' || c == '_') && i + 1 < text.size() && text[i + 1] == c) {
+      if (c == '_' && !isUnderscoreEmphasis(text, i, 2)) {
+        current.append(2, c);
+        i += 2;
+        continue;
+      }
       emitSpan();
       bold = !bold;
       i += 2;
@@ -82,6 +103,11 @@ std::vector<Span> parseInline(const std::string& text) {
 
     // * or _ — toggle italic
     if (c == '*' || c == '_') {
+      if (c == '_' && !isUnderscoreEmphasis(text, i, 1)) {
+        current.push_back(c);
+        i += 1;
+        continue;
+      }
       emitSpan();
       italic = !italic;
       i += 1;

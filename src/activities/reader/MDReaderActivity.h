@@ -8,6 +8,13 @@
 #include "CrossPointSettings.h"
 #include "activities/Activity.h"
 
+struct MdHeading {
+  size_t offset = 0;
+  int level = 1;
+  std::string title;
+  int pageIndex = -1;
+};
+
 class MdReaderActivity final : public Activity {
   std::unique_ptr<Txt> txt;
 
@@ -26,6 +33,11 @@ class MdReaderActivity final : public Activity {
   std::vector<size_t> pageOffsets;
   std::vector<uint8_t> pageCodeBlockState;  // 1 if page starts inside a code block
   std::vector<RenderedLine> currentPageLines;
+  std::vector<uint8_t> pageBuffer;
+
+  std::vector<MdHeading> headings;
+  int currentHeadingIndex = -1;
+
   int linesPerPage = 0;
   int viewportWidth = 0;
   bool initialized = false;
@@ -55,6 +67,13 @@ class MdReaderActivity final : public Activity {
   void savePageIndexCache() const;
   void saveProgress() const;
   void loadProgress();
+  void scanHeadings();
+  void assignHeadingPageNumbers();
+  int getHeadingIndexForOffset(size_t offset) const;
+  void jumpToHeading(bool next);
+  void scanHeadings();
+  int getHeadingIndexForOffset(size_t offset) const;
+  void jumpToHeading(bool next);
 
   // Word-wrap a parsed markdown line into one or more RenderedLines.
   // Returns true if all content was emitted, false if truncated by maxLines.
