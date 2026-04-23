@@ -170,6 +170,17 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   nextWordContinues = false;
 }
 
+// Emit the current page, keeping paragraphLutPerPage and completedPageCount in lockstep.
+// Callers must ensure currentPage is non-null and carries content; the helper resets
+// currentPage to a fresh Page and zeroes currentPageNextY so the caller can keep building.
+void ChapterHtmlSlimParser::emitPage(uint32_t xhtmlByteOffset) {
+  paragraphLutPerPage.push_back({xhtmlByteOffset, xpathParagraphIndex});
+  completePageFn(std::move(currentPage));
+  completedPageCount++;
+  currentPage.reset(new Page());
+  currentPageNextY = 0;
+}
+
 // start a new text block if needed
 void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   nextWordContinues = false;  // New block = new paragraph, no continuation
@@ -198,10 +209,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       if (!pendingAnchorId.empty()) {
         if (std::find(tocAnchors.begin(), tocAnchors.end(), pendingAnchorId) != tocAnchors.end()) {
           if (currentPage && !currentPage->elements.empty()) {
-            completePageFn(std::move(currentPage));
-            completedPageCount++;
-            currentPage.reset(new Page());
-            currentPageNextY = 0;
+            emitPage(lastBodyChildByteOffset);
           }
         }
         anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
@@ -218,10 +226,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   if (!pendingAnchorId.empty() &&
       std::find(tocAnchors.begin(), tocAnchors.end(), pendingAnchorId) != tocAnchors.end()) {
     if (currentPage && !currentPage->elements.empty()) {
-      completePageFn(std::move(currentPage));
-      completedPageCount++;
-      currentPage.reset(new Page());
-      currentPageNextY = 0;
+      emitPage(lastBodyChildByteOffset);
     }
   }
   // Record deferred anchor after previous block is flushed (and any TOC page break)
@@ -593,15 +598,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     (self->currentPageNextY + totalImageHeightWithSpacing > self->viewportHeight)) {
                   LOG_DBG("EHP", "Image page break: currentY=%d needed=%d viewportH=%d", self->currentPageNextY,
                           totalImageHeightWithSpacing, self->viewportHeight);
-                  self->paragraphLutPerPage.push_back({self->lastBodyChildByteOffset, self->xpathParagraphIndex});
-                  self->completePageFn(std::move(self->currentPage));
-                  self->completedPageCount++;
-                  self->currentPage.reset(new Page());
+                  self->emitPage(self->lastBodyChildByteOffset);
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create new page");
                     return;
                   }
-                  self->currentPageNextY = 0;
                 } else if (!self->currentPage) {
                   self->currentPage.reset(new Page());
                   if (!self->currentPage) {
@@ -1423,9 +1424,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
     }
-    paragraphLutPerPage.push_back({0u, xpathParagraphIndex});  // post-parse: no byte offset available
-    completePageFn(std::move(currentPage));
-    completedPageCount++;
+    emitPage(0u);  // post-parse: no byte offset available
     currentPage.reset();
     currentTextBlock.reset();
   }
@@ -1444,11 +1443,7 @@ ParsedText::LineProcessResult ChapterHtmlSlimParser::addLineToPage(std::shared_p
   }
 
   if (currentPageNextY + lineHeight > viewportHeight) {
-    paragraphLutPerPage.push_back({lastBodyChildByteOffset, xpathParagraphIndex});
-    completePageFn(std::move(currentPage));
-    completedPageCount++;
-    currentPage.reset(new Page());
-    currentPageNextY = 0;
+    emitPage(lastBodyChildByteOffset);
   }
 
   const bool noRoomForAnotherLine =
