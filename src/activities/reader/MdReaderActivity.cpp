@@ -359,12 +359,12 @@ bool MdReaderActivity::wordWrapParsedLine(const MdParser::ParsedLine& parsed, in
   }
 
   // Word-wrap across spans
+  const int continuationIndent = indent + listPrefixIndent;
   RenderedLine currentLine;
   currentLine.indent = indent;
   currentLine.isCodeBlock = isCodeBlock;
   int currentWidth = 0;
   bool fullyConsumed = true;
-  bool firstLine = true;
 
   for (size_t si = 0; si < allSpans.size(); si++) {
     const auto& span = allSpans[si];
@@ -421,9 +421,8 @@ bool MdReaderActivity::wordWrapParsedLine(const MdParser::ParsedLine& parsed, in
           }
         } else {
           outLines.push_back(std::move(currentLine));
-          firstLine = false;
           currentLine = RenderedLine();
-          currentLine.indent = indent + (firstLine ? 0 : listPrefixIndent);
+          currentLine.indent = continuationIndent;
           currentLine.isCodeBlock = isCodeBlock;
           currentWidth = 0;
           continue;
@@ -432,9 +431,8 @@ bool MdReaderActivity::wordWrapParsedLine(const MdParser::ParsedLine& parsed, in
 
       currentLine.spans.push_back({remaining.substr(0, breakPos), style});
       outLines.push_back(std::move(currentLine));
-      firstLine = false;
       currentLine = RenderedLine();
-      currentLine.indent = indent + (firstLine ? 0 : listPrefixIndent);
+      currentLine.indent = continuationIndent;
       currentLine.isCodeBlock = isCodeBlock;
       currentWidth = 0;
 
