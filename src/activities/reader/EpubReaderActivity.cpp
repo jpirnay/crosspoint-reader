@@ -16,6 +16,7 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
+#include <cstring>
 #include <memory>
 
 #include "CrossPointSettings.h"
@@ -1507,22 +1508,65 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // grayscale rendering
   // TODO: Only do this if font supports it
   if (SETTINGS.textAntiAliasing) {
-    logReaderMemSnapshot("gray_lsb_begin");
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
-    renderer.copyGrayscaleLsbBuffers();
-    const auto tGrayLsb = millis();
-    logReaderMemSnapshot("gray_lsb_end");
+    const size_t rawPageStride = (renderer.getDisplayWidth() + 3) / 4;
+    const size_t rawPageSize = rawPageStride * static_cast<size_t>(renderer.getDisplayHeight());
+    uint8_t* rawPageBuffer = static_cast<uint8_t*>(malloc(rawPageSize));
+    const bool useRawPageBuffer = rawPageBuffer != nullptr;
+    unsigned long tGrayLsb = 0;
+    unsigned long tGrayMsb = 0;
 
-    // Render and copy to MSB buffer
-    logReaderMemSnapshot("gray_msb_begin");
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
-    renderer.copyGrayscaleMsbBuffers();
-    const auto tGrayMsb = millis();
-    logReaderMemSnapshot("gray_msb_end");
+    if (useRawPageBuffer) {
+      LOG_DBG("GFX", "Raw 2-bit page buffer available (%lu bytes)", (unsigned long)rawPageSize);
+      memset(rawPageBuffer, 0, rawPageSize);
+      renderer.setRawPageTarget(rawPageBuffer, static_cast<uint16_t>(rawPageStride));
+      page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      renderer.clearRawPageTarget();
+
+      const uint8_t darkness = renderer.getTextDarkness();
+      const auto getDrawMask = [&](GfxRenderer::RenderMode mode) {
+        if (darkness >= 3) return static_cast<uint8_t>(0x00);
+        if (mode == GfxRenderer::GRAYSCALE_MSB) {
+          return static_cast<uint8_t>((darkness == 0) ? 0x02 : 0x06);
+        }
+        return static_cast<uint8_t>((darkness >= 2) ? 0x06 : 0x04);
+      };
+
+      logReaderMemSnapshot("gray_lsb_begin");
+      renderer.clearScreen(0xFF);
+      renderer.renderRawPageBufferToFrameBuffer(rawPageBuffer, getDrawMask(GfxRenderer::GRAYSCALE_LSB));
+      renderer.copyGrayscaleLsbBuffers();
+      const auto tGrayLsb = millis();
+      logReaderMemSnapshot("gray_lsb_end");
+
+      // Render and copy to MSB buffer
+      logReaderMemSnapshot("gray_msb_begin");
+      renderer.clearScreen(0xFF);
+      renderer.renderRawPageBufferToFrameBuffer(rawPageBuffer, getDrawMask(GfxRenderer::GRAYSCALE_MSB));
+      renderer.copyGrayscaleMsbBuffers();
+      const auto tGrayMsb = millis();
+      logReaderMemSnapshot("gray_msb_end");
+
+      free(rawPageBuffer);
+    } else {
+      LOG_DBG("GFX", "Raw 2-bit page buffer unavailable (%lu bytes), falling back to render replay",
+              (unsigned long)rawPageSize);
+      logReaderMemSnapshot("gray_lsb_begin");
+      renderer.clearScreen(0x00);
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+      page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      renderer.copyGrayscaleLsbBuffers();
+      const auto tGrayLsb = millis();
+      logReaderMemSnapshot("gray_lsb_end");
+
+      // Render and copy to MSB buffer
+      logReaderMemSnapshot("gray_msb_begin");
+      renderer.clearScreen(0x00);
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+      page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      renderer.copyGrayscaleMsbBuffers();
+      const auto tGrayMsb = millis();
+      logReaderMemSnapshot("gray_msb_end");
+    }
 
     // display grayscale part
     logReaderMemSnapshot("gray_display_begin");

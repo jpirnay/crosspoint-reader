@@ -50,6 +50,8 @@ class GfxRenderer {
   // rendering. See drawMaskFor2BitMode() in GfxRenderer.cpp for the per-level
   // pixel breakdown and a worked example glyph.
   uint8_t* frameBuffer = nullptr;
+  uint8_t* rawPageTarget_ = nullptr;
+  uint16_t rawPageStride_ = 0;
   uint16_t panelWidth = 0;       // set in begin()
   uint16_t panelHeight = 0;      // set in begin()
   uint16_t panelWidthBytes = 0;  // set in begin()
@@ -121,6 +123,7 @@ class GfxRenderer {
 
   // Drawing
   void drawPixel(int x, int y, bool state = true) const;
+  void drawPixelRaw(int x, int y, uint8_t rawValue) const;
   void drawLine(int x1, int y1, int x2, int y2, bool state = true) const;
   void drawLine(int x1, int y1, int x2, int y2, int lineWidth, bool state) const;
   void drawArc(int maxRadius, int cx, int cy, int xDir, int yDir, int lineWidth, bool state) const;
@@ -196,6 +199,12 @@ class GfxRenderer {
   // Low level functions
   uint8_t* getFrameBuffer() const;
   size_t getBufferSize() const;
+  uint8_t* getRawPageBuffer() const { return rawPageTarget_; }
+  uint16_t getRawPageStride() const { return rawPageStride_; }
+  bool hasRawPageTarget() const { return rawPageTarget_ != nullptr; }
+  void setRawPageTarget(uint8_t* buffer, uint16_t strideBytes);
+  void clearRawPageTarget();
+  void renderRawPageBufferToFrameBuffer(const uint8_t* rawBuffer, const uint8_t drawMask) const;
   uint16_t getDisplayWidth() const { return panelWidth; }
   uint16_t getDisplayHeight() const { return panelHeight; }
   uint16_t getDisplayWidthBytes() const { return panelWidthBytes; }
