@@ -33,7 +33,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 }
 
 void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPages) {
-  menuItems.reserve(19);
+  menuItems.reserve(20);
 
   // --- Navigation ---
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_NAVIGATION));
@@ -161,6 +161,8 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
   menuItems.push_back(
       SettingInfo::Action(StrId::STR_DELETE_CACHE, SettingAction::None).withSubmenu(StrId::STR_READER_TOOLS));
   menuItems.push_back(SettingInfo::Action(StrId::STR_GO_HOME_BUTTON, SettingAction::None));
+  menuItems.push_back(
+      SettingInfo::Action(StrId::STR_RENDER_BENCHMARK, SettingAction::None).withSubmenu(StrId::STR_READER_TOOLS));
 }
 
 EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId nameId) {
@@ -195,6 +197,8 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId
       return MenuAction::DISPLAY_QR;
     case StrId::STR_DELETE_CACHE:
       return MenuAction::DELETE_CACHE;
+    case StrId::STR_RENDER_BENCHMARK:
+      return MenuAction::RENDER_BENCHMARK;
     case StrId::STR_GO_HOME_BUTTON:
       return MenuAction::GO_HOME;
     default:

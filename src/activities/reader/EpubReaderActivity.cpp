@@ -7,6 +7,7 @@
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
+#include <FontDecompressor.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -22,6 +23,7 @@
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
+#include "EpubRenderBenchmarkActivity.h"
 #include "GlobalBookmarkIndex.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
@@ -77,6 +79,20 @@ int clampPercent(int percent) {
     return 100;
   }
   return percent;
+}
+
+const char* orientationToString(const GfxRenderer::Orientation orientation) {
+  switch (orientation) {
+    case GfxRenderer::Portrait:
+      return "Portrait";
+    case GfxRenderer::LandscapeClockwise:
+      return "Landscape CW";
+    case GfxRenderer::PortraitInverted:
+      return "Portrait Inverted";
+    case GfxRenderer::LandscapeCounterClockwise:
+      return "Landscape CCW";
+  }
+  return "Unknown";
 }
 
 }  // namespace
@@ -593,6 +609,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       onGoHome();
       return;
     }
+    case EpubReaderMenuActivity::MenuAction::RENDER_BENCHMARK: {
+      runRenderBenchmark();
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::SCREENSHOT: {
       {
         RenderLock lock(*this);
@@ -618,6 +638,202 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
   }
+}
+
+void EpubReaderActivity::runRenderBenchmark() {
+  if (!epub) {
+    return;
+  }
+
+  if (!section) {
+    requestUpdateAndWait();
+    if (!section) {
+      return;
+    }
+  }
+
+  const LastRenderStats startSnapshot = lastRenderStats;
+  BenchmarkAggregate aggregate;
+  auto recordRender = [&aggregate](const LastRenderStats& snapshot) {
+    if (!snapshot.valid) {
+      return;
+    }
+
+    aggregate.renderCount++;
+    aggregate.imagePageCount += snapshot.hadImages ? 1 : 0;
+    aggregate.cacheRebuildCount += snapshot.cacheRebuilt ? 1 : 0;
+    if (snapshot.footnoteCount > aggregate.maxFootnotes) {
+      aggregate.maxFootnotes = snapshot.footnoteCount;
+    }
+
+    aggregate.totalRequestRenderMs += snapshot.requestRenderMs;
+    if (aggregate.renderCount == 1 || snapshot.requestRenderMs < aggregate.minRequestRenderMs) {
+      aggregate.minRequestRenderMs = snapshot.requestRenderMs;
+    }
+    if (snapshot.requestRenderMs > aggregate.maxRequestRenderMs) {
+      aggregate.maxRequestRenderMs = snapshot.requestRenderMs;
+    }
+
+    aggregate.totalRenderMs += snapshot.phases.totalMs;
+    if (aggregate.renderCount == 1 || snapshot.phases.totalMs < aggregate.minRenderMs) {
+      aggregate.minRenderMs = snapshot.phases.totalMs;
+    }
+    if (snapshot.phases.totalMs > aggregate.maxRenderMs) {
+      aggregate.maxRenderMs = snapshot.phases.totalMs;
+    }
+
+    aggregate.totalSectionLoadMs += snapshot.sectionLoadMs;
+    aggregate.totalPageLoadMs += snapshot.pageLoadMs;
+    aggregate.totalPhases.prewarmMs += snapshot.phases.prewarmMs;
+    aggregate.totalPhases.bwRenderMs += snapshot.phases.bwRenderMs;
+    aggregate.totalPhases.displayMs += snapshot.phases.displayMs;
+    aggregate.totalPhases.bwStoreMs += snapshot.phases.bwStoreMs;
+    aggregate.totalPhases.grayLsbMs += snapshot.phases.grayLsbMs;
+    aggregate.totalPhases.grayMsbMs += snapshot.phases.grayMsbMs;
+    aggregate.totalPhases.grayDisplayMs += snapshot.phases.grayDisplayMs;
+    aggregate.totalPhases.bwRestoreMs += snapshot.phases.bwRestoreMs;
+    aggregate.totalPhases.totalMs += snapshot.phases.totalMs;
+
+    aggregate.totalFontCacheHits += snapshot.fontCacheHits;
+    aggregate.totalFontCacheMisses += snapshot.fontCacheMisses;
+    aggregate.totalFontDecompressMs += snapshot.fontDecompressMs;
+    aggregate.totalFontGetBitmapTimeUs += snapshot.fontGetBitmapTimeUs;
+    aggregate.totalFontGetBitmapCalls += snapshot.fontGetBitmapCalls;
+
+    if (aggregate.renderCount == 1 || snapshot.freeHeapAfter < aggregate.minFreeHeapAfter) {
+      aggregate.minFreeHeapAfter = snapshot.freeHeapAfter;
+    }
+    if (snapshot.freeHeapAfter > aggregate.maxFreeHeapAfter) {
+      aggregate.maxFreeHeapAfter = snapshot.freeHeapAfter;
+    }
+  };
+  const unsigned long startTime = millis();
+  int forwardTurns = 0;
+  int backwardTurns = 0;
+
+  for (int i = 0; i < 10; i++) {
+    if (!stepPageState(true)) {
+      break;
+    }
+    requestUpdateAndWait();
+    recordRender(lastRenderStats);
+    forwardTurns++;
+  }
+
+  const unsigned long forwardMs = millis() - startTime;
+  const unsigned long backwardStart = millis();
+
+  for (int i = 0; i < 10; i++) {
+    if (!stepPageState(false)) {
+      break;
+    }
+    requestUpdateAndWait();
+    recordRender(lastRenderStats);
+    backwardTurns++;
+  }
+
+  const unsigned long backwardMs = millis() - backwardStart;
+
+  startActivityForResult(
+      std::make_unique<EpubRenderBenchmarkActivity>(
+          renderer, mappedInput,
+          buildRenderBenchmarkReport(startSnapshot, aggregate, forwardTurns, forwardMs, backwardTurns, backwardMs)),
+      [this](const ActivityResult&) { requestUpdate(); });
+}
+
+std::string EpubReaderActivity::buildRenderBenchmarkReport(const LastRenderStats& startSnapshot,
+                                                           const BenchmarkAggregate& aggregate, const int forwardTurns,
+                                                           const unsigned long forwardMs, const int backwardTurns,
+                                                           const unsigned long backwardMs) const {
+  const LastRenderStats& endSnapshot = lastRenderStats.valid ? lastRenderStats : startSnapshot;
+
+  std::string report;
+  report.reserve(768);
+
+  auto appendLine = [&report](const std::string& line) {
+    if (!report.empty()) {
+      report += '\n';
+    }
+    report += line;
+  };
+
+  appendLine("Forward 10: " + std::to_string(forwardTurns) + " turns in " + std::to_string(forwardMs) + " ms");
+  if (forwardTurns > 0) {
+    appendLine("Forward avg: " + std::to_string(forwardMs / static_cast<unsigned long>(forwardTurns)) + " ms/turn");
+  }
+  appendLine("Backward 10: " + std::to_string(backwardTurns) + " turns in " + std::to_string(backwardMs) + " ms");
+  if (backwardTurns > 0) {
+    appendLine("Backward avg: " + std::to_string(backwardMs / static_cast<unsigned long>(backwardTurns)) + " ms/turn");
+  }
+  appendLine("Measured renders: " + std::to_string(aggregate.renderCount) + ", image pages " +
+             std::to_string(aggregate.imagePageCount) + ", cache rebuilds " +
+             std::to_string(aggregate.cacheRebuildCount));
+
+  appendLine("Start: spine " + std::to_string(startSnapshot.spineIndex) + ", page " +
+             std::to_string(startSnapshot.pageIndex + 1) + "/" + std::to_string(startSnapshot.pageCount));
+  appendLine("End: spine " + std::to_string(endSnapshot.spineIndex) + ", page " +
+             std::to_string(endSnapshot.pageIndex + 1) + "/" + std::to_string(endSnapshot.pageCount));
+  appendLine("Orientation: " +
+             std::string(orientationToString(static_cast<GfxRenderer::Orientation>(endSnapshot.orientation))));
+  appendLine("Viewport: " + std::to_string(endSnapshot.viewportWidth) + "x" +
+             std::to_string(endSnapshot.viewportHeight) + " px, margins T/R/B/L " +
+             std::to_string(endSnapshot.marginTop) + "/" + std::to_string(endSnapshot.marginRight) + "/" +
+             std::to_string(endSnapshot.marginBottom) + "/" + std::to_string(endSnapshot.marginLeft));
+  appendLine("Font: " + std::to_string(endSnapshot.effectiveFontId) + ", embedded CSS " +
+             std::string(endSnapshot.embeddedStyle ? "on" : "off") + ", images " +
+             std::to_string(endSnapshot.imageRendering) + ", AA " +
+             std::string(endSnapshot.textAntiAliasing ? "on" : "off"));
+  appendLine("Last page: images " + std::string(endSnapshot.hadImages ? "yes" : "no") + ", footnotes " +
+             std::to_string(endSnapshot.footnoteCount) + ", cache rebuilt " +
+             std::string(endSnapshot.cacheRebuilt ? "yes" : "no"));
+  if (aggregate.renderCount > 0) {
+    appendLine("Render avg/min/max: request " +
+               std::to_string(aggregate.totalRequestRenderMs / static_cast<unsigned long>(aggregate.renderCount)) +
+               "/" + std::to_string(aggregate.minRequestRenderMs) + "/" + std::to_string(aggregate.maxRequestRenderMs) +
+               " ms, core " +
+               std::to_string(aggregate.totalRenderMs / static_cast<unsigned long>(aggregate.renderCount)) + "/" +
+               std::to_string(aggregate.minRenderMs) + "/" + std::to_string(aggregate.maxRenderMs) + " ms");
+    appendLine("Aggregate loads: section " + std::to_string(aggregate.totalSectionLoadMs) + " ms, page " +
+               std::to_string(aggregate.totalPageLoadMs) + " ms, max footnotes " +
+               std::to_string(aggregate.maxFootnotes));
+    appendLine("Aggregate phases: prewarm " + std::to_string(aggregate.totalPhases.prewarmMs) + ", bw " +
+               std::to_string(aggregate.totalPhases.bwRenderMs) + ", display " +
+               std::to_string(aggregate.totalPhases.displayMs) + ", gray total " +
+               std::to_string(aggregate.totalPhases.grayLsbMs + aggregate.totalPhases.grayMsbMs +
+                              aggregate.totalPhases.grayDisplayMs));
+    appendLine("Aggregate font: hits " + std::to_string(aggregate.totalFontCacheHits) + ", misses " +
+               std::to_string(aggregate.totalFontCacheMisses) + ", decompress " +
+               std::to_string(aggregate.totalFontDecompressMs) + " ms");
+    appendLine("Aggregate glyph lookups: " + std::to_string(aggregate.totalFontGetBitmapCalls) + " calls, " +
+               std::to_string(aggregate.totalFontGetBitmapTimeUs) + " us total");
+    appendLine("Heap after render min/max: " + std::to_string(aggregate.minFreeHeapAfter) + "/" +
+               std::to_string(aggregate.maxFreeHeapAfter));
+  }
+  appendLine("Last render: request " + std::to_string(endSnapshot.requestRenderMs) + " ms, section load " +
+             std::to_string(endSnapshot.sectionLoadMs) + " ms, page load " + std::to_string(endSnapshot.pageLoadMs) +
+             " ms, render total " + std::to_string(endSnapshot.phases.totalMs) + " ms");
+  appendLine("Phases: prewarm " + std::to_string(endSnapshot.phases.prewarmMs) + ", bw " +
+             std::to_string(endSnapshot.phases.bwRenderMs) + ", display " +
+             std::to_string(endSnapshot.phases.displayMs) + ", store " + std::to_string(endSnapshot.phases.bwStoreMs) +
+             ", gray lsb " + std::to_string(endSnapshot.phases.grayLsbMs) + ", gray msb " +
+             std::to_string(endSnapshot.phases.grayMsbMs) + ", gray display " +
+             std::to_string(endSnapshot.phases.grayDisplayMs) + ", restore " +
+             std::to_string(endSnapshot.phases.bwRestoreMs));
+  appendLine("Font cache: hits " + std::to_string(endSnapshot.fontCacheHits) + ", misses " +
+             std::to_string(endSnapshot.fontCacheMisses) + ", decompress " +
+             std::to_string(endSnapshot.fontDecompressMs) + " ms, groups " +
+             std::to_string(endSnapshot.fontUniqueGroups));
+  appendLine("Font buffers: page " + std::to_string(endSnapshot.fontPageBufferBytes) + ", glyph table " +
+             std::to_string(endSnapshot.fontPageGlyphsBytes) + ", hot group " +
+             std::to_string(endSnapshot.fontHotGroupBytes) + ", peak temp " +
+             std::to_string(endSnapshot.fontPeakTempBytes));
+  appendLine("Glyph lookups: " + std::to_string(endSnapshot.fontGetBitmapCalls) + " calls, " +
+             std::to_string(endSnapshot.fontGetBitmapTimeUs) + " us total");
+  appendLine("Heap: before " + std::to_string(endSnapshot.freeHeapBefore) + "/" +
+             std::to_string(endSnapshot.largestFreeBlockBefore) + ", after " +
+             std::to_string(endSnapshot.freeHeapAfter) + "/" + std::to_string(endSnapshot.largestFreeBlockAfter));
+
+  return report;
 }
 
 void EpubReaderActivity::launchKOReaderSync(const SyncLaunchMode mode) {
@@ -903,33 +1119,43 @@ int EpubReaderActivity::getEffectiveReaderFontId() const {
   }
 }
 
-void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
+  if (!epub || !section || section->pageCount <= 0) {
+    return false;
+  }
+
   if (isForwardTurn) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
+    } else if (currentSpineIndex + 1 < epub->getSpineItemsCount()) {
+      RenderLock lock(*this);
+      nextPageNumber = 0;
+      currentSpineIndex++;
+      section.reset();
     } else {
-      // We don't want to delete the section mid-render, so grab the semaphore
-      {
-        RenderLock lock(*this);
-        nextPageNumber = 0;
-        currentSpineIndex++;
-        section.reset();
-      }
+      return false;
     }
   } else {
     if (section->currentPage > 0) {
       section->currentPage--;
     } else if (currentSpineIndex > 0) {
-      // We don't want to delete the section mid-render, so grab the semaphore
-      {
-        RenderLock lock(*this);
-        nextPageNumber = UINT16_MAX;
-        currentSpineIndex--;
-        section.reset();
-      }
+      RenderLock lock(*this);
+      nextPageNumber = UINT16_MAX;
+      currentSpineIndex--;
+      section.reset();
+    } else {
+      return false;
     }
   }
+
   lastPageTurnTime = millis();
+  return true;
+}
+
+void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+  if (!stepPageState(isForwardTurn)) {
+    return;
+  }
   requestUpdate();
 }
 
@@ -979,18 +1205,34 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
+  lastRenderStats = {};
+  lastRenderStats.orientation = static_cast<uint8_t>(renderer.getOrientation());
+  lastRenderStats.marginTop = orientedMarginTop;
+  lastRenderStats.marginRight = orientedMarginRight;
+  lastRenderStats.marginBottom = orientedMarginBottom;
+  lastRenderStats.marginLeft = orientedMarginLeft;
+  lastRenderStats.viewportWidth = viewportWidth;
+  lastRenderStats.viewportHeight = viewportHeight;
+  lastRenderStats.embeddedStyle = getEffectiveEmbeddedStyle();
+  lastRenderStats.imageRendering = getEffectiveImageRendering();
+  lastRenderStats.effectiveFontId = getEffectiveReaderFontId();
+  lastRenderStats.textAntiAliasing = SETTINGS.textAntiAliasing;
+  lastRenderStats.freeHeapBefore = esp_get_free_heap_size();
+  lastRenderStats.largestFreeBlockBefore = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
 
   if (!section) {
-    const bool embeddedStyle = getEffectiveEmbeddedStyle();
-    const uint8_t imageRendering = getEffectiveImageRendering();
+    const bool embeddedStyle = lastRenderStats.embeddedStyle;
+    const uint8_t imageRendering = lastRenderStats.imageRendering;
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
     section = std::make_unique<Section>(epub, currentSpineIndex, renderer);
+    const unsigned long sectionStart = millis();
 
     if (!section->loadSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
       LOG_DBG("ERS", "Cache not found, building...");
+      lastRenderStats.cacheRebuilt = true;
 
       Rect popupRect{};
       const auto progressFn = [this, &popupRect](int progress) {
@@ -1011,6 +1253,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     } else {
       LOG_DBG("ERS", "Cache found, skipping build...");
     }
+    lastRenderStats.sectionLoadMs = millis() - sectionStart;
 
     if (nextPageNumber == UINT16_MAX) {
       section->currentPage = section->pageCount - 1;
@@ -1097,7 +1340,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 
   {
+    const unsigned long pageLoadStart = millis();
     auto p = section->loadPageFromSectionFile();
+    lastRenderStats.pageLoadMs = millis() - pageLoadStart;
     if (!p) {
       LOG_ERR("ERS", "Failed to load page from SD - clearing section cache");
       section->clearCache();
@@ -1110,13 +1355,22 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     // Collect footnotes from the loaded page
     currentPageFootnotes = std::move(p->footnotes);
+    lastRenderStats.hadImages = p->hasImages();
+    lastRenderStats.footnoteCount = static_cast<int>(currentPageFootnotes.size());
+    lastRenderStats.spineIndex = currentSpineIndex;
+    lastRenderStats.pageIndex = section->currentPage;
+    lastRenderStats.pageCount = section->pageCount;
 
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
-    LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
+    lastRenderStats.requestRenderMs = millis() - start;
+    LOG_DBG("ERS", "Rendered page in %dms", lastRenderStats.requestRenderMs);
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  lastRenderStats.freeHeapAfter = esp_get_free_heap_size();
+  lastRenderStats.largestFreeBlockAfter = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  lastRenderStats.valid = true;
 
   if (pendingScreenshot) {
     pendingScreenshot = false;
@@ -1200,6 +1454,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing;
   bool forceHalfRefreshThisPage = pendingHalfRefreshAfterImagePage && SETTINGS.halfRefreshAfterImagePage;
   pendingHalfRefreshAfterImagePage = false;
+  lastRenderStats.imagePageWithAA = imagePageWithAA;
+  lastRenderStats.forcedHalfRefresh = forceHalfRefreshThisPage;
 
   logReaderMemSnapshot("before_bw_render");
   page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
@@ -1283,6 +1539,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     logReaderMemSnapshot("bw_restore_end");
 
     const auto tEnd = millis();
+    lastRenderStats.usedGrayscale = true;
+    lastRenderStats.phases = {tPrewarm - t0,           tBwRender - tPrewarm,      tDisplay - tBwRender,
+                              tBwStore - tDisplay,     tGrayLsb - tBwStore,       tGrayMsb - tGrayLsb,
+                              tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0};
     LOG_DBG("ERS",
             "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums "
             "gray_lsb=%lums gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
@@ -1296,10 +1556,30 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     logReaderMemSnapshot("bw_restore_end");
 
     const auto tEnd = millis();
+    lastRenderStats.usedGrayscale = false;
+    lastRenderStats.phases = {
+        tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, 0, 0, 0, tBwRestore - tBwStore,
+        tEnd - t0};
     LOG_DBG("ERS",
             "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_restore=%lums total=%lums",
             tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tBwRestore - tBwStore,
             tEnd - t0);
+  }
+
+  if (auto* cacheManager = renderer.getFontCacheManager()) {
+    if (auto* decompressor = cacheManager->getDecompressor()) {
+      const auto& stats = decompressor->getStats();
+      lastRenderStats.fontCacheHits = stats.cacheHits;
+      lastRenderStats.fontCacheMisses = stats.cacheMisses;
+      lastRenderStats.fontDecompressMs = stats.decompressTimeMs;
+      lastRenderStats.fontUniqueGroups = stats.uniqueGroupsAccessed;
+      lastRenderStats.fontPageBufferBytes = stats.pageBufferBytes;
+      lastRenderStats.fontPageGlyphsBytes = stats.pageGlyphsBytes;
+      lastRenderStats.fontHotGroupBytes = stats.hotGroupBytes;
+      lastRenderStats.fontPeakTempBytes = stats.peakTempBytes;
+      lastRenderStats.fontGetBitmapTimeUs = stats.getBitmapTimeUs;
+      lastRenderStats.fontGetBitmapCalls = stats.getBitmapCalls;
+    }
   }
 }
 

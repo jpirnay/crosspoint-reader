@@ -28,7 +28,8 @@ class EpubReaderMenuActivity final : public MenuListActivity {
     PUSH_LOCAL,
     STARRED_PAGES,
     STAR_PAGE,
-    DELETE_CACHE
+    DELETE_CACHE,
+    RENDER_BENCHMARK
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,

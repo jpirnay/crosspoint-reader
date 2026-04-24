@@ -38,6 +38,81 @@ class EpubReaderActivity final : public Activity {
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   bool pendingHalfRefreshAfterImagePage = false;
+  struct RenderPhaseStats {
+    unsigned long prewarmMs = 0UL;
+    unsigned long bwRenderMs = 0UL;
+    unsigned long displayMs = 0UL;
+    unsigned long bwStoreMs = 0UL;
+    unsigned long grayLsbMs = 0UL;
+    unsigned long grayMsbMs = 0UL;
+    unsigned long grayDisplayMs = 0UL;
+    unsigned long bwRestoreMs = 0UL;
+    unsigned long totalMs = 0UL;
+  };
+  struct LastRenderStats {
+    bool valid = false;
+    bool cacheRebuilt = false;
+    bool usedGrayscale = false;
+    bool hadImages = false;
+    bool imagePageWithAA = false;
+    bool forcedHalfRefresh = false;
+    uint8_t orientation = 0;
+    uint8_t imageRendering = 0;
+    bool embeddedStyle = false;
+    bool textAntiAliasing = false;
+    int effectiveFontId = 0;
+    int spineIndex = 0;
+    int pageIndex = 0;
+    int pageCount = 0;
+    int footnoteCount = 0;
+    int marginTop = 0;
+    int marginRight = 0;
+    int marginBottom = 0;
+    int marginLeft = 0;
+    uint16_t viewportWidth = 0;
+    uint16_t viewportHeight = 0;
+    unsigned long sectionLoadMs = 0UL;
+    unsigned long pageLoadMs = 0UL;
+    unsigned long requestRenderMs = 0UL;
+    RenderPhaseStats phases;
+    uint32_t freeHeapBefore = 0;
+    uint32_t largestFreeBlockBefore = 0;
+    uint32_t freeHeapAfter = 0;
+    uint32_t largestFreeBlockAfter = 0;
+    uint32_t fontCacheHits = 0;
+    uint32_t fontCacheMisses = 0;
+    uint32_t fontDecompressMs = 0;
+    uint16_t fontUniqueGroups = 0;
+    uint32_t fontPageBufferBytes = 0;
+    uint32_t fontPageGlyphsBytes = 0;
+    uint32_t fontHotGroupBytes = 0;
+    uint32_t fontPeakTempBytes = 0;
+    uint32_t fontGetBitmapTimeUs = 0;
+    uint32_t fontGetBitmapCalls = 0;
+  };
+  struct BenchmarkAggregate {
+    int renderCount = 0;
+    int imagePageCount = 0;
+    int cacheRebuildCount = 0;
+    int maxFootnotes = 0;
+    unsigned long totalRequestRenderMs = 0UL;
+    unsigned long minRequestRenderMs = 0UL;
+    unsigned long maxRequestRenderMs = 0UL;
+    unsigned long totalRenderMs = 0UL;
+    unsigned long minRenderMs = 0UL;
+    unsigned long maxRenderMs = 0UL;
+    unsigned long totalSectionLoadMs = 0UL;
+    unsigned long totalPageLoadMs = 0UL;
+    RenderPhaseStats totalPhases;
+    uint32_t totalFontCacheHits = 0;
+    uint32_t totalFontCacheMisses = 0;
+    uint32_t totalFontDecompressMs = 0;
+    uint32_t totalFontGetBitmapTimeUs = 0;
+    uint32_t totalFontGetBitmapCalls = 0;
+    uint32_t minFreeHeapAfter = 0;
+    uint32_t maxFreeHeapAfter = 0;
+  };
+  LastRenderStats lastRenderStats;
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
@@ -95,7 +170,12 @@ class EpubReaderActivity final : public Activity {
   bool getEffectiveEmbeddedStyle() const;
   uint8_t getEffectiveImageRendering() const;
   int getEffectiveReaderFontId() const;
+  bool stepPageState(bool isForwardTurn);
   void pageTurn(bool isForwardTurn);
+  void runRenderBenchmark();
+  std::string buildRenderBenchmarkReport(const LastRenderStats& startSnapshot, const BenchmarkAggregate& aggregate,
+                                         int forwardTurns, unsigned long forwardMs, int backwardTurns,
+                                         unsigned long backwardMs) const;
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
