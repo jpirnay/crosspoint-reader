@@ -148,6 +148,8 @@ void EpubReaderActivity::onEnter() {
   const RecentBook currentBook = RECENT_BOOKS.getBookByPath(epub->getPath());
   bookEmbeddedStyleOverride = currentBook.embeddedStyleOverride;
   bookImageRenderingOverride = currentBook.imageRenderingOverride;
+  bookFontFamilyOverride = currentBook.fontFamilyOverride;
+  bookFontSizeOverride = currentBook.fontSizeOverride;
   logReaderMemSnapshot("onEnter_after_recent_books");
 
   // Trigger first update
@@ -239,22 +241,23 @@ void EpubReaderActivity::loop() {
     const bool isCurrentPageStarred = section && bookmarkStore.has(static_cast<uint16_t>(currentSpineIndex),
                                                                    static_cast<uint16_t>(section->currentPage));
     ReaderUtils::enforceExitFullRefresh(renderer);
-    startActivityForResult(
-        std::make_unique<EpubReaderMenuActivity>(
-            renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent, SETTINGS.orientation,
-            !currentPageFootnotes.empty(), bookEmbeddedStyleOverride, bookImageRenderingOverride, SETTINGS.textDarkness,
-            !bookmarkStore.isEmpty(), isCurrentPageStarred),
-        [this](const ActivityResult& result) {
-          // Always apply orientation/darkness change even if the menu was cancelled
-          const auto& menu = std::get<MenuResult>(result.data);
-          applyOrientation(menu.orientation);
-          applyTextDarkness(menu.textDarkness);
-          toggleAutoPageTurn(menu.pageTurnOption);
-          applyBookReaderOverrides(menu.embeddedStyleOverride, menu.imageRenderingOverride);
-          if (!result.isCancelled) {
-            onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
-          }
-        });
+    startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
+                               renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
+                               SETTINGS.orientation, !currentPageFootnotes.empty(), bookEmbeddedStyleOverride,
+                               bookImageRenderingOverride, bookFontFamilyOverride, bookFontSizeOverride,
+                               SETTINGS.textDarkness, !bookmarkStore.isEmpty(), isCurrentPageStarred),
+                           [this](const ActivityResult& result) {
+                             // Always apply orientation/darkness change even if the menu was cancelled
+                             const auto& menu = std::get<MenuResult>(result.data);
+                             applyOrientation(menu.orientation);
+                             applyTextDarkness(menu.textDarkness);
+                             toggleAutoPageTurn(menu.pageTurnOption);
+                             applyBookReaderOverrides(menu.embeddedStyleOverride, menu.imageRenderingOverride,
+                                                      menu.fontFamilyOverride, menu.fontSizeOverride);
+                             if (!result.isCancelled) {
+                               onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
+                             }
+                           });
   }
 
   // Long press BACK (1s+) goes to home screen
@@ -814,18 +817,23 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
 }
 
 void EpubReaderActivity::applyBookReaderOverrides(const int8_t embeddedStyleOverride,
-                                                  const int8_t imageRenderingOverride) {
+                                                  const int8_t imageRenderingOverride, const int8_t fontFamilyOverride,
+                                                  const int8_t fontSizeOverride) {
   if (!epub) {
     return;
   }
 
-  if (bookEmbeddedStyleOverride == embeddedStyleOverride && bookImageRenderingOverride == imageRenderingOverride) {
+  if (bookEmbeddedStyleOverride == embeddedStyleOverride && bookImageRenderingOverride == imageRenderingOverride &&
+      bookFontFamilyOverride == fontFamilyOverride && bookFontSizeOverride == fontSizeOverride) {
     return;
   }
 
   bookEmbeddedStyleOverride = embeddedStyleOverride;
   bookImageRenderingOverride = imageRenderingOverride;
-  RECENT_BOOKS.setReaderOverrides(epub->getPath(), bookEmbeddedStyleOverride, bookImageRenderingOverride);
+  bookFontFamilyOverride = fontFamilyOverride;
+  bookFontSizeOverride = fontSizeOverride;
+  RECENT_BOOKS.setReaderOverrides(epub->getPath(), bookEmbeddedStyleOverride, bookImageRenderingOverride,
+                                  bookFontFamilyOverride, bookFontSizeOverride);
 
   RenderLock lock(*this);
   if (section) {
@@ -848,6 +856,51 @@ uint8_t EpubReaderActivity::getEffectiveImageRendering() const {
     return static_cast<uint8_t>(bookImageRenderingOverride);
   }
   return SETTINGS.imageRendering;
+}
+
+int EpubReaderActivity::getEffectiveReaderFontId() const {
+  const uint8_t fontFamily =
+      (bookFontFamilyOverride >= 0) ? static_cast<uint8_t>(bookFontFamilyOverride) : SETTINGS.fontFamily;
+  const uint8_t fontSize = (bookFontSizeOverride >= 0) ? static_cast<uint8_t>(bookFontSizeOverride) : SETTINGS.fontSize;
+  switch (fontFamily) {
+    case CrossPointSettings::NOTOSANS:
+      switch (fontSize) {
+        case CrossPointSettings::SMALL:
+          return NOTOSANS_12_FONT_ID;
+        case CrossPointSettings::MEDIUM:
+        default:
+          return NOTOSANS_14_FONT_ID;
+        case CrossPointSettings::LARGE:
+          return NOTOSANS_16_FONT_ID;
+        case CrossPointSettings::EXTRA_LARGE:
+          return NOTOSANS_18_FONT_ID;
+      }
+    case CrossPointSettings::OPENDYSLEXIC:
+      switch (fontSize) {
+        case CrossPointSettings::SMALL:
+          return OPENDYSLEXIC_8_FONT_ID;
+        case CrossPointSettings::MEDIUM:
+        default:
+          return OPENDYSLEXIC_10_FONT_ID;
+        case CrossPointSettings::LARGE:
+          return OPENDYSLEXIC_12_FONT_ID;
+        case CrossPointSettings::EXTRA_LARGE:
+          return OPENDYSLEXIC_14_FONT_ID;
+      }
+    case CrossPointSettings::BOOKERLY:
+    default:
+      switch (fontSize) {
+        case CrossPointSettings::SMALL:
+          return BOOKERLY_12_FONT_ID;
+        case CrossPointSettings::MEDIUM:
+        default:
+          return BOOKERLY_14_FONT_ID;
+        case CrossPointSettings::LARGE:
+          return BOOKERLY_16_FONT_ID;
+        case CrossPointSettings::EXTRA_LARGE:
+          return BOOKERLY_18_FONT_ID;
+      }
+  }
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
@@ -934,7 +987,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
     section = std::make_unique<Section>(epub, currentSpineIndex, renderer);
 
-    if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
+    if (!section->loadSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
       LOG_DBG("ERS", "Cache not found, building...");
@@ -947,7 +1000,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         GUI.fillPopupProgress(renderer, popupRect, progress);
       };
 
-      if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
+      if (!section->createSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering,
                                       progressFn)) {
@@ -1090,14 +1143,14 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   const uint8_t imageRendering = getEffectiveImageRendering();
 
   Section nextSection(epub, nextSpineIndex, renderer);
-  if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
+  if (nextSection.loadSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
     return;
   }
 
   LOG_DBG("ERS", "Silently indexing next chapter: %d", nextSpineIndex);
-  if (!nextSection.createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
+  if (!nextSection.createSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                      viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
@@ -1133,7 +1186,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   const uint32_t heapBefore = esp_get_free_heap_size();
   auto scope = fcm->createPrewarmScope();
-  page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);  // scan pass
+  page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);  // scan pass
   scope.endScanAndPrewarm();
   const uint32_t heapAfter = esp_get_free_heap_size();
   fcm->logStats("prewarm");
@@ -1149,7 +1202,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   pendingHalfRefreshAfterImagePage = false;
 
   logReaderMemSnapshot("before_bw_render");
-  page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+  page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
@@ -1168,7 +1221,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
-      page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -1201,7 +1254,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     logReaderMemSnapshot("gray_lsb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
     renderer.copyGrayscaleLsbBuffers();
     const auto tGrayLsb = millis();
     logReaderMemSnapshot("gray_lsb_end");
@@ -1210,7 +1263,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     logReaderMemSnapshot("gray_msb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
     renderer.copyGrayscaleMsbBuffers();
     const auto tGrayMsb = millis();
     logReaderMemSnapshot("gray_msb_end");
@@ -1385,16 +1438,63 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
 
   // Load or rebuild the section cache. Rebuilding is needed when the cache is missing or stale
   // (e.g. after a firmware update). A no-op popup callback avoids any UI during sleep preparation.
+  const RecentBook currentBook = RECENT_BOOKS.getBookByPath(filePath);
+  const uint8_t effectiveFontFamily =
+      currentBook.fontFamilyOverride >= 0 ? static_cast<uint8_t>(currentBook.fontFamilyOverride) : SETTINGS.fontFamily;
+  const uint8_t effectiveFontSize =
+      currentBook.fontSizeOverride >= 0 ? static_cast<uint8_t>(currentBook.fontSizeOverride) : SETTINGS.fontSize;
+  auto getEffectiveFontId = [&](uint8_t family, uint8_t size) {
+    switch (family) {
+      case CrossPointSettings::NOTOSANS:
+        switch (size) {
+          case CrossPointSettings::SMALL:
+            return NOTOSANS_12_FONT_ID;
+          case CrossPointSettings::LARGE:
+            return NOTOSANS_16_FONT_ID;
+          case CrossPointSettings::EXTRA_LARGE:
+            return NOTOSANS_18_FONT_ID;
+          case CrossPointSettings::MEDIUM:
+          default:
+            return NOTOSANS_14_FONT_ID;
+        }
+      case CrossPointSettings::OPENDYSLEXIC:
+        switch (size) {
+          case CrossPointSettings::SMALL:
+            return OPENDYSLEXIC_8_FONT_ID;
+          case CrossPointSettings::LARGE:
+            return OPENDYSLEXIC_12_FONT_ID;
+          case CrossPointSettings::EXTRA_LARGE:
+            return OPENDYSLEXIC_14_FONT_ID;
+          case CrossPointSettings::MEDIUM:
+          default:
+            return OPENDYSLEXIC_10_FONT_ID;
+        }
+      case CrossPointSettings::BOOKERLY:
+      default:
+        switch (size) {
+          case CrossPointSettings::SMALL:
+            return BOOKERLY_12_FONT_ID;
+          case CrossPointSettings::LARGE:
+            return BOOKERLY_16_FONT_ID;
+          case CrossPointSettings::EXTRA_LARGE:
+            return BOOKERLY_18_FONT_ID;
+          case CrossPointSettings::MEDIUM:
+          default:
+            return BOOKERLY_14_FONT_ID;
+        }
+    }
+  };
+
   auto section = std::make_unique<Section>(epub, spineIndex, renderer);
-  if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                SETTINGS.imageRendering)) {
+  if (!section->loadSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize),
+                                SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+                                SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
+                                SETTINGS.embeddedStyle, SETTINGS.imageRendering)) {
     LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding", spineIndex);
-    if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                    SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                    viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                    SETTINGS.imageRendering)) {
+    if (!section->createSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize),
+                                    SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+                                    SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
+                                    SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering)) {
       LOG_ERR("SLP", "EPUB: failed to rebuild section cache for spine %d", spineIndex);
       return false;
     }
@@ -1410,7 +1510,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
 
   renderer.clearScreen();
-  page->render(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop);
+  page->render(renderer, getEffectiveFontId(effectiveFontFamily, effectiveFontSize), marginLeft, marginTop);
   // No displayBuffer call — caller (SleepActivity) handles that after compositing the overlay
   return true;
 }

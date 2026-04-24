@@ -4,6 +4,7 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "settings/SettingsSubmenuActivity.h"
 
 void MenuListActivity::initMenuList() {
   const int count = static_cast<int>(menuItems.size());
@@ -16,6 +17,10 @@ void MenuListActivity::initMenuList() {
 
 void MenuListActivity::onEnter() {
   Activity::onEnter();
+  if (!submenusPrepared) {
+    prepareSubmenus();
+    submenusPrepared = true;
+  }
   initMenuList();
   requestUpdate();
 }
@@ -37,6 +42,10 @@ void MenuListActivity::toggleCurrentItem() {
   if (item.isSeparator) return;
 
   if (item.type == SettingType::ACTION) {
+    if (item.action == SettingAction::Submenu) {
+      openSubmenu(item);
+      return;
+    }
     onActionSelected(selectedIndex);
     return;
   }
@@ -53,6 +62,18 @@ void MenuListActivity::drawMenuList(const Rect& rect) {
   GUI.drawList(
       renderer, rect, count, selectedIndex, [this](int index) { return menuItems[index].getTitle(); }, nullptr, nullptr,
       [this](int index) { return getItemValueString(index); }, true);
+}
+
+void MenuListActivity::prepareSubmenus() { SettingInfo::prepareSubmenus(menuItems, submenuData); }
+
+void MenuListActivity::openSubmenu(const SettingInfo& submenuEntry) {
+  auto it = std::find_if(submenuData.begin(), submenuData.end(),
+                         [&submenuEntry](const SettingInfo::SubmenuData& d) { return d.id == submenuEntry.nameId; });
+  if (it == submenuData.end()) return;
+
+  startActivityForResult(
+      std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, submenuEntry.nameId, it->items),
+      [this](const ActivityResult&) { requestUpdate(); });
 }
 
 void MenuListActivity::loop() {

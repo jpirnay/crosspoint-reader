@@ -24,6 +24,8 @@ void RecentBooksStore::addBook(const std::string& path, const std::string& title
                                const std::string& series, const std::string& coverBmpPath) {
   int8_t embeddedStyleOverride = -1;
   int8_t imageRenderingOverride = -1;
+  int8_t fontFamilyOverride = -1;
+  int8_t fontSizeOverride = -1;
 
   // Remove existing entry if present
   auto it =
@@ -31,12 +33,14 @@ void RecentBooksStore::addBook(const std::string& path, const std::string& title
   if (it != recentBooks.end()) {
     embeddedStyleOverride = it->embeddedStyleOverride;
     imageRenderingOverride = it->imageRenderingOverride;
+    fontFamilyOverride = it->fontFamilyOverride;
+    fontSizeOverride = it->fontSizeOverride;
     recentBooks.erase(it);
   }
 
   // Add to front
-  recentBooks.insert(recentBooks.begin(),
-                     {path, title, author, series, coverBmpPath, embeddedStyleOverride, imageRenderingOverride});
+  recentBooks.insert(recentBooks.begin(), {path, title, author, series, coverBmpPath, embeddedStyleOverride,
+                                           imageRenderingOverride, fontFamilyOverride, fontSizeOverride});
 
   // Trim to max size
   if (recentBooks.size() > MAX_RECENT_BOOKS) {
@@ -85,9 +89,23 @@ bool RecentBooksStore::setReaderOverrides(const std::string& path, const int8_t 
   if (it == recentBooks.end()) {
     return false;
   }
+  return setReaderOverrides(path, embeddedStyleOverride, imageRenderingOverride, it->fontFamilyOverride,
+                            it->fontSizeOverride);
+}
+
+bool RecentBooksStore::setReaderOverrides(const std::string& path, const int8_t embeddedStyleOverride,
+                                          const int8_t imageRenderingOverride, const int8_t fontFamilyOverride,
+                                          const int8_t fontSizeOverride) {
+  auto it =
+      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
+  if (it == recentBooks.end()) {
+    return false;
+  }
 
   it->embeddedStyleOverride = embeddedStyleOverride;
   it->imageRenderingOverride = imageRenderingOverride;
+  it->fontFamilyOverride = fontFamilyOverride;
+  it->fontSizeOverride = fontSizeOverride;
   return saveToFile();
 }
 

@@ -1,7 +1,9 @@
 #pragma once
 #include <I18n.h>
 
+#include <algorithm>
 #include <cassert>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -87,6 +89,13 @@ struct SettingInfo {
     assert(stringSetter && "SettingInfo::callStringSetter requires a non-null stringSetter");
     stringSetter(accessorCtx, v);
   }
+
+  struct SubmenuData {
+    StrId id = StrId::STR_NONE_OPT;
+    std::vector<SettingInfo> items;
+  };
+
+  static void prepareSubmenus(std::vector<SettingInfo>& items, std::vector<SubmenuData>& submenuData);
 
   SettingInfo& withObfuscated() {
     obfuscated = true;
@@ -237,3 +246,41 @@ struct SettingInfo {
   // not the SettingInfo itself.
   void toggleValue() const;
 };
+
+inline void SettingInfo::prepareSubmenus(std::vector<SettingInfo>& items,
+                                         std::vector<SettingInfo::SubmenuData>& submenuData) {
+  if (items.empty()) return;
+
+  std::vector<SettingInfo> preparedItems;
+  std::vector<SubmenuData> preparedSubmenus;
+  preparedItems.reserve(items.size());
+
+  for (auto& item : items) {
+    if (item.submenu == StrId::STR_NONE_OPT) {
+      preparedItems.push_back(std::move(item));
+      continue;
+    }
+
+    auto it = std::find_if(preparedSubmenus.begin(), preparedSubmenus.end(),
+                           [&item](const SubmenuData& d) { return d.id == item.submenu; });
+    if (it == preparedSubmenus.end()) {
+      preparedItems.push_back(SettingInfo::SubmenuEntry(item.submenu));
+      preparedSubmenus.push_back({item.submenu, {}});
+      it = preparedSubmenus.end() - 1;
+    }
+    it->items.push_back(std::move(item));
+  }
+
+  items.swap(preparedItems);
+
+  for (auto& submenu : preparedSubmenus) {
+    auto it = std::find_if(submenuData.begin(), submenuData.end(),
+                           [&submenu](const SubmenuData& d) { return d.id == submenu.id; });
+    if (it == submenuData.end()) {
+      submenuData.push_back(std::move(submenu));
+    } else {
+      it->items.insert(it->items.end(), std::make_move_iterator(submenu.items.begin()),
+                       std::make_move_iterator(submenu.items.end()));
+    }
+  }
+}

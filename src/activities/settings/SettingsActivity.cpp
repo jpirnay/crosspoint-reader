@@ -41,33 +41,19 @@ void SettingsActivity::onEnter() {
   StrId lastControlsSub = StrId::STR_NONE_OPT;
   StrId lastSystemSub = StrId::STR_NONE_OPT;
 
-  // Shared placement logic — locates submenu target or inserts separator.
-  // Returns the vector the caller should push into (either `vec` or a submenu's items).
-  auto locateTarget = [this](std::vector<SettingInfo>& vec, StrId& lastSub,
-                             const SettingInfo& s) -> std::vector<SettingInfo>* {
-    if (s.submenu != StrId::STR_NONE_OPT) {
-      auto it = std::find_if(submenuData.begin(), submenuData.end(),
-                             [&s](const SubmenuData& d) { return d.id == s.submenu; });
-      if (it == submenuData.end()) {
-        vec.push_back(SettingInfo::SubmenuEntry(s.submenu));
-        submenuData.push_back({s.submenu, {}});
-        it = submenuData.end() - 1;
-      }
-      return &it->items;
-    }
+  auto addTo = [](std::vector<SettingInfo>& vec, StrId& lastSub, const SettingInfo& s) {
     if (s.subcategory != StrId::STR_NONE_OPT && s.subcategory != lastSub) {
       vec.push_back(SettingInfo::Separator(s.subcategory));
       lastSub = s.subcategory;
     }
-    return &vec;
+    vec.push_back(s);
   };
-
-  auto addTo = [&locateTarget](std::vector<SettingInfo>& vec, StrId& lastSub, const SettingInfo& s) {
-    locateTarget(vec, lastSub, s)->push_back(s);
-  };
-  auto addToMoved = [&locateTarget](std::vector<SettingInfo>& vec, StrId& lastSub, SettingInfo&& s) {
-    auto* target = locateTarget(vec, lastSub, s);
-    target->push_back(std::move(s));
+  auto addToMoved = [](std::vector<SettingInfo>& vec, StrId& lastSub, SettingInfo&& s) {
+    if (s.subcategory != StrId::STR_NONE_OPT && s.subcategory != lastSub) {
+      vec.push_back(SettingInfo::Separator(s.subcategory));
+      lastSub = s.subcategory;
+    }
+    vec.push_back(std::move(s));
   };
 
   for (const auto& setting : getSettingsList()) {
@@ -121,6 +107,11 @@ void SettingsActivity::onEnter() {
   addToMoved(systemSettings, lastSystemSub,
              std::move(SettingInfo::Action(StrId::STR_SYSTEM_INFO, SettingAction::SystemInfo)
                            .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
+
+  SettingInfo::prepareSubmenus(displaySettings, submenuData);
+  SettingInfo::prepareSubmenus(readerSettings, submenuData);
+  SettingInfo::prepareSubmenus(controlsSettings, submenuData);
+  SettingInfo::prepareSubmenus(systemSettings, submenuData);
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
@@ -222,11 +213,20 @@ void SettingsActivity::toggleCurrentSetting() {
   if (setting.isSeparator) return;
 
   if (setting.type == SettingType::ACTION) {
-    auto resultHandler = [this](const ActivityResult&) { SETTINGS.saveToFile(); };
+    auto resultHandler = [this](const ActivityResult& result) {
+      SETTINGS.saveToFile();
+      const auto* menuResult = std::get_if<MenuResult>(&result.data);
+      if (menuResult && menuResult->action != -1) {
+        auto activity = createActivityForAction(static_cast<SettingAction>(menuResult->action), renderer, mappedInput);
+        if (activity) {
+          startActivityForResult(std::move(activity), [this](const ActivityResult&) { SETTINGS.saveToFile(); });
+        }
+      }
+    };
 
     if (setting.action == SettingAction::Submenu) {
       auto it = std::find_if(submenuData.begin(), submenuData.end(),
-                             [&setting](const SubmenuData& d) { return d.id == setting.nameId; });
+                             [&setting](const SettingInfo::SubmenuData& d) { return d.id == setting.nameId; });
       if (it != submenuData.end()) {
         startActivityForResult(
             std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, setting.nameId, it->items), resultHandler);

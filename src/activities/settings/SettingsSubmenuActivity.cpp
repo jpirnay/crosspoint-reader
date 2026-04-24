@@ -9,12 +9,40 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+void SettingsSubmenuActivity::onEnter() {
+  Activity::onEnter();
+  initMenuList();
+  requestUpdate();
+}
+
 void SettingsSubmenuActivity::onActionSelected(int index) {
   const auto& setting = menuItems[index];
-  auto resultHandler = [this](const ActivityResult&) { SETTINGS.saveToFile(); };
+  if (setting.isSeparator) return;
 
-  auto activity = createActivityForAction(setting.action, renderer, mappedInput);
-  if (activity) startActivityForResult(std::move(activity), resultHandler);
+  if (setting.type == SettingType::ACTION) {
+    MenuResult menuResult;
+    if (setting.action != SettingAction::None) {
+      menuResult.action = static_cast<int>(setting.action);
+    } else {
+      menuResult.nameId = static_cast<int>(setting.nameId);
+    }
+    setResult(ActivityResult(menuResult));
+    finish();
+    return;
+  }
+
+  onSettingToggled(index);
+}
+
+std::string SettingsSubmenuActivity::getItemValueString(int index) const {
+  const auto& item = menuItems[index];
+  if (item.type == SettingType::ACTION && item.action != SettingAction::Submenu) {
+    return {};
+  }
+  if (itemValueStringOverride) {
+    return itemValueStringOverride(item);
+  }
+  return MenuListActivity::getItemValueString(index);
 }
 
 void SettingsSubmenuActivity::onSettingToggled(int /*index*/) { SETTINGS.saveToFile(); }

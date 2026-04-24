@@ -70,17 +70,23 @@ struct Rect;
 class MenuListActivity : public Activity {
  protected:
   std::vector<SettingInfo> menuItems;
+  std::vector<SettingInfo::SubmenuData> submenuData;
   int selectedIndex = 0;
   ButtonNavigator buttonNavigator;
+  bool submenusPrepared = false;
 
   // Call after building/rebuilding menuItems to wire up the selectable predicate.
   void initMenuList();
+
+  // Process SettingInfo items marked with withSubmenu() into submenu placeholders.
+  void prepareSubmenus();
+  void openSubmenu(const SettingInfo& submenuEntry);
 
   // Handle up/down navigation via buttonNavigator.  Call from loop() if overriding.
   void handleNavigation();
 
   // Toggle/cycle the currently selected item.  For ACTION items, delegates to onActionSelected().
-  void toggleCurrentItem();
+  virtual void toggleCurrentItem();
 
   // Draw the list into the given rect using GUI.drawList().
   void drawMenuList(const Rect& rect);

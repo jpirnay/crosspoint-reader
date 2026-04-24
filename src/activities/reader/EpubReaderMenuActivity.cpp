@@ -5,6 +5,7 @@
 
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
+#include "activities/settings/SettingsSubmenuActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -13,13 +14,16 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const int bookProgressPercent, const uint8_t currentOrientation,
                                                const bool hasFootnotes, const int8_t initialEmbeddedStyleOverride,
                                                const int8_t initialImageRenderingOverride,
-                                               const uint8_t initialTextDarkness, const bool hasStarredPages,
-                                               const bool isCurrentPageStarred)
+                                               const int8_t initialFontFamilyOverride,
+                                               const int8_t initialFontSizeOverride, const uint8_t initialTextDarkness,
+                                               const bool hasStarredPages, const bool isCurrentPageStarred)
     : MenuListActivity("EpubReaderMenu", renderer, mappedInput),
       currentPageStarred(isCurrentPageStarred),
       pendingOrientation(currentOrientation),
       pendingEmbeddedStyleOverride(initialEmbeddedStyleOverride),
       pendingImageRenderingOverride(initialImageRenderingOverride),
+      pendingFontFamilyOverride(initialFontFamilyOverride),
+      pendingFontSizeOverride(initialFontSizeOverride),
       pendingTextDarkness(initialTextDarkness),
       title(title),
       currentPage(currentPage),
@@ -51,56 +55,95 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_APPEARANCE));
 
   auto* self = this;
-
-  // Embedded style: cycles default(-1) -> ON(1) -> OFF(0) via DynamicEnum indices 0/1/2
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_EMBEDDED_STYLE, {StrId::STR_DEFAULT_VALUE, StrId::STR_STATE_ON, StrId::STR_STATE_OFF}, self,
-      [](const void* ctx) -> uint8_t {
-        const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
-        if (s->pendingEmbeddedStyleOverride < 0) return 0;
-        if (s->pendingEmbeddedStyleOverride > 0) return 1;
-        return 2;
-      },
-      [](void* ctx, uint8_t v) {
-        auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
-        if (v == 0)
-          s->pendingEmbeddedStyleOverride = -1;
-        else if (v == 1)
-          s->pendingEmbeddedStyleOverride = 1;
-        else
-          s->pendingEmbeddedStyleOverride = 0;
-      }));
-
-  // Image rendering: cycles default(-1) -> display(0) -> placeholder(1) -> suppress(2)
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_IMAGES,
-      {StrId::STR_DEFAULT_VALUE, StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
-      self,
-      [](const void* ctx) -> uint8_t {
-        const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
-        return (s->pendingImageRenderingOverride < 0) ? 0 : (s->pendingImageRenderingOverride + 1);
-      },
-      [](void* ctx, uint8_t v) {
-        auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
-        s->pendingImageRenderingOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
-      }));
-
-  // Text darkness: straightforward 0-3 cycle
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_TEXT_DARKNESS, {StrId::STR_NORMAL, StrId::STR_DARK, StrId::STR_EXTRA_DARK, StrId::STR_MAX_DARK}, self,
-      [](const void* ctx) -> uint8_t { return static_cast<const EpubReaderMenuActivity*>(ctx)->pendingTextDarkness; },
-      [](void* ctx, uint8_t v) { static_cast<EpubReaderMenuActivity*>(ctx)->pendingTextDarkness = v; }));
-
-  // Helper functions, reading ruler, auto page turn, orientation
-  menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_UTILS));
-  // Auto page turn: ACTION type with custom cycling in onActionSelected
-  menuItems.push_back(SettingInfo::Action(StrId::STR_AUTO_TURN_PAGES_PER_MIN, SettingAction::None));
   // Orientation: straightforward 0-3 cycle
   menuItems.push_back(SettingInfo::DynamicEnumCtx(
       StrId::STR_ORIENTATION,
       {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW}, self,
       [](const void* ctx) -> uint8_t { return static_cast<const EpubReaderMenuActivity*>(ctx)->pendingOrientation; },
       [](void* ctx, uint8_t v) { static_cast<EpubReaderMenuActivity*>(ctx)->pendingOrientation = v; }));
+
+  // Embedded style: cycles default(-1) -> ON(1) -> OFF(0) via DynamicEnum indices 0/1/2
+  menuItems.push_back(SettingInfo::DynamicEnumCtx(
+                          StrId::STR_EMBEDDED_STYLE,
+                          {StrId::STR_DEFAULT_VALUE, StrId::STR_STATE_ON, StrId::STR_STATE_OFF}, self,
+                          [](const void* ctx) -> uint8_t {
+                            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+                            if (s->pendingEmbeddedStyleOverride < 0) return 0;
+                            if (s->pendingEmbeddedStyleOverride > 0) return 1;
+                            return 2;
+                          },
+                          [](void* ctx, uint8_t v) {
+                            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+                            if (v == 0)
+                              s->pendingEmbeddedStyleOverride = -1;
+                            else if (v == 1)
+                              s->pendingEmbeddedStyleOverride = 1;
+                            else
+                              s->pendingEmbeddedStyleOverride = 0;
+                          })
+                          .withSubmenu(StrId::STR_READER_OVERRIDES));
+
+  // Image rendering: cycles default(-1) -> display(0) -> placeholder(1) -> suppress(2)
+  menuItems.push_back(SettingInfo::DynamicEnumCtx(
+                          StrId::STR_IMAGES,
+                          {StrId::STR_DEFAULT_VALUE, StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
+                           StrId::STR_IMAGES_SUPPRESS},
+                          self,
+                          [](const void* ctx) -> uint8_t {
+                            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+                            return (s->pendingImageRenderingOverride < 0) ? 0 : (s->pendingImageRenderingOverride + 1);
+                          },
+                          [](void* ctx, uint8_t v) {
+                            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+                            s->pendingImageRenderingOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
+                          })
+                          .withSubmenu(StrId::STR_READER_OVERRIDES));
+
+  // Reader font family: cycles default(-1) -> Bookerly(0) -> Noto Sans(1) -> Open Dyslexic(2)
+  menuItems.push_back(
+      SettingInfo::DynamicEnumCtx(
+          StrId::STR_FONT_FAMILY,
+          {StrId::STR_DEFAULT_VALUE, StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC}, self,
+          [](const void* ctx) -> uint8_t {
+            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+            return (s->pendingFontFamilyOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontFamilyOverride + 1);
+          },
+          [](void* ctx, uint8_t v) {
+            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+            s->pendingFontFamilyOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
+          })
+          .withSubmenu(StrId::STR_READER_OVERRIDES));
+
+  // Reader font size: cycles default(-1) -> Small(0) -> Medium(1) -> Large(2) -> X Large(3)
+  menuItems.push_back(
+      SettingInfo::DynamicEnumCtx(
+          StrId::STR_FONT_SIZE,
+          {StrId::STR_DEFAULT_VALUE, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, self,
+          [](const void* ctx) -> uint8_t {
+            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+            return (s->pendingFontSizeOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
+          },
+          [](void* ctx, uint8_t v) {
+            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+            s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
+          })
+          .withSubmenu(StrId::STR_READER_OVERRIDES));
+
+  // Text darkness: straightforward 0-3 cycle
+  menuItems.push_back(
+      SettingInfo::DynamicEnumCtx(
+          StrId::STR_TEXT_DARKNESS, {StrId::STR_NORMAL, StrId::STR_DARK, StrId::STR_EXTRA_DARK, StrId::STR_MAX_DARK},
+          self,
+          [](const void* ctx) -> uint8_t {
+            return static_cast<const EpubReaderMenuActivity*>(ctx)->pendingTextDarkness;
+          },
+          [](void* ctx, uint8_t v) { static_cast<EpubReaderMenuActivity*>(ctx)->pendingTextDarkness = v; })
+          .withSubmenu(StrId::STR_READER_OVERRIDES));
+
+  // Helper functions, reading ruler, auto page turn, orientation
+  menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_UTILS));
+  // Auto page turn: ACTION type with custom cycling in onActionSelected
+  menuItems.push_back(SettingInfo::Action(StrId::STR_AUTO_TURN_PAGES_PER_MIN, SettingAction::None));
 
   // --- Synchronisation (only if credentials are set) ---
   if (KOREADER_STORE.hasCredentials()) {
@@ -111,9 +154,12 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
 
   // --- Tools ---
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_TOOLS));
-  menuItems.push_back(SettingInfo::Action(StrId::STR_SCREENSHOT_BUTTON, SettingAction::None));
-  menuItems.push_back(SettingInfo::Action(StrId::STR_DISPLAY_QR, SettingAction::None));
-  menuItems.push_back(SettingInfo::Action(StrId::STR_DELETE_CACHE, SettingAction::None));
+  menuItems.push_back(
+      SettingInfo::Action(StrId::STR_SCREENSHOT_BUTTON, SettingAction::None).withSubmenu(StrId::STR_READER_TOOLS));
+  menuItems.push_back(
+      SettingInfo::Action(StrId::STR_DISPLAY_QR, SettingAction::None).withSubmenu(StrId::STR_READER_TOOLS));
+  menuItems.push_back(
+      SettingInfo::Action(StrId::STR_DELETE_CACHE, SettingAction::None).withSubmenu(StrId::STR_READER_TOOLS));
   menuItems.push_back(SettingInfo::Action(StrId::STR_GO_HOME_BUTTON, SettingAction::None));
 }
 
@@ -156,9 +202,20 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId
   }
 }
 
+EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForSettingAction(SettingAction action) {
+  switch (action) {
+    case SettingAction::None:
+    case SettingAction::Submenu:
+      return MenuAction::NONE;
+    default:
+      return MenuAction::NONE;
+  }
+}
+
 void EpubReaderMenuActivity::finishWithAction(MenuAction action) {
-  setResult(MenuResult{static_cast<int>(action), pendingOrientation, selectedPageTurnOption,
-                       pendingEmbeddedStyleOverride, pendingImageRenderingOverride, pendingTextDarkness});
+  setResult(MenuResult{static_cast<int>(action), -1, pendingOrientation, selectedPageTurnOption,
+                       pendingEmbeddedStyleOverride, pendingImageRenderingOverride, pendingFontFamilyOverride,
+                       pendingFontSizeOverride, pendingTextDarkness});
   finish();
 }
 
@@ -184,10 +241,13 @@ void EpubReaderMenuActivity::onBackPressed() {
   ActivityResult result;
   result.isCancelled = true;
   result.data = MenuResult{-1,
+                           -1,
                            pendingOrientation,
                            selectedPageTurnOption,
                            pendingEmbeddedStyleOverride,
                            pendingImageRenderingOverride,
+                           pendingFontFamilyOverride,
+                           pendingFontSizeOverride,
                            pendingTextDarkness};
   setResult(std::move(result));
   finish();
@@ -207,11 +267,117 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
     return currentPageStarred ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
   }
 
-  // Plain ACTION items (select chapter, screenshot, etc.) show no value
-  if (item.type == SettingType::ACTION) return {};
+  if (item.type == SettingType::ACTION) {
+    if (item.action == SettingAction::Submenu) {
+      return MenuListActivity::getItemValueString(index);
+    }
+    return {};
+  }
+
+  if (item.type == SettingType::ENUM) {
+    if (item.nameId == StrId::STR_EMBEDDED_STYLE && pendingEmbeddedStyleOverride < 0) {
+      const auto defaultEffective = (SETTINGS.embeddedStyle != 0) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+      return std::string(tr(STR_DEFAULT_VALUE)) + " (" + defaultEffective + ")";
+    }
+    if (item.nameId == StrId::STR_IMAGES && pendingImageRenderingOverride < 0) {
+      const auto defaultIndex = static_cast<size_t>(SETTINGS.imageRendering + 1);
+      if (defaultIndex < item.enumValues.size()) {
+        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
+      }
+    }
+    if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0) {
+      const auto defaultIndex = static_cast<size_t>(SETTINGS.fontFamily + 1);
+      if (defaultIndex < item.enumValues.size()) {
+        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
+      }
+    }
+    if (item.nameId == StrId::STR_FONT_SIZE && pendingFontSizeOverride < 0) {
+      const auto defaultIndex = static_cast<size_t>(SETTINGS.fontSize + 1);
+      if (defaultIndex < item.enumValues.size()) {
+        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
+      }
+    }
+  }
 
   // DynamicEnum items use the standard display
   return MenuListActivity::getItemValueString(index);
+}
+
+void EpubReaderMenuActivity::openSubmenu(const SettingInfo& submenuEntry) {
+  auto it = std::find_if(submenuData.begin(), submenuData.end(),
+                         [&submenuEntry](const SettingInfo::SubmenuData& d) { return d.id == submenuEntry.nameId; });
+  if (it == submenuData.end()) return;
+
+  auto itemValueStringOverride = [this](const SettingInfo& item) -> std::string {
+    if (item.nameId == StrId::STR_EMBEDDED_STYLE && pendingEmbeddedStyleOverride < 0) {
+      const auto defaultEffective = (SETTINGS.embeddedStyle != 0) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+      return std::string(tr(STR_DEFAULT_VALUE)) + " (" + defaultEffective + ")";
+    }
+    if (item.nameId == StrId::STR_IMAGES && pendingImageRenderingOverride < 0) {
+      const auto valueIndex = static_cast<size_t>(SETTINGS.imageRendering + 1);
+      if (valueIndex < item.enumValues.size()) {
+        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[valueIndex]) + ")";
+      }
+    }
+    if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0) {
+      const auto valueIndex = static_cast<size_t>(SETTINGS.fontFamily + 1);
+      if (valueIndex < item.enumValues.size()) {
+        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[valueIndex]) + ")";
+      }
+    }
+    if (item.nameId == StrId::STR_FONT_SIZE && pendingFontSizeOverride < 0) {
+      const auto valueIndex = static_cast<size_t>(SETTINGS.fontSize + 1);
+      if (valueIndex < item.enumValues.size()) {
+        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[valueIndex]) + ")";
+      }
+    }
+    return item.getDisplayValue();
+  };
+
+  startActivityForResult(std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, submenuEntry.nameId,
+                                                                   it->items, std::move(itemValueStringOverride)),
+                         [this](const ActivityResult& result) {
+                           if (!result.isCancelled) {
+                             const auto* menuResult = std::get_if<MenuResult>(&result.data);
+                             if (menuResult) {
+                               if (menuResult->action != -1) {
+                                 const auto action =
+                                     actionForSettingAction(static_cast<SettingAction>(menuResult->action));
+                                 if (action != MenuAction::NONE) {
+                                   finishWithAction(action);
+                                   return;
+                                 }
+                               }
+                               if (menuResult->nameId != -1) {
+                                 const auto action = actionForNameId(static_cast<StrId>(menuResult->nameId));
+                                 if (action != MenuAction::NONE) {
+                                   finishWithAction(action);
+                                   return;
+                                 }
+                               }
+                             }
+                           }
+                           requestUpdate();
+                         });
+}
+
+void EpubReaderMenuActivity::toggleCurrentItem() {
+  if (selectedIndex < 0 || selectedIndex >= static_cast<int>(menuItems.size())) return;
+  const auto& item = menuItems[selectedIndex];
+  if (item.isSeparator) return;
+
+  if (item.type == SettingType::ACTION) {
+    if (item.action == SettingAction::Submenu) {
+      openSubmenu(item);
+      return;
+    }
+    onActionSelected(selectedIndex);
+    return;
+  }
+
+  menuItems[selectedIndex].toggleValue();
+  onSettingToggled(selectedIndex);
+  requestUpdate();
 }
 
 void EpubReaderMenuActivity::onEnter() { MenuListActivity::onEnter(); }
