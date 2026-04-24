@@ -35,6 +35,7 @@ class EpubReaderMenuActivity final : public MenuListActivity {
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
                                   const uint8_t currentOrientation, const bool hasFootnotes,
                                   const int8_t initialEmbeddedStyleOverride, const int8_t initialImageRenderingOverride,
+                                  const int8_t initialFontFamilyOverride, const int8_t initialFontSizeOverride,
                                   const uint8_t initialTextDarkness, const bool hasStarredPages,
                                   const bool isCurrentPageStarred);
 
@@ -61,6 +62,8 @@ class EpubReaderMenuActivity final : public MenuListActivity {
   uint8_t selectedPageTurnOption = 0;
   int8_t pendingEmbeddedStyleOverride = -1;
   int8_t pendingImageRenderingOverride = -1;
+  int8_t pendingFontFamilyOverride = -1;
+  int8_t pendingFontSizeOverride = -1;
   uint8_t pendingTextDarkness = 1;
 
   static constexpr const char* pageTurnLabels[] = {"", "1", "3", "6", "12"};

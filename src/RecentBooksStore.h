@@ -13,6 +13,10 @@ struct RecentBook {
   int8_t embeddedStyleOverride = -1;
   // -1 = use global setting, otherwise CrossPointSettings::IMAGE_RENDERING value.
   int8_t imageRenderingOverride = -1;
+  // -1 = use global setting, otherwise CrossPointSettings::FONT_FAMILY value.
+  int8_t fontFamilyOverride = -1;
+  // -1 = use global setting, otherwise CrossPointSettings::FONT_SIZE value.
+  int8_t fontSizeOverride = -1;
 
   bool operator==(const RecentBook& other) const { return path == other.path; }
 };
@@ -58,6 +62,8 @@ class RecentBooksStore {
   RecentBook getDataFromBook(std::string path) const;
   RecentBook getBookByPath(const std::string& path) const;
   bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride);
+  bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
+                          int8_t fontFamilyOverride, int8_t fontSizeOverride);
 
  private:
   bool loadFromBinaryFile();

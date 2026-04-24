@@ -24,6 +24,8 @@ struct MenuResult {
   uint8_t pageTurnOption = 0;
   int8_t embeddedStyleOverride = -1;
   int8_t imageRenderingOverride = -1;
+  int8_t fontFamilyOverride = -1;
+  int8_t fontSizeOverride = -1;
   uint8_t textDarkness = 1;
 };
 
