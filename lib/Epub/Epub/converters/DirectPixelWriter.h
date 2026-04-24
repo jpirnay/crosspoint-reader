@@ -16,10 +16,6 @@ struct DirectPixelWriter {
   uint8_t* fb;
   GfxRenderer::RenderMode mode;
   uint16_t displayWidthBytes;  // Runtime framebuffer stride (X4: 100, X3: 99)
-  uint8_t* rawBuffer;
-  int rawBytesPerRow;
-  bool rawTarget;
-  int logicalRowY;
 
   // Orientation is collapsed into a linear transform:
   //   phyX = phyXBase + x * phyXStepX + y * phyXStepY
@@ -35,9 +31,6 @@ struct DirectPixelWriter {
     fb = renderer.getFrameBuffer();
     mode = renderer.getRenderMode();
     displayWidthBytes = renderer.getDisplayWidthBytes();
-    rawTarget = renderer.hasRawPageTarget();
-    rawBuffer = rawTarget ? renderer.getRawPageBuffer() : nullptr;
-    rawBytesPerRow = rawTarget ? renderer.getRawPageStride() : 0;
 
     const int phyW = renderer.getDisplayWidth();
     const int phyH = renderer.getDisplayHeight();
@@ -94,7 +87,6 @@ struct DirectPixelWriter {
   // Call once per row before the column loop.
   // Pre-computes the Y-dependent portion so writePixel() only needs the X part.
   inline void beginRow(int logicalY) {
-    logicalRowY = logicalY;
     rowPhyXBase = phyXBase + logicalY * phyXStepY;
     rowPhyYBase = phyYBase + logicalY * phyYStepY;
   }
@@ -103,15 +95,6 @@ struct DirectPixelWriter {
   // Must be called after beginRow() for the current row.
   // No bounds checking — caller guarantees coordinates are valid.
   inline void writePixel(int logicalX, uint8_t pixelValue) const {
-    if (rawTarget) {
-      const int localX = logicalX;
-      const uint32_t byteIndex = static_cast<uint32_t>(logicalRowY) * rawBytesPerRow + (localX >> 2);
-      const uint8_t bitShift = static_cast<uint8_t>(6 - (localX & 3) * 2);
-      rawBuffer[byteIndex] =
-          static_cast<uint8_t>((rawBuffer[byteIndex] & ~(0x03u << bitShift)) | ((pixelValue & 0x03u) << bitShift));
-      return;
-    }
-
     // Determine whether to draw based on render mode
     bool draw;
     bool state;

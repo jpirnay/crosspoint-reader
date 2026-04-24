@@ -665,49 +665,6 @@ static void renderGlyphFast2Bit(uint8_t* const frameBuffer, const uint8_t* const
   }
 }
 
-template <TextRotation rotation>
-static void renderGlyphRaw1Bit(const GfxRenderer& renderer, const uint8_t* const bitmap, const int glyphWidth,
-                               const int glyphHeight, const int innerBase, const int outerBase) {
-  int pixelPosition = 0;
-  for (int glyphY = 0; glyphY < glyphHeight; ++glyphY) {
-    for (int glyphX = 0; glyphX < glyphWidth; ++glyphX, ++pixelPosition) {
-      const uint8_t byte = bitmap[pixelPosition >> 3];
-      const uint8_t bit_index = 7 - (pixelPosition & 7);
-      if ((byte >> bit_index) & 1) {
-        int screenX, screenY;
-        if constexpr (rotation == TextRotation::Rotated90CW) {
-          screenX = outerBase + glyphY;
-          screenY = innerBase - glyphX;
-        } else {
-          screenX = innerBase + glyphX;
-          screenY = outerBase + glyphY;
-        }
-        renderer.drawPixelRaw(screenX, screenY, 3);
-      }
-    }
-  }
-}
-
-template <TextRotation rotation>
-static void renderGlyphRaw2Bit(const GfxRenderer& renderer, const uint8_t* const bitmap, const int glyphWidth,
-                               const int glyphHeight, const int innerBase, const int outerBase) {
-  for (int glyphY = 0; glyphY < glyphHeight; ++glyphY) {
-    for (int glyphX = 0; glyphX < glyphWidth; ++glyphX) {
-      const uint8_t raw = get2BitPixel(bitmap, glyphWidth, glyphY, glyphX);
-      if (raw == 0) continue;
-      int screenX, screenY;
-      if constexpr (rotation == TextRotation::Rotated90CW) {
-        screenX = outerBase + glyphY;
-        screenY = innerBase - glyphX;
-      } else {
-        screenX = innerBase + glyphX;
-        screenY = outerBase + glyphY;
-      }
-      renderer.drawPixelRaw(screenX, screenY, raw);
-    }
-  }
-}
-
 // Shared glyph rendering logic for normal and rotated text.
 // Coordinate mapping and cursor advance direction are selected at compile time via the template parameter.
 template <TextRotation rotation>
@@ -739,23 +696,6 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
     } else {
       outerBase = cursorY - top;   // screenY = outerBase + glyphY
       innerBase = cursorX + left;  // screenX = innerBase + glyphX
-    }
-
-    if (renderer.hasRawPageTarget()) {
-      if (is2Bit) {
-        if constexpr (rotation == TextRotation::None) {
-          renderGlyphRaw2Bit<TextRotation::None>(renderer, bitmap, width, height, innerBase, outerBase);
-        } else {
-          renderGlyphRaw2Bit<TextRotation::Rotated90CW>(renderer, bitmap, width, height, innerBase, outerBase);
-        }
-      } else {
-        if constexpr (rotation == TextRotation::None) {
-          renderGlyphRaw1Bit<TextRotation::None>(renderer, bitmap, width, height, innerBase, outerBase);
-        } else {
-          renderGlyphRaw1Bit<TextRotation::Rotated90CW>(renderer, bitmap, width, height, innerBase, outerBase);
-        }
-      }
-      return;
     }
 
     if (is2Bit) {
@@ -862,11 +802,6 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
 // efficient as possible.
 void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
-  if (hasRawPageTarget()) {
-    drawPixelRaw(x, y, state ? 3 : 0);
-    return;
-  }
-
   int phyX = 0;
   int phyY = 0;
   const int displayWidth = getDisplayWidth();
@@ -889,48 +824,6 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
     frameBuffer[byteIndex] &= ~(1 << bitPosition);  // Clear bit
   } else {
     frameBuffer[byteIndex] |= 1 << bitPosition;  // Set bit
-  }
-}
-
-void GfxRenderer::drawPixelRaw(const int x, const int y, const uint8_t rawValue) const {
-  if (!hasRawPageTarget()) {
-    drawPixel(x, y, rawValue != 0);
-    return;
-  }
-
-  if (x < 0 || x >= static_cast<int>(getDisplayWidth()) || y < 0 || y >= static_cast<int>(getDisplayHeight())) {
-    return;
-  }
-
-  const uint32_t byteIndex = static_cast<uint32_t>(y) * rawPageStride_ + (x >> 2);
-  const uint8_t shift = static_cast<uint8_t>(6 - (x & 3) * 2);
-  rawPageTarget_[byteIndex] =
-      static_cast<uint8_t>((rawPageTarget_[byteIndex] & ~(0x03u << shift)) | ((rawValue & 0x03u) << shift));
-}
-
-void GfxRenderer::setRawPageTarget(uint8_t* buffer, uint16_t strideBytes) {
-  rawPageTarget_ = buffer;
-  rawPageStride_ = strideBytes;
-}
-
-void GfxRenderer::clearRawPageTarget() {
-  rawPageTarget_ = nullptr;
-  rawPageStride_ = 0;
-}
-
-void GfxRenderer::renderRawPageBufferToFrameBuffer(const uint8_t* rawBuffer, const uint8_t drawMask) const {
-  const int width = getDisplayWidth();
-  const int height = getDisplayHeight();
-  const int rawStride = (width + 3) / 4;
-
-  for (int y = 0; y < height; ++y) {
-    const uint8_t* const row = rawBuffer + static_cast<size_t>(y) * rawStride;
-    for (int x = 0; x < width; ++x) {
-      const uint8_t rawValue = (row[x >> 2] >> static_cast<uint8_t>(6 - (x & 3) * 2)) & 0x03u;
-      if ((drawMask >> rawValue) & 0x01u) {
-        drawPixel(x, y, drawMask == 0x0E);
-      }
-    }
   }
 }
 
