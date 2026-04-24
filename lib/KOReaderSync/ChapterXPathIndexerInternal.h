@@ -1,10 +1,11 @@
 #pragma once
 
-#include <Epub.h>
 #include <expat.h>
 
 #include <memory>
 #include <string>
+
+class Epub;  // forward decl — only needed for decompressToTempFile(), defined in Epub.h
 
 namespace ChapterXPathIndexerInternal {
 

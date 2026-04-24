@@ -255,4 +255,41 @@ bool findProgressForXPathInternal(const std::shared_ptr<Epub>& epub, const int s
   return true;
 }
 
+bool findProgressForXPathFromBuffer(const int spineIndex, const std::string& xpath, const std::string& xhtml,
+                                    float& outIntraSpineProgress, bool& outExactMatch) {
+  outIntraSpineProgress = 0.0f;
+  outExactMatch = false;
+
+  if (xpath.empty() || xhtml.empty()) {
+    return false;
+  }
+
+  ReverseState state(spineIndex, xpath);
+  XML_Parser parser = XML_ParserCreate(nullptr);
+  if (!parser) {
+    return false;
+  }
+
+  XML_SetUserData(parser, &state);
+  XML_SetElementHandler(parser, parserStartCb<ReverseState>, parserEndCb<ReverseState>);
+  XML_SetCharacterDataHandler(parser, parserCharCb<ReverseState>);
+  XML_SetDefaultHandlerExpand(parser, parserDefaultCb<ReverseState>);
+  const XML_Status status = XML_Parse(parser, xhtml.data(), static_cast<int>(xhtml.size()), /*isFinal=*/1);
+  const bool parseOk = (status != XML_STATUS_ERROR) || (XML_GetErrorCode(parser) == XML_ERROR_ABORTED);
+  XML_ParserFree(parser);
+
+  if (!parseOk || state.bestTier == MatchTier::NONE) {
+    return false;
+  }
+
+  outExactMatch = state.bestExact;
+  if (state.totalTextBytes == 0) {
+    outIntraSpineProgress = 0.0f;
+  } else {
+    outIntraSpineProgress = static_cast<float>(state.bestOffset) / static_cast<float>(state.totalTextBytes);
+    outIntraSpineProgress = std::max(0.0f, std::min(1.0f, outIntraSpineProgress));
+  }
+  return true;
+}
+
 }  // namespace ChapterXPathIndexerInternal

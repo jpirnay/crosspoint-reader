@@ -23,8 +23,10 @@ std::string ChapterXPathIndexer::findXPathForProgress(const std::shared_ptr<Epub
 
 std::string ChapterXPathIndexer::findXPathForParagraph(const std::shared_ptr<Epub>& epub, const int spineIndex,
                                                        const uint16_t paragraphIndex, const uint32_t seekHint,
-                                                       const uint16_t startParagraphCount) {
-  return findXPathForParagraphInternal(epub, spineIndex, paragraphIndex, seekHint, startParagraphCount);
+                                                       const uint16_t startParagraphCount,
+                                                       const float intraSpineProgress) {
+  return findXPathForParagraphInternal(epub, spineIndex, paragraphIndex, seekHint, startParagraphCount,
+                                       intraSpineProgress);
 }
 
 bool ChapterXPathIndexer::findProgressForXPath(const std::shared_ptr<Epub>& epub, const int spineIndex,

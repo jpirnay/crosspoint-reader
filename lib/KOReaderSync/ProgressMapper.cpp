@@ -62,15 +62,15 @@ KOReaderPosition ProgressMapper::toKOReader(const std::shared_ptr<Epub>& epub, c
   // directly — this produces a structurally precise full-ancestry path even for chapters
   // where paragraphs are nested inside divs/sections.  Fall back to the progress-based
   // scan (which works for any content) when no paragraph index is available.
+  //
+  // Pass intraSpineProgress so the forward mapper can refine the path to a /text()[K].cpOffset
+  // within the matched paragraph (restores pre-1.38 intra-paragraph upload precision).
+  // Refinement requires a full parse from byte 0 for accurate visible-byte accounting, so the
+  // seek hint is deliberately not passed here.
   if (pos.hasParagraphIndex && pos.paragraphIndex > 0) {
-    // When a seek hint is set, the LUT entry's paragraphIndex equals pos.paragraphIndex
-    // (both describe the same page). The byte offset now points at the body-child element
-    // that was current at the page break, so re-parsing from there will re-encounter that
-    // paragraph — seed startParagraphCount with paragraphIndex-1 to avoid double counting.
-    const uint16_t startCount =
-        pos.xhtmlSeekHint > 0 && pos.paragraphIndex > 0 ? static_cast<uint16_t>(pos.paragraphIndex - 1) : 0;
-    result.xpath = ChapterXPathIndexer::findXPathForParagraph(epub, pos.spineIndex, pos.paragraphIndex,
-                                                              pos.xhtmlSeekHint, startCount);
+    result.xpath =
+        ChapterXPathIndexer::findXPathForParagraph(epub, pos.spineIndex, pos.paragraphIndex,
+                                                   /*seekHint=*/0, /*startParagraphCount=*/0, intraSpineProgress);
   }
   if (result.xpath.empty()) {
     result.xpath = ChapterXPathIndexer::findXPathForProgress(epub, pos.spineIndex, intraSpineProgress);
