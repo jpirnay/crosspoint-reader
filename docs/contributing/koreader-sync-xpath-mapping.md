@@ -38,11 +38,15 @@ via a KOReader contributor mapping spine items to DocFragment numbers.
 Implemented in `ProgressMapper::toKOReader`.
 
 1. Compute overall `percentage` from chapter/page.
-2. If a paragraph index is available from the section cache LUT (`CrossPointPosition::hasParagraphIndex`),
-   generate an XPath directly: `/body/DocFragment[spineIndex + 1]/body/p[paragraphIndex]`.
-3. Otherwise, attempt byte-offset estimation via `ChapterXPathIndexer::findXPathForProgress`.
-4. If XPath extraction fails, fallback to synthetic chapter path:
+2. Generate XPath via byte-offset estimation (`ChapterXPathIndexer::findXPathForProgress`),
+   producing a `…/text()[K].M` anchor proportional to intra-spine progress.
+3. If XPath extraction fails, fallback to synthetic chapter path:
    - `/body/DocFragment[spineIndex + 1]/body`
+
+The paragraph LUT (see below) is intentionally **not** used for upload: snapping to the
+start of `p[N]` when the user is mid-paragraph causes pulled positions to land at the
+start of the paragraph (and at the start of the chapter when an opening paragraph spans
+many pages). The LUT remains in use for the reverse direction.
 
 ### KOReader -> CrossPoint
 
