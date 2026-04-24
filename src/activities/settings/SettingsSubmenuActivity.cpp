@@ -9,6 +9,12 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+void SettingsSubmenuActivity::onEnter() {
+  Activity::onEnter();
+  initMenuList();
+  requestUpdate();
+}
+
 void SettingsSubmenuActivity::onActionSelected(int index) {
   const auto& setting = menuItems[index];
   auto resultHandler = [this](const ActivityResult&) { SETTINGS.saveToFile(); };

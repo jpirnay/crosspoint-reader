@@ -24,11 +24,7 @@ class SettingsActivity final : public Activity {
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
 
-  struct SubmenuData {
-    StrId id;
-    std::vector<SettingInfo> items;
-  };
-  std::vector<SubmenuData> submenuData;
+  std::vector<SettingInfo::SubmenuData> submenuData;
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();

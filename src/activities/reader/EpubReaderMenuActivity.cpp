@@ -252,8 +252,12 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
     return currentPageStarred ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
   }
 
-  // Plain ACTION items (select chapter, screenshot, etc.) show no value
-  if (item.type == SettingType::ACTION) return {};
+  // Plain ACTION items (select chapter, screenshot, etc.) show no value.
+  // Submenu placeholders should still show the standard submenu indicator.
+  if (item.type == SettingType::ACTION) {
+    if (item.action == SettingAction::Submenu) return MenuListActivity::getItemValueString(index);
+    return {};
+  }
 
   // DynamicEnum items use the standard display
   return MenuListActivity::getItemValueString(index);

@@ -12,6 +12,7 @@ class SettingsSubmenuActivity final : public MenuListActivity {
   StrId titleId;
 
   // MenuListActivity overrides
+  void onEnter() override;
   void onActionSelected(int index) override;
   void onSettingToggled(int index) override;
 
