@@ -52,6 +52,7 @@ class FontDecompressor {
     uint32_t glyphIndex;
     uint32_t bufferOffset;
     uint32_t alignedOffset;  // byte-aligned offset within its decompressed group (set during prewarm pre-scan)
+    uint16_t groupIndex;     // cached to avoid re-calling getGroupIndex in prewarm Step 4
   };
   struct PageSlot {
     uint8_t* buffer = nullptr;

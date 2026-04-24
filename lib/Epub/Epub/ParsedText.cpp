@@ -35,6 +35,8 @@ bool isClosingPunctuation(const uint32_t cp) {
     case 0x2019:  // '  right single quotation mark
     case 0x201D:  // "  right double quotation mark
     case 0x2026:  // … ellipsis
+    case 0x2013:  // – en dash
+    case 0x2014:  // — em dash
       return true;
     default:
       return false;
