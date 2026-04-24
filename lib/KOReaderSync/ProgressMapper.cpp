@@ -119,9 +119,9 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
 
       // KOReader's text-node indexing can differ across renderers/parsers in some
       // XHTML shapes. When an XPath-resolved position disagrees materially with
-      // KOReader's percentage but points to the same spine, use percentage-derived
+      // KOReader's percentage but does not match exactly, use percentage-derived
       // intra-spine progress as a safer tie-breaker.
-      if (std::isfinite(koPos.percentage) && resolvedIntraSpineProgress >= 0.0f) {
+      if (!xpathExactMatch && std::isfinite(koPos.percentage) && resolvedIntraSpineProgress >= 0.0f) {
         const float sanitizedPercentage = std::clamp(koPos.percentage, 0.0f, 1.0f);
         const float mappedPercentage = epub->calculateProgress(result.spineIndex, resolvedIntraSpineProgress);
         const float delta = std::fabs(mappedPercentage - sanitizedPercentage);
@@ -132,9 +132,10 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
           float percentageIntraSpine = -1.0f;
           if (resolveFromPercentage(epub, koPos.percentage, spineCount, percentageSpineIndex, percentageIntraSpine) &&
               percentageSpineIndex == result.spineIndex && percentageIntraSpine >= 0.0f) {
-            LOG_DBG("ProgressMapper",
-                    "Reconciling XPath position with percentage: spine=%d xpath=%.3f pct=%.3f delta=%.3f -> %.3f",
-                    result.spineIndex, resolvedIntraSpineProgress, sanitizedPercentage, delta, percentageIntraSpine);
+            LOG_DBG(
+                "ProgressMapper",
+                "Reconciling non-exact XPath position with percentage: spine=%d xpath=%.3f pct=%.3f delta=%.3f -> %.3f",
+                result.spineIndex, resolvedIntraSpineProgress, sanitizedPercentage, delta, percentageIntraSpine);
             resolvedIntraSpineProgress = percentageIntraSpine;
             usedPercentageReconcile = true;
           }
