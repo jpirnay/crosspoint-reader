@@ -112,7 +112,7 @@ void FontDecompressor::compactSingleGlyph(const uint8_t* alignedSrc, uint8_t* pa
   if (outBits > 0) packedDst[writeIdx] = outByte << (8 - outBits);
 }
 
-// --- getBitmap: page buffer → hot group → decompress ---
+// --- getBitmap: page buffer → transient malloc + decompress + compact ---
 
 const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex) {
   const uint32_t tStart = micros();
@@ -159,6 +159,12 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   stats.cacheMisses++;
   const EpdFontGroup& group = fontData->groups[groupIndex];
 
+  if (glyph->dataLength > HOT_GLYPH_BUF_SIZE) {
+    LOG_ERR("FDC", "Glyph dataLength %u exceeds HOT_GLYPH_BUF_SIZE %u", glyph->dataLength, HOT_GLYPH_BUF_SIZE);
+    stats.getBitmapTimeUs += micros() - tStart;
+    return nullptr;
+  }
+
   if (group.uncompressedSize > stats.peakTempBytes) stats.peakTempBytes = group.uncompressedSize;
 
   uint8_t* groupBuf = static_cast<uint8_t*>(malloc(group.uncompressedSize));
@@ -169,13 +175,6 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   }
 
   if (!decompressGroup(fontData, groupIndex, groupBuf, group.uncompressedSize)) {
-    free(groupBuf);
-    stats.getBitmapTimeUs += micros() - tStart;
-    return nullptr;
-  }
-
-  if (glyph->dataLength > HOT_GLYPH_BUF_SIZE) {
-    LOG_ERR("FDC", "Glyph dataLength %u exceeds HOT_GLYPH_BUF_SIZE %u", glyph->dataLength, HOT_GLYPH_BUF_SIZE);
     free(groupBuf);
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
@@ -348,6 +347,8 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     if (!groupIdToPos) {
       LOG_ERR("FDC", "OOM: cannot allocate %u bytes for groupIdToPos map", fontData->groupCount);
       // Roll back this slot only (other slots from prior prewarmCache calls stay valid)
+      stats.pageBufferBytes -= totalBytes;
+      stats.pageGlyphsBytes -= glyphCount * sizeof(PageGlyphEntry);
       free(slot.buffer);
       free(slot.glyphs);
       slot = {};

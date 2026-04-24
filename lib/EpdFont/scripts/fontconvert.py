@@ -765,9 +765,14 @@ if compress:
     group_count = 0
     group_uncompressed = 0
 
-    for i, (props, packed) in enumerate(all_glyphs):
+    for i, (props, _) in enumerate(all_glyphs):
         sg = get_script_group(props.code_point)
         glyph_aligned_size = ((props.width + 3) // 4) * props.height if props.width > 0 and props.height > 0 else 0
+        if glyph_aligned_size > GROUP_MAX_UNCOMPRESSED_BYTES:
+            raise ValueError(
+                f"Glyph {i} (code point U+{props.code_point:04X}) single aligned size "
+                f"{glyph_aligned_size} exceeds GROUP_MAX_UNCOMPRESSED_BYTES={GROUP_MAX_UNCOMPRESSED_BYTES}"
+            )
         size_overflow = group_uncompressed + glyph_aligned_size > GROUP_MAX_UNCOMPRESSED_BYTES
 
         if sg != current_group_id or size_overflow:

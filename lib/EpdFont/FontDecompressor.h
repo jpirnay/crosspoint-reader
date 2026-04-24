@@ -16,7 +16,11 @@ class FontDecompressor {
   void deinit();
 
   // Returns pointer to decompressed bitmap data for the given glyph.
-  // Checks the page buffer (from prewarm) first, then falls back to the hot group slot.
+  // Checks the page buffer (from prewarm) first and otherwise transiently
+  // allocates/decompresses the glyph's group into a temporary buffer and
+  // compacts the requested glyph. The returned pointer is valid only until the
+  // next getBitmap call or cache eviction; callers must copy bitmap data if a
+  // longer lifetime is required.
   const uint8_t* getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex);
 
   // Free all cached data (page buffers).

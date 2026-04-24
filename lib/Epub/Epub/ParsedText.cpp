@@ -18,7 +18,9 @@ constexpr int MAX_COST = std::numeric_limits<int>::max();
 namespace {
 
 // Closing punctuation that should not have extra space inserted before it during justification.
-// Includes common closing brackets/quotes and sentence-ending marks.
+// Includes common closing brackets/quotes and sentence-ending marks. En/em dashes
+// are also treated as inline separators here to avoid justification stretch
+// immediately before them.
 bool isClosingPunctuation(const uint32_t cp) {
   switch (cp) {
     case '.':
@@ -804,17 +806,16 @@ ParsedText::LineProcessResult ParsedText::extractLine(
     // Count gaps: each word after the first creates a gap, unless it's a continuation.
     // Gaps before closing punctuation (. , ) » etc.) are excluded from justification
     // distribution so they stay at natural space width.
+    const uint32_t firstCp = firstCodepoint(words[lastBreakAt + wordIdx]);
     if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
-      const bool beforeClosing = isClosingPunctuation(firstCodepoint(words[lastBreakAt + wordIdx]));
+      const bool beforeClosing = isClosingPunctuation(firstCp);
       if (!beforeClosing) actualGapCount++;
-      totalNaturalGaps +=
-          renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
-                                   firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
+      totalNaturalGaps += renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]), firstCp,
+                                                   wordStyles[lastBreakAt + wordIdx - 1]);
     } else if (wordIdx > 0 && continuesVec[lastBreakAt + wordIdx]) {
       // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-      totalNaturalGaps +=
-          renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
-                              firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
+      totalNaturalGaps += renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]), firstCp,
+                                              wordStyles[lastBreakAt + wordIdx - 1]);
     }
   }
 
@@ -859,12 +860,12 @@ ParsedText::LineProcessResult ParsedText::extractLine(
     } else {
       int gap = 0;
       if (wordIdx + 1 < lineWordCount) {
-        gap = renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
-                                       firstCodepoint(words[lastBreakAt + wordIdx + 1]),
+        const uint32_t nextFirstCp = firstCodepoint(words[lastBreakAt + wordIdx + 1]);
+        gap = renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx]), nextFirstCp,
                                        wordStyles[lastBreakAt + wordIdx]);
         // Don't stretch the gap before closing punctuation — it looks wrong with
         // extra space before ".", ")", "»" etc.
-        const bool nextIsClosing = isClosingPunctuation(firstCodepoint(words[lastBreakAt + wordIdx + 1]));
+        const bool nextIsClosing = isClosingPunctuation(nextFirstCp);
         if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine && !nextIsClosing) {
           gap += justifyExtra;
         }
