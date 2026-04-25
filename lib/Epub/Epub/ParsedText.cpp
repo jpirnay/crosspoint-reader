@@ -295,7 +295,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // toggle. Only the implicit EmSpace fallback in applyParagraphIndent() is gated on it.
   const int firstLineIndent = blockStyle.textIndentDefined && (blockStyle.alignment == CssTextAlign::Justify ||
                                                                blockStyle.alignment == CssTextAlign::Left)
-                                  ? blockStyle.textIndent
+                                  ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
                                   : 0;
 
   // Ensure any word that would overflow even as the first entry on a line is split using fallback hyphenation.
@@ -428,7 +428,7 @@ size_t ParsedText::computeSingleLineBreakNoHyphen(const GfxRenderer& renderer, c
   const int firstLineIndent =
       lineStartIndex == 0 && blockStyle.textIndentDefined &&
               (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)
-          ? blockStyle.textIndent
+          ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
           : 0;
   const int effectivePageWidth = pageWidth - firstLineIndent;
 
@@ -496,7 +496,7 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
   // toggle. Only the implicit EmSpace fallback in applyParagraphIndent() is gated on it.
   const int firstLineIndent = blockStyle.textIndentDefined && (blockStyle.alignment == CssTextAlign::Justify ||
                                                                blockStyle.alignment == CssTextAlign::Left)
-                                  ? blockStyle.textIndent
+                                  ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
                                   : 0;
 
   // Pre-compute inter-word gaps to avoid repeated codepoint scanning and renderer
@@ -789,7 +789,7 @@ ParsedText::LineProcessResult ParsedText::extractLine(
   const int firstLineIndent =
       isFirstLine && blockStyle.textIndentDefined &&
               (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)
-          ? blockStyle.textIndent
+          ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
           : 0;
 
   // Calculate total word width for this line, count actual word gaps,
