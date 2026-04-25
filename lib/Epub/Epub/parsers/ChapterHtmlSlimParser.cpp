@@ -19,8 +19,16 @@
 const char* HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
 constexpr int NUM_HEADER_TAGS = sizeof(HEADER_TAGS) / sizeof(HEADER_TAGS[0]);
 
-// Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
-constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
+// Size thresholds (bytes of XHTML) controlling indexing popup behavior.
+// Each progress callback costs ~640ms of e-ink refresh, so we trade granularity off
+// against indexing time based on expected duration.
+//   <  10KB:  no popup at all - indexing finishes faster than the popup would draw
+//   < 30KB:  popup only (one refresh up-front, no mid-parse updates)
+//   < 80KB:  popup + one heartbeat at 50%
+//   >= 80KB: popup + ticks at 25/50/75%
+constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;
+constexpr size_t SIZE_FOR_PROGRESS_HEARTBEAT = 30 * 1024;
+constexpr size_t SIZE_FOR_PROGRESS_FINE = 80 * 1024;
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "pre"};
@@ -1345,6 +1353,16 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   size_t bytesRead = 0;
   int lastReportedProgress = -1;
 
+  // Choose progress granularity by chapter size. Each callback drives a full-screen
+  // e-ink refresh (~640ms), so smaller chapters skip mid-parse ticks entirely.
+  // progressStepPercent == 0 means "popup only, no mid-parse updates".
+  int progressStepPercent = 0;
+  if (totalFileSize >= SIZE_FOR_PROGRESS_FINE) {
+    progressStepPercent = 25;
+  } else if (totalFileSize >= SIZE_FOR_PROGRESS_HEARTBEAT) {
+    progressStepPercent = 50;
+  }
+
   // Show initial progress popup for files above threshold.
   if (progressFn && totalFileSize >= MIN_SIZE_FOR_POPUP) {
     progressFn(0);
@@ -1373,11 +1391,12 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     const size_t len = file.read(buf, PARSE_BUFFER_SIZE);
     bytesRead += len;
 
-    // Report progress in 25% increments. Each progressFn callback triggers a full e-ink
-    // refresh (~650ms); 4 updates total adds ~2.6s, vs ~13s at the previous 5% granularity.
-    if (progressFn && totalFileSize >= MIN_SIZE_FOR_POPUP) {
+    // Report progress at the granularity chosen up-front (see progressStepPercent).
+    // Skip the 100% callback — the page render that follows immediately replaces the popup,
+    // so the final tick is wasted work.
+    if (progressFn && progressStepPercent > 0) {
       const int progress = static_cast<int>(bytesRead * 100 / totalFileSize);
-      if (progress / 25 > lastReportedProgress / 25) {
+      if (progress < 100 && progress / progressStepPercent > lastReportedProgress / progressStepPercent) {
         lastReportedProgress = progress;
         progressFn(progress);
       }

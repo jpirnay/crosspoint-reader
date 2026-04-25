@@ -1236,7 +1236,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       Rect popupRect{};
       const auto progressFn = [this, &popupRect](int progress) {
         if (popupRect.width == 0) {
+          // Drawing the popup already does a full refresh, which serves as the
+          // 0% indication; no need to follow it with a redundant fillPopupProgress.
           popupRect = GUI.drawPopup(renderer, tr(STR_INDEXING));
+          return;
         }
         GUI.fillPopupProgress(renderer, popupRect, progress);
       };
