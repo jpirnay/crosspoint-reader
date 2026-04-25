@@ -293,10 +293,11 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // Calculate first line indent (only for left/justified text).
   // Explicit CSS text-indent always applies — author intent overrides the extraParagraphSpacing
   // toggle. Only the implicit EmSpace fallback in applyParagraphIndent() is gated on it.
-  const int firstLineIndent = blockStyle.textIndentDefined && (blockStyle.alignment == CssTextAlign::Justify ||
-                                                               blockStyle.alignment == CssTextAlign::Left)
-                                  ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
-                                  : 0;
+  const int firstLineIndent =
+      blockStyle.textIndentDefined &&
+              (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)
+          ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
+          : 0;
 
   // Ensure any word that would overflow even as the first entry on a line is split using fallback hyphenation.
   for (size_t i = 0; i < wordWidths.size(); ++i) {
@@ -494,10 +495,11 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
   // Calculate first line indent (only for left/justified text).
   // Explicit CSS text-indent always applies — author intent overrides the extraParagraphSpacing
   // toggle. Only the implicit EmSpace fallback in applyParagraphIndent() is gated on it.
-  const int firstLineIndent = blockStyle.textIndentDefined && (blockStyle.alignment == CssTextAlign::Justify ||
-                                                               blockStyle.alignment == CssTextAlign::Left)
-                                  ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
-                                  : 0;
+  const int firstLineIndent =
+      blockStyle.textIndentDefined &&
+              (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)
+          ? std::min(std::max<int>(static_cast<int>(blockStyle.textIndent), -(pageWidth - 1)), pageWidth - 1)
+          : 0;
 
   // Pre-compute inter-word gaps to avoid repeated codepoint scanning and renderer
   // calls in the inner loop. When hyphenateWordAtIndex inserts a new word, we insert
