@@ -88,11 +88,6 @@ class CrossPointSettings {
     FRONT_BUTTON_HARDWARE_COUNT
   };
 
-  // Side button layout options
-  // Default: Previous, Next
-  // Swapped: Next, Previous
-  enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
-
   // Font family options
   enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, OPENDYSLEXIC = 2, FONT_FAMILY_COUNT };
   // Font size options
@@ -208,7 +203,6 @@ class CrossPointSettings {
   uint8_t orientation = PORTRAIT;
   // Button layouts (front layout retained for migration only)
   uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
-  uint8_t sideButtonLayout = PREV_NEXT;
   // Front button remap (logical -> hardware)
   // Used by MappedInputManager to translate logical buttons into physical front buttons.
   uint8_t frontButtonBack = FRONT_HW_BACK;
@@ -292,8 +286,6 @@ class CrossPointSettings {
   uint8_t btnShortConfirm = BTN_DEFAULT;
   uint8_t btnShortLeft = BTN_DEFAULT;
   uint8_t btnShortRight = BTN_DEFAULT;
-  uint8_t btnShortUp = BTN_DEFAULT;
-  uint8_t btnShortDown = BTN_DEFAULT;
   uint8_t btnShortPageBack = BTN_DEFAULT;
   uint8_t btnShortPageForward = BTN_DEFAULT;
   uint8_t btnShortPower = BTN_DEFAULT;
@@ -303,8 +295,6 @@ class CrossPointSettings {
   uint8_t btnDoubleConfirm = BTN_DEFAULT;
   uint8_t btnDoubleLeft = BTN_DEFAULT;
   uint8_t btnDoubleRight = BTN_DEFAULT;
-  uint8_t btnDoubleUp = BTN_DEFAULT;
-  uint8_t btnDoubleDown = BTN_DEFAULT;
   uint8_t btnDoublePageBack = BTN_DEFAULT;
   uint8_t btnDoublePageForward = BTN_DEFAULT;
   uint8_t btnDoublePower = BTN_DEFAULT;
@@ -314,8 +304,6 @@ class CrossPointSettings {
   uint8_t btnLongConfirm = BTN_DEFAULT;
   uint8_t btnLongLeft = BTN_DEFAULT;
   uint8_t btnLongRight = BTN_DEFAULT;
-  uint8_t btnLongUp = BTN_DEFAULT;
-  uint8_t btnLongDown = BTN_DEFAULT;
   uint8_t btnLongPageBack = BTN_DEFAULT;
   uint8_t btnLongPageForward = BTN_DEFAULT;
   uint8_t btnLongPower = BTN_DEFAULT;

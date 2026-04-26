@@ -2,55 +2,27 @@
 
 #include "CrossPointSettings.h"
 
-namespace {
-using ButtonIndex = uint8_t;
-
-struct SideLayoutMap {
-  ButtonIndex pageBack;
-  ButtonIndex pageForward;
-};
-
-// Order matches CrossPointSettings::SIDE_BUTTON_LAYOUT.
-constexpr SideLayoutMap kSideLayouts[] = {
-    {HalGPIO::BTN_UP, HalGPIO::BTN_DOWN},
-    {HalGPIO::BTN_DOWN, HalGPIO::BTN_UP},
-};
-}  // namespace
-
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
-  const auto sideLayout = static_cast<CrossPointSettings::SIDE_BUTTON_LAYOUT>(SETTINGS.sideButtonLayout);
-  const auto& side = kSideLayouts[sideLayout];
-
   switch (button) {
     case Button::Back:
-      // Logical Back maps to user-configured front button.
       return (gpio.*fn)(SETTINGS.frontButtonBack);
     case Button::Confirm:
-      // Logical Confirm maps to user-configured front button.
       return (gpio.*fn)(SETTINGS.frontButtonConfirm);
     case Button::Left:
-      // Logical Left maps to user-configured front button.
       return (gpio.*fn)(SETTINGS.frontButtonLeft);
     case Button::Right:
-      // Logical Right maps to user-configured front button.
       return (gpio.*fn)(SETTINGS.frontButtonRight);
     case Button::Up:
-      // Side buttons remain fixed for Up/Down.
       return (gpio.*fn)(HalGPIO::BTN_UP);
     case Button::Down:
-      // Side buttons remain fixed for Up/Down.
       return (gpio.*fn)(HalGPIO::BTN_DOWN);
     case Button::Power:
-      // Power button bypasses remapping.
       return (gpio.*fn)(HalGPIO::BTN_POWER);
     case Button::PageBack:
-      // Reader page navigation uses side buttons and can be swapped via settings.
-      return (gpio.*fn)(side.pageBack);
+      return (gpio.*fn)(HalGPIO::BTN_UP);
     case Button::PageForward:
-      // Reader page navigation uses side buttons and can be swapped via settings.
-      return (gpio.*fn)(side.pageForward);
+      return (gpio.*fn)(HalGPIO::BTN_DOWN);
   }
-
   return false;
 }
 

@@ -54,10 +54,6 @@ class ButtonEventManager {
   static bool hasDoubleAction(Button button);
 
  private:
-  // Up and Down alias the same physical GPIO pins as PageBack/PageForward (via sideButtonLayout).
-  // Running separate FSMs for both would double-fire on every side button press.
-  // Up/Down are therefore excluded here; their configurable actions are resolved in main.cpp
-  // by treating a PageBack/PageForward event as the canonical side-button event.
   static constexpr int NUM_BUTTONS = 7;
   static constexpr Button ALL_BUTTONS[NUM_BUTTONS] = {
       Button::Back, Button::Confirm, Button::Left, Button::Right, Button::PageBack, Button::PageForward, Button::Power,

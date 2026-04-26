@@ -131,9 +131,7 @@ inline const std::vector<SettingInfo> list = {
         .withSubcategory(StrId::STR_MENU_READER_TWEAKS),
 
     // --- Controls ---
-    SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
-                      {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV}, "sideButtonLayout", StrId::STR_CAT_CONTROLS)
-        .withSubcategory(StrId::STR_MENU_BTN_PHYSICAL),
+    SettingInfo::Separator(StrId::STR_MENU_BTN_PHYSICAL),
 
 // --- Button Actions (short / double / long press per logical button) ---
 // All entries share the same ordered action-label list; the submenu groups them behind
@@ -147,6 +145,7 @@ inline const std::vector<SettingInfo> list = {
       StrId::STR_BTN_ACT_PREV_SECTION, StrId::STR_BTN_ACT_EXIT_READER, StrId::STR_BTN_ACT_READER_MENU,  \
       StrId::STR_BTN_ACT_KOREADER_SYNC
 
+    SettingInfo::Separator(StrId::STR_MENU_BTN_ACTIONS),
     // Back button: short=exit reader, double=ignore, long=go home
     SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortBack,
                       {StrId::STR_BTN_DEF_EXIT_READER, BTN_ACT_OPTIONS}, "btnShortBack", StrId::STR_CAT_CONTROLS)
@@ -162,9 +161,11 @@ inline const std::vector<SettingInfo> list = {
                       {StrId::STR_BTN_DEF_READER_MENU, BTN_ACT_OPTIONS}, "btnShortConfirm", StrId::STR_CAT_CONTROLS)
         .withSubmenu(StrId::STR_BTN_CONFIRM),
     SettingInfo::Enum(StrId::STR_BTN_DOUBLE_PRESS, &CrossPointSettings::btnDoubleConfirm,
-                      {StrId::STR_BTN_DEF_IGNORE, BTN_ACT_OPTIONS}, "btnDoubleConfirm", StrId::STR_CAT_CONTROLS),
+                      {StrId::STR_BTN_DEF_IGNORE, BTN_ACT_OPTIONS}, "btnDoubleConfirm", StrId::STR_CAT_CONTROLS)
+        .withSubmenu(StrId::STR_BTN_CONFIRM),
     SettingInfo::Enum(StrId::STR_BTN_LONG_PRESS, &CrossPointSettings::btnLongConfirm,
-                      {StrId::STR_BTN_DEF_KOREADER_SYNC, BTN_ACT_OPTIONS}, "btnLongConfirm", StrId::STR_CAT_CONTROLS),
+                      {StrId::STR_BTN_DEF_KOREADER_SYNC, BTN_ACT_OPTIONS}, "btnLongConfirm", StrId::STR_CAT_CONTROLS)
+        .withSubmenu(StrId::STR_BTN_CONFIRM),
     // Left button: short=previous page, double=ignore, long=chapter back
     SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortLeft,
                       {StrId::STR_BTN_DEF_PREV_PAGE, BTN_ACT_OPTIONS}, "btnShortLeft", StrId::STR_CAT_CONTROLS)
@@ -185,26 +186,6 @@ inline const std::vector<SettingInfo> list = {
     SettingInfo::Enum(StrId::STR_BTN_LONG_PRESS, &CrossPointSettings::btnLongRight,
                       {StrId::STR_BTN_DEF_CHAPTER_FORWARD, BTN_ACT_OPTIONS}, "btnLongRight", StrId::STR_CAT_CONTROLS)
         .withSubmenu(StrId::STR_BTN_RIGHT),
-    // Up button: short=previous page, double=ignore, long=chapter back
-    SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortUp,
-                      {StrId::STR_BTN_DEF_PREV_PAGE, BTN_ACT_OPTIONS}, "btnShortUp", StrId::STR_CAT_CONTROLS)
-        .withSubmenu(StrId::STR_BTN_UP),
-    SettingInfo::Enum(StrId::STR_BTN_DOUBLE_PRESS, &CrossPointSettings::btnDoubleUp,
-                      {StrId::STR_BTN_DEF_IGNORE, BTN_ACT_OPTIONS}, "btnDoubleUp", StrId::STR_CAT_CONTROLS)
-        .withSubmenu(StrId::STR_BTN_UP),
-    SettingInfo::Enum(StrId::STR_BTN_LONG_PRESS, &CrossPointSettings::btnLongUp,
-                      {StrId::STR_BTN_DEF_CHAPTER_BACK, BTN_ACT_OPTIONS}, "btnLongUp", StrId::STR_CAT_CONTROLS)
-        .withSubmenu(StrId::STR_BTN_UP),
-    // Down button: short=next page, double=ignore, long=chapter forward
-    SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortDown,
-                      {StrId::STR_BTN_DEF_NEXT_PAGE, BTN_ACT_OPTIONS}, "btnShortDown", StrId::STR_CAT_CONTROLS)
-        .withSubmenu(StrId::STR_BTN_DOWN),
-    SettingInfo::Enum(StrId::STR_BTN_DOUBLE_PRESS, &CrossPointSettings::btnDoubleDown,
-                      {StrId::STR_BTN_DEF_IGNORE, BTN_ACT_OPTIONS}, "btnDoubleDown", StrId::STR_CAT_CONTROLS)
-        .withSubmenu(StrId::STR_BTN_DOWN),
-    SettingInfo::Enum(StrId::STR_BTN_LONG_PRESS, &CrossPointSettings::btnLongDown,
-                      {StrId::STR_BTN_DEF_CHAPTER_FORWARD, BTN_ACT_OPTIONS}, "btnLongDown", StrId::STR_CAT_CONTROLS)
-        .withSubmenu(StrId::STR_BTN_DOWN),
     // Page Back button: short=previous page, double=ignore, long=chapter back
     SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortPageBack,
                       {StrId::STR_BTN_DEF_PREV_PAGE, BTN_ACT_OPTIONS}, "btnShortPageBack", StrId::STR_CAT_CONTROLS)

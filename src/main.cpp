@@ -387,87 +387,80 @@ void loop() {
     using B = MappedInputManager::Button;
     ButtonEventManager::ButtonEvent ev;
     while (buttonEventManager.consumeEvent(ev)) {
-      // Up/Down share physical pins with PageBack/PageForward via sideButtonLayout.
-      // ButtonEventManager only runs FSMs for PageBack/PageForward (not Up/Down) to avoid
-      // double-firing. Here we resolve Up/Down settings as aliases of the side-button events:
-      // with PREV_NEXT layout, PageBack = BTN_UP and PageForward = BTN_DOWN, so the
-      // btnShort/Double/LongUp/Down settings apply when PageBack/PageForward fires.
-      const bool prevNext = static_cast<CrossPointSettings::SIDE_BUTTON_LAYOUT>(SETTINGS.sideButtonLayout) ==
-                            CrossPointSettings::SIDE_BUTTON_LAYOUT::PREV_NEXT;
       auto actionFor = [&](B btn) -> uint8_t {
-        switch (ev.type) {
-          case ButtonEventManager::PressType::Short:
-            switch (btn) {
-              case B::Back:
+        switch (btn) {
+          case B::Back:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
                 return SETTINGS.btnShortBack;
-              case B::Confirm:
-                return SETTINGS.btnShortConfirm;
-              case B::Left:
-                return SETTINGS.btnShortLeft;
-              case B::Right:
-                return SETTINGS.btnShortRight;
-              case B::Up:
-                return BA::BTN_DEFAULT;  // no dedicated FSM
-              case B::Down:
-                return BA::BTN_DEFAULT;  // no dedicated FSM
-              case B::PageBack:
-                if (SETTINGS.btnShortPageBack != BA::BTN_DEFAULT) return SETTINGS.btnShortPageBack;
-                return prevNext ? SETTINGS.btnShortUp : SETTINGS.btnShortDown;
-              case B::PageForward:
-                if (SETTINGS.btnShortPageForward != BA::BTN_DEFAULT) return SETTINGS.btnShortPageForward;
-                return prevNext ? SETTINGS.btnShortDown : SETTINGS.btnShortUp;
-              case B::Power:
-                return SETTINGS.btnShortPower;
-            }
-            break;
-          case ButtonEventManager::PressType::Double:
-            switch (btn) {
-              case B::Back:
+              case ButtonEventManager::PressType::Double:
                 return SETTINGS.btnDoubleBack;
-              case B::Confirm:
-                return SETTINGS.btnDoubleConfirm;
-              case B::Left:
-                return SETTINGS.btnDoubleLeft;
-              case B::Right:
-                return SETTINGS.btnDoubleRight;
-              case B::Up:
-                return BA::BTN_DEFAULT;  // no dedicated FSM
-              case B::Down:
-                return BA::BTN_DEFAULT;  // no dedicated FSM
-              case B::PageBack:
-                if (SETTINGS.btnDoublePageBack != BA::BTN_DEFAULT) return SETTINGS.btnDoublePageBack;
-                return prevNext ? SETTINGS.btnDoubleUp : SETTINGS.btnDoubleDown;
-              case B::PageForward:
-                if (SETTINGS.btnDoublePageForward != BA::BTN_DEFAULT) return SETTINGS.btnDoublePageForward;
-                return prevNext ? SETTINGS.btnDoubleDown : SETTINGS.btnDoubleUp;
-              case B::Power:
-                return SETTINGS.btnDoublePower;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongBack;
             }
             break;
-          case ButtonEventManager::PressType::Long:
-            switch (btn) {
-              case B::Back:
-                return SETTINGS.btnLongBack;
-              case B::Confirm:
+          case B::Confirm:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortConfirm;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleConfirm;
+              case ButtonEventManager::PressType::Long:
                 return SETTINGS.btnLongConfirm;
-              case B::Left:
+            }
+            break;
+          case B::Left:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortLeft;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleLeft;
+              case ButtonEventManager::PressType::Long:
                 return SETTINGS.btnLongLeft;
-              case B::Right:
+            }
+            break;
+          case B::Right:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortRight;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleRight;
+              case ButtonEventManager::PressType::Long:
                 return SETTINGS.btnLongRight;
-              case B::Up:
-                return BA::BTN_DEFAULT;  // no dedicated FSM
-              case B::Down:
-                return BA::BTN_DEFAULT;  // no dedicated FSM
-              case B::PageBack:
-                if (SETTINGS.btnLongPageBack != BA::BTN_DEFAULT) return SETTINGS.btnLongPageBack;
-                return prevNext ? SETTINGS.btnLongUp : SETTINGS.btnLongDown;
-              case B::PageForward:
-                if (SETTINGS.btnLongPageForward != BA::BTN_DEFAULT) return SETTINGS.btnLongPageForward;
-                return prevNext ? SETTINGS.btnLongDown : SETTINGS.btnLongUp;
-              case B::Power:
+            }
+            break;
+          case B::PageBack:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortPageBack;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoublePageBack;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongPageBack;
+            }
+            break;
+          case B::PageForward:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortPageForward;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoublePageForward;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongPageForward;
+            }
+            break;
+          case B::Power:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortPower;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoublePower;
+              case ButtonEventManager::PressType::Long:
                 return SETTINGS.btnLongPower;
             }
             break;
+          default:
+            break;  // Up/Down have no FSMs — ButtonEventManager never emits these
         }
         return BA::BTN_DEFAULT;
       };
