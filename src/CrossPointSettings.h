@@ -88,11 +88,6 @@ class CrossPointSettings {
     FRONT_BUTTON_HARDWARE_COUNT
   };
 
-  // Side button layout options
-  // Default: Previous, Next
-  // Swapped: Next, Previous
-  enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
-
   // Font family options
   enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, OPENDYSLEXIC = 2, FONT_FAMILY_COUNT };
   // Font size options
@@ -125,17 +120,6 @@ class CrossPointSettings {
     REFRESH_15 = 3,
     REFRESH_30 = 4,
     REFRESH_FREQUENCY_COUNT
-  };
-
-  // Short power button press actions
-  enum SHORT_PWRBTN {
-    IGNORE = 0,
-    SLEEP = 1,
-    PAGE_TURN = 2,
-    FORCE_REFRESH = 3,
-    FOOTNOTES = 4,
-    STAR_PAGE = 5,
-    SHORT_PWRBTN_COUNT
   };
 
   // Hide battery percentage
@@ -214,14 +198,11 @@ class CrossPointSettings {
   // Text darkness (0 = normal, 1 = dark, 2 = extra dark). Default 1 preserves
   // historical AA rendering (both grayscale shades drawn in the MSB pass).
   uint8_t textDarkness = DARKNESS_DARK;
-  // Short power button click behaviour
-  uint8_t shortPwrBtn = IGNORE;
   // EPUB reading orientation settings
   // 0 = portrait (default), 1 = landscape clockwise, 2 = inverted, 3 = landscape counter-clockwise
   uint8_t orientation = PORTRAIT;
   // Button layouts (front layout retained for migration only)
   uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
-  uint8_t sideButtonLayout = PREV_NEXT;
   // Front button remap (logical -> hardware)
   // Used by MappedInputManager to translate logical buttons into physical front buttons.
   uint8_t frontButtonBack = FRONT_HW_BACK;
@@ -249,8 +230,6 @@ class CrossPointSettings {
   char opdsPassword[64] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
-  // Long-press chapter skip on side buttons
-  uint8_t longPressChapterSkip = 1;
   // UI Theme
   uint8_t uiTheme = LYRA;
   // Sunlight fading compensation
@@ -279,14 +258,62 @@ class CrossPointSettings {
   // Show the Weather home screen menu item (1 = enabled, 0 = hidden)
   uint8_t useWeather = 1;
 
+  // Configurable actions for short / double / long press on each logical button.
+  // BTN_DEFAULT means "use the button's normal built-in behaviour".
+  enum BUTTON_ACTION {
+    BTN_DEFAULT = 0,
+    BTN_PAGE_FORWARD,
+    BTN_PAGE_BACK,
+    BTN_PAGE_FORWARD_10,
+    BTN_PAGE_BACK_10,
+    BTN_GO_HOME,
+    BTN_SLEEP,
+    BTN_FORCE_REFRESH,
+    BTN_OPEN_TOC,
+    BTN_OPEN_BOOKMARKS,
+    BTN_STAR_PAGE,
+    BTN_FOOTNOTES,
+    BTN_NEXT_SECTION,
+    BTN_PREV_SECTION,
+    BTN_EXIT_READER,
+    BTN_READER_MENU,
+    BTN_KOREADER_SYNC,
+    BUTTON_ACTION_COUNT
+  };
+
+  // Short-press actions (default: built-in)
+  uint8_t btnShortBack = BTN_DEFAULT;
+  uint8_t btnShortConfirm = BTN_DEFAULT;
+  uint8_t btnShortLeft = BTN_DEFAULT;
+  uint8_t btnShortRight = BTN_DEFAULT;
+  uint8_t btnShortPageBack = BTN_DEFAULT;
+  uint8_t btnShortPageForward = BTN_DEFAULT;
+  uint8_t btnShortPower = BTN_DEFAULT;
+
+  // Double-press actions (default: BTN_DEFAULT = disabled, no disambiguation wait)
+  uint8_t btnDoubleBack = BTN_DEFAULT;
+  uint8_t btnDoubleConfirm = BTN_DEFAULT;
+  uint8_t btnDoubleLeft = BTN_DEFAULT;
+  uint8_t btnDoubleRight = BTN_DEFAULT;
+  uint8_t btnDoublePageBack = BTN_DEFAULT;
+  uint8_t btnDoublePageForward = BTN_DEFAULT;
+  uint8_t btnDoublePower = BTN_DEFAULT;
+
+  // Long-press actions (default: built-in)
+  uint8_t btnLongBack = BTN_DEFAULT;
+  uint8_t btnLongConfirm = BTN_DEFAULT;
+  uint8_t btnLongLeft = BTN_DEFAULT;
+  uint8_t btnLongRight = BTN_DEFAULT;
+  uint8_t btnLongPageBack = BTN_DEFAULT;
+  uint8_t btnLongPageForward = BTN_DEFAULT;
+  uint8_t btnLongPower = BTN_DEFAULT;
+
   ~CrossPointSettings() = default;
 
   // Get singleton instance
   static CrossPointSettings& getInstance() { return instance; }
 
-  uint16_t getPowerButtonDuration() const {
-    return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 10 : 400;
-  }
+  static constexpr uint16_t getPowerButtonDuration() { return 400; }
   int getReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.

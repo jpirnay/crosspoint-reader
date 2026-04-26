@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "ButtonEventManager.h"
+#include "CrossPointSettings.h"
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
 
@@ -52,6 +54,7 @@ class ActivityManager {
  protected:
   GfxRenderer& renderer;
   MappedInputManager& mappedInput;
+  ButtonEventManager& buttonEvents;
   std::vector<std::unique_ptr<Activity>> stackActivities;
   std::unique_ptr<Activity> currentActivity;
 
@@ -96,7 +99,10 @@ class ActivityManager {
 
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
+      : renderer(renderer),
+        mappedInput(mappedInput),
+        buttonEvents(globalButtonEvents()),
+        renderingMutex(xSemaphoreCreateMutex()) {
     assert(renderingMutex != nullptr && "Failed to create rendering mutex");
     stackActivities.reserve(10);
   }
@@ -159,6 +165,11 @@ class ActivityManager {
   bool preventAutoSleep() const;
   bool isReaderActivity() const;
   bool skipLoopDelay() const;
+
+  // Dispatch a globally-configured button action to the current activity.
+  // Reader-specific actions (page navigation, TOC, bookmarks, footnotes) are forwarded
+  // only when the current activity is a reader; others are no-ops in other contexts.
+  void dispatchButtonAction(CrossPointSettings::BUTTON_ACTION action);
 
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.

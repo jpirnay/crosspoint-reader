@@ -154,6 +154,7 @@ void ActivityManager::loop() {
         // Arm input drain so the button that triggered the pop doesn't bleed into the
         // restored activity (or into a new activity the handler just pushed).
         drainInput = true;
+        buttonEvents.drain();
 
         // Request an update to ensure the popped activity gets re-rendered
         if (pendingAction == PendingAction::None) {
@@ -204,6 +205,7 @@ void ActivityManager::loop() {
       // Arm input drain so the button that triggered the transition doesn't bleed
       // into the new activity.
       drainInput = true;
+      buttonEvents.drain();
 
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;
@@ -386,6 +388,12 @@ bool ActivityManager::preventAutoSleep() const { return currentActivity && curre
 bool ActivityManager::isReaderActivity() const { return currentActivity && currentActivity->isReaderActivity(); }
 
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
+
+void ActivityManager::dispatchButtonAction(const CrossPointSettings::BUTTON_ACTION action) {
+  if (currentActivity && currentActivity->isReaderActivity()) {
+    currentActivity->onButtonAction(action);
+  }
+}
 
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {

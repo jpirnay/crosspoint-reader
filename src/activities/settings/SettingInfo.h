@@ -264,7 +264,9 @@ inline void SettingInfo::prepareSubmenus(std::vector<SettingInfo>& items,
     auto it = std::find_if(preparedSubmenus.begin(), preparedSubmenus.end(),
                            [&item](const SubmenuData& d) { return d.id == item.submenu; });
     if (it == preparedSubmenus.end()) {
-      preparedItems.push_back(SettingInfo::SubmenuEntry(item.submenu));
+      auto placeholder = SettingInfo::SubmenuEntry(item.submenu);
+      placeholder.subcategory = item.subcategory;  // inherit so addTo inserts the separator
+      preparedItems.push_back(std::move(placeholder));
       preparedSubmenus.push_back({item.submenu, {}});
       it = preparedSubmenus.end() - 1;
     }

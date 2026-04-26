@@ -12,6 +12,7 @@
 class SettingsSubmenuActivity final : public MenuListActivity {
   StrId titleId;
   std::function<std::string(const SettingInfo&)> itemValueStringOverride;
+  bool needsHalfRefresh = false;
 
   // MenuListActivity overrides
   void onEnter() override;

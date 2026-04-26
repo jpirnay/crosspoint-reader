@@ -140,7 +140,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, extraParagraphSpacing);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, shortPwrBtn, SHORT_PWRBTN_COUNT);
+    {
+      uint8_t ignored;
+      serialization::readPod(inputFile, ignored);
+    }  // legacy shortPwrBtn field
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, statusBar, STATUS_BAR_MODE_COUNT);  // legacy
     if (++settingsRead >= fileSettingsCount) break;
@@ -148,7 +151,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonLayout, FRONT_BUTTON_LAYOUT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, sideButtonLayout, SIDE_BUTTON_LAYOUT_COUNT);
+    {
+      uint8_t ignored;
+      serialization::readPod(inputFile, ignored);
+    }  // legacy sideButtonLayout field
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -177,7 +183,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, hideBatteryPercentage, HIDE_BATTERY_PERCENTAGE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, longPressChapterSkip);
+    {
+      uint8_t ignored;
+      serialization::readPod(inputFile, ignored);
+    }  // was longPressChapterSkip
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, hyphenationEnabled);
     if (++settingsRead >= fileSettingsCount) break;

@@ -155,16 +155,6 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  // Star page toggle via short power button press
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::STAR_PAGE &&
-      mappedInput.wasReleased(MappedInputManager::Button::Power)) {
-    if (currentPage >= 0) {
-      bookmarkStore.toggle(0, static_cast<uint16_t>(currentPage));
-    }
-    requestUpdate();
-    return;
-  }
-
   // Open starred pages list via Confirm button
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !bookmarkStore.isEmpty()) {
     ReaderUtils::enforceExitFullRefresh(renderer);
@@ -781,4 +771,63 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
     y += lineHeight;
   }
   return true;
+}
+
+void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION action) {
+  using BA = CrossPointSettings::BUTTON_ACTION;
+  auto clampPage = [this]() {
+    if (currentPage < 0) currentPage = 0;
+    if (currentPage >= totalPages) currentPage = totalPages - 1;
+  };
+  switch (action) {
+    case BA::BTN_PAGE_FORWARD:
+      if (currentPage < totalPages - 1) {
+        currentPage++;
+        requestUpdate();
+      }
+      break;
+    case BA::BTN_PAGE_BACK:
+      if (currentPage > 0) {
+        currentPage--;
+        requestUpdate();
+      }
+      break;
+    case BA::BTN_PAGE_FORWARD_10:
+      currentPage += 10;
+      clampPage();
+      requestUpdate();
+      break;
+    case BA::BTN_PAGE_BACK_10:
+      currentPage -= 10;
+      clampPage();
+      requestUpdate();
+      break;
+    case BA::BTN_STAR_PAGE:
+      bookmarkStore.toggle(0, static_cast<uint16_t>(currentPage));
+      requestUpdate();
+      break;
+    case BA::BTN_OPEN_BOOKMARKS:
+      if (!bookmarkStore.isEmpty()) {
+        ReaderUtils::enforceExitFullRefresh(renderer);
+        startActivityForResult(std::make_unique<StarredPagesActivity>(renderer, mappedInput, bookmarkStore),
+                               [this](const ActivityResult& result) {
+                                 if (!result.isCancelled) {
+                                   const auto& starred = std::get<StarredPageResult>(result.data);
+                                   currentPage = starred.pageNumber;
+                                   requestUpdate();
+                                 }
+                               });
+      }
+      break;
+    case BA::BTN_NEXT_SECTION:
+    case BA::BTN_PREV_SECTION:
+      // TXT files have no headings/chapters; treat as unsupported (no-op).
+      break;
+    case BA::BTN_EXIT_READER:
+      ReaderUtils::enforceExitFullRefresh(renderer);
+      finish();
+      break;
+    default:
+      break;
+  }
 }

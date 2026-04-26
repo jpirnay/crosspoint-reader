@@ -17,6 +17,7 @@
 
 #include <cstring>
 
+#include "ButtonEventManager.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalBookmarkIndex.h"
@@ -33,6 +34,8 @@
 #include "util/ScreenshotUtil.h"
 
 MappedInputManager mappedInputManager(gpio);
+ButtonEventManager buttonEventManager(mappedInputManager);
+ButtonEventManager& globalButtonEvents() { return buttonEventManager; }
 GfxRenderer renderer(display);
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
@@ -284,6 +287,7 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+  buttonEventManager.update();
   HalClock::updatePeriodic();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
@@ -346,6 +350,8 @@ void loop() {
   // Track power button hold for sleep.  We require a fresh press edge (wasPressed)
   // before starting to measure hold time, so that a hold carried over from boot
   // (wake-up press) is never misinterpreted as a "go to sleep" press.
+  // The power button long-press is not user-remappable, so this path always owns it.
+  // Sleep mapped to other buttons is handled by the dispatcher's BTN_SLEEP case below.
   static unsigned long powerHoldStart = 0;
   if (gpio.wasPressed(HalGPIO::BTN_POWER)) {
     powerHoldStart = millis();
@@ -366,14 +372,6 @@ void loop() {
     }
   }
 
-  // Refresh screen when power button is short-pressed with FORCE_REFRESH setting.
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
-      mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
-    LOG_DBG("MAIN", "Manual screen refresh triggered");
-    RenderLock lock;
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-  }
-
   if (!gpio.isPressed(HalGPIO::BTN_POWER)) {
     powerHoldStart = 0;
   }
@@ -382,6 +380,151 @@ void loop() {
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
     activityManager.requestUpdate();
+  }
+
+  // Dispatch globally-configured button actions before handing control to the activity.
+  // Only non-Default actions are intercepted here; Default falls through to the activity.
+  {
+    using BA = CrossPointSettings::BUTTON_ACTION;
+    using B = MappedInputManager::Button;
+    ButtonEventManager::ButtonEvent ev;
+    while (buttonEventManager.consumeEvent(ev)) {
+      auto actionFor = [&](B btn) -> uint8_t {
+        switch (btn) {
+          case B::Back:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortBack;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleBack;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongBack;
+            }
+            break;
+          case B::Confirm:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortConfirm;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleConfirm;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongConfirm;
+            }
+            break;
+          case B::Left:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortLeft;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleLeft;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongLeft;
+            }
+            break;
+          case B::Right:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortRight;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoubleRight;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongRight;
+            }
+            break;
+          case B::PageBack:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortPageBack;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoublePageBack;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongPageBack;
+            }
+            break;
+          case B::PageForward:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortPageForward;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoublePageForward;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongPageForward;
+            }
+            break;
+          case B::Power:
+            switch (ev.type) {
+              case ButtonEventManager::PressType::Short:
+                return SETTINGS.btnShortPower;
+              case ButtonEventManager::PressType::Double:
+                return SETTINGS.btnDoublePower;
+              case ButtonEventManager::PressType::Long:
+                return SETTINGS.btnLongPower;
+            }
+            break;
+          default:
+            break;  // Up/Down have no FSMs — ButtonEventManager never emits these
+        }
+        return BA::BTN_DEFAULT;
+      };
+
+      const uint8_t action = actionFor(ev.button);
+      if (action == BA::BTN_DEFAULT) continue;
+
+      switch (static_cast<BA>(action)) {
+        case BA::BTN_PAGE_FORWARD:
+          activityManager.dispatchButtonAction(BA::BTN_PAGE_FORWARD);
+          break;
+        case BA::BTN_PAGE_BACK:
+          activityManager.dispatchButtonAction(BA::BTN_PAGE_BACK);
+          break;
+        case BA::BTN_PAGE_FORWARD_10:
+          activityManager.dispatchButtonAction(BA::BTN_PAGE_FORWARD_10);
+          break;
+        case BA::BTN_PAGE_BACK_10:
+          activityManager.dispatchButtonAction(BA::BTN_PAGE_BACK_10);
+          break;
+        case BA::BTN_GO_HOME:
+          activityManager.goHome();
+          break;
+        case BA::BTN_SLEEP:
+          activityManager.goToSleep();
+          break;
+        case BA::BTN_FORCE_REFRESH: {
+          RenderLock lock;
+          renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+          break;
+        }
+        case BA::BTN_OPEN_TOC:
+          activityManager.dispatchButtonAction(BA::BTN_OPEN_TOC);
+          break;
+        case BA::BTN_OPEN_BOOKMARKS:
+          activityManager.goToGlobalBookmarks();
+          break;
+        case BA::BTN_STAR_PAGE:
+          activityManager.dispatchButtonAction(BA::BTN_STAR_PAGE);
+          break;
+        case BA::BTN_FOOTNOTES:
+          activityManager.dispatchButtonAction(BA::BTN_FOOTNOTES);
+          break;
+        case BA::BTN_NEXT_SECTION:
+          activityManager.dispatchButtonAction(BA::BTN_NEXT_SECTION);
+          break;
+        case BA::BTN_PREV_SECTION:
+          activityManager.dispatchButtonAction(BA::BTN_PREV_SECTION);
+          break;
+        case BA::BTN_EXIT_READER:
+          activityManager.dispatchButtonAction(BA::BTN_EXIT_READER);
+          break;
+        case BA::BTN_READER_MENU:
+          activityManager.dispatchButtonAction(BA::BTN_READER_MENU);
+          break;
+        case BA::BTN_KOREADER_SYNC:
+          activityManager.dispatchButtonAction(BA::BTN_KOREADER_SYNC);
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   const unsigned long activityStartTime = millis();

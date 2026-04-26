@@ -8,6 +8,7 @@
 
 #include "ActivityManager.h"  // for using the ActivityManager singleton
 #include "ActivityResult.h"
+#include "ButtonEventManager.h"
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
 #include "RenderLock.h"
@@ -19,13 +20,14 @@ class Activity {
   std::string name;
   GfxRenderer& renderer;
   MappedInputManager& mappedInput;
+  ButtonEventManager& buttonEvents;
 
   ActivityResultHandler resultHandler;
   ActivityResult result;
 
  public:
   explicit Activity(std::string name, GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : name(std::move(name)), renderer(renderer), mappedInput(mappedInput) {}
+      : name(std::move(name)), renderer(renderer), mappedInput(mappedInput), buttonEvents(globalButtonEvents()) {}
   virtual ~Activity() = default;
   const std::string& getName() const { return name; }
   virtual void onEnter();
@@ -44,6 +46,11 @@ class Activity {
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
   virtual bool isReaderActivity() const { return false; }
+
+  // Called by ActivityManager when a globally-configured button action targets the
+  // current activity. Override in reader activities to handle reader-specific actions.
+  // Non-reader activities can ignore this (default is no-op).
+  virtual void onButtonAction(CrossPointSettings::BUTTON_ACTION) {}
 
   // Start a new activity without destroying the current one
   // Note: requestUpdate() will be invoked automatically once resultHandler finishes

@@ -25,6 +25,7 @@ class SettingsActivity final : public Activity {
   static const StrId categoryNames[categoryCount];
 
   std::vector<SettingInfo::SubmenuData> submenuData;
+  bool needsHalfRefresh = false;
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();

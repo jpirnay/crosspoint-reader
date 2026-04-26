@@ -253,7 +253,7 @@ void MdReaderActivity::loop() {
     return;
   }
 
-  const bool headingSkip = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > HEADING_SKIP_MS;
+  const bool headingSkip = mappedInput.getHeldTime() > HEADING_SKIP_MS;
   if (headingSkip && !headings.empty()) {
     jumpToHeading(nextTriggered);
     return;
@@ -892,4 +892,70 @@ void MdReaderActivity::savePageIndexCache() const {
   }
 
   LOG_DBG("MDR", "Saved page index cache: %d pages", totalPages);
+}
+
+void MdReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION action) {
+  using BA = CrossPointSettings::BUTTON_ACTION;
+  auto clampPage = [this]() {
+    if (totalPages == 0) {
+      currentPage = 0;
+      return;
+    }
+    if (currentPage < 0) currentPage = 0;
+    if (currentPage >= totalPages) currentPage = totalPages - 1;
+  };
+  switch (action) {
+    case BA::BTN_PAGE_FORWARD:
+      if (currentPage < totalPages - 1) {
+        currentPage++;
+        currentHeadingIndex = pageOffsets.empty() ? -1 : getHeadingIndexForOffset(pageOffsets[currentPage]);
+        requestUpdate();
+      }
+      break;
+    case BA::BTN_PAGE_BACK:
+      if (currentPage > 0) {
+        currentPage--;
+        currentHeadingIndex = pageOffsets.empty() ? -1 : getHeadingIndexForOffset(pageOffsets[currentPage]);
+        requestUpdate();
+      }
+      break;
+    case BA::BTN_PAGE_FORWARD_10:
+      currentPage += 10;
+      clampPage();
+      currentHeadingIndex = pageOffsets.empty() ? -1 : getHeadingIndexForOffset(pageOffsets[currentPage]);
+      requestUpdate();
+      break;
+    case BA::BTN_PAGE_BACK_10:
+      currentPage -= 10;
+      clampPage();
+      currentHeadingIndex = pageOffsets.empty() ? -1 : getHeadingIndexForOffset(pageOffsets[currentPage]);
+      requestUpdate();
+      break;
+    case BA::BTN_NEXT_SECTION:
+      jumpToHeading(true);
+      break;
+    case BA::BTN_PREV_SECTION:
+      jumpToHeading(false);
+      break;
+    case BA::BTN_OPEN_TOC:
+      if (!headings.empty()) {
+        currentHeadingIndex = pageOffsets.empty() ? -1 : getHeadingIndexForOffset(pageOffsets[currentPage]);
+        startActivityForResult(
+            std::make_unique<MdReaderTocSelectionActivity>(renderer, mappedInput, headings, currentHeadingIndex),
+            [this](const ActivityResult& result) {
+              if (!result.isCancelled) {
+                currentPage = std::get<PageResult>(result.data).page;
+                currentHeadingIndex = pageOffsets.empty() ? -1 : getHeadingIndexForOffset(pageOffsets[currentPage]);
+                requestUpdate();
+              }
+            });
+      }
+      break;
+    case BA::BTN_EXIT_READER:
+      ReaderUtils::enforceExitFullRefresh(renderer);
+      finish();
+      break;
+    default:
+      break;
+  }
 }
