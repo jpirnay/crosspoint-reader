@@ -4,11 +4,36 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
+#include <cstdint>
+
 #include "MappedInputManager.h"
 
 namespace ReaderUtils {
 
 constexpr unsigned long GO_HOME_MS = 1000;
+
+// Round-half-up integer division clamped to [0, 100], used as the percent byte appended to
+// progress.bin so the home screen can render a per-book badge without re-loading the document.
+// All reader types must funnel through this so the displayed value matches across formats.
+inline uint8_t pageProgressPercentByte(int currentPage, int totalPages) {
+  if (totalPages <= 0 || currentPage < 0) {
+    return 0;
+  }
+  const long numerator = static_cast<long>(currentPage + 1) * 200L + totalPages;
+  const long percent = numerator / (2L * totalPages);
+  if (percent < 0) return 0;
+  if (percent > 100) return 100;
+  return static_cast<uint8_t>(percent);
+}
+
+// Round-half-up clamp for a pre-computed [0,1] progress fraction (used by EPUB, where progress
+// is byte-weighted across spine items rather than a simple page ratio).
+inline uint8_t fractionProgressPercentByte(float fraction) {
+  const int percent = static_cast<int>(fraction * 100.0f + 0.5f);
+  if (percent < 0) return 0;
+  if (percent > 100) return 100;
+  return static_cast<uint8_t>(percent);
+}
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   switch (orientation) {

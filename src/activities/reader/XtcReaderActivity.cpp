@@ -333,12 +333,14 @@ void XtcReaderActivity::renderPage() {
 void XtcReaderActivity::saveProgress() const {
   FsFile f;
   if (Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
+    uint8_t data[5];
     data[0] = currentPage & 0xFF;
     data[1] = (currentPage >> 8) & 0xFF;
     data[2] = (currentPage >> 16) & 0xFF;
     data[3] = (currentPage >> 24) & 0xFF;
-    f.write(data, 4);
+    data[4] =
+        ReaderUtils::pageProgressPercentByte(static_cast<int>(currentPage), static_cast<int>(xtc->getPageCount()));
+    f.write(data, 5);
     f.close();
   }
 }
@@ -463,11 +465,10 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
     case BA::BTN_NEXT_SECTION:
       if (xtc->hasChapters()) {
         const auto& chapters = xtc->getChapters();
-        const auto nextChapter = std::find_if(chapters.begin(), chapters.end(),
-                                              [this](const auto& ch) { return ch.startPage > currentPage; });
-
-        if (nextChapter != chapters.end()) {
-          currentPage = nextChapter->startPage;
+        const auto it = std::find_if(chapters.begin(), chapters.end(),
+                                     [this](const auto& ch) { return ch.startPage > currentPage; });
+        if (it != chapters.end()) {
+          currentPage = it->startPage;
           requestUpdate();
         }
       }
