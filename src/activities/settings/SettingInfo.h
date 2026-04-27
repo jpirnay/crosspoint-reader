@@ -97,6 +97,12 @@ struct SettingInfo {
 
   static void prepareSubmenus(std::vector<SettingInfo>& items, std::vector<SubmenuData>& submenuData);
 
+  // Walks `items` and inserts a SettingInfo::Separator before each item whose subcategory
+  // differs from the previous one — same rule used by SettingsActivity for the main tabs.
+  // Existing separator rows preserve their own nameId as the running subcategory so a
+  // manually placed Separator suppresses an immediate auto-insert for the same group.
+  static void insertSubcategorySeparators(std::vector<SettingInfo>& items);
+
   SettingInfo& withObfuscated() {
     obfuscated = true;
     return *this;
@@ -285,4 +291,24 @@ inline void SettingInfo::prepareSubmenus(std::vector<SettingInfo>& items,
                        std::make_move_iterator(submenu.items.end()));
     }
   }
+}
+
+inline void SettingInfo::insertSubcategorySeparators(std::vector<SettingInfo>& items) {
+  if (items.empty()) return;
+  std::vector<SettingInfo> out;
+  out.reserve(items.size() + 4);
+  StrId lastSub = StrId::STR_NONE_OPT;
+  for (auto& item : items) {
+    if (item.isSeparator) {
+      lastSub = item.nameId;
+      out.push_back(std::move(item));
+      continue;
+    }
+    if (item.subcategory != StrId::STR_NONE_OPT && item.subcategory != lastSub) {
+      out.push_back(SettingInfo::Separator(item.subcategory));
+      lastSub = item.subcategory;
+    }
+    out.push_back(std::move(item));
+  }
+  items.swap(out);
 }

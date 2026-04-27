@@ -19,6 +19,7 @@ void MenuListActivity::onEnter() {
   Activity::onEnter();
   if (!submenusPrepared) {
     prepareSubmenus();
+    SettingInfo::insertSubcategorySeparators(menuItems);
     submenusPrepared = true;
   }
   initMenuList();
