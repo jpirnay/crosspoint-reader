@@ -759,6 +759,7 @@ void MdReaderActivity::saveProgress() const {
     data[5] = (offset >> 24) & 0xFF;
     data[6] = ReaderUtils::pageProgressPercentByte(currentPage, totalPages);
     f.write(data, 7);
+    f.close();
   }
 }
 
