@@ -58,6 +58,11 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
   }
 }
 
+void enforceFixedShortActions(CrossPointSettings& settings) {
+  settings.btnShortBack = static_cast<uint8_t>(CrossPointSettings::BUTTON_ACTION::BTN_DEFAULT);
+  settings.btnShortConfirm = static_cast<uint8_t>(CrossPointSettings::BUTTON_ACTION::BTN_DEFAULT);
+}
+
 }  // namespace
 
 void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings) {
@@ -88,11 +93,14 @@ bool CrossPointSettings::loadFromFile() {
     if (!json.isEmpty()) {
       bool resave = false;
       bool result = JsonSettingsIO::loadSettings(*this, json.c_str(), &resave);
-      if (result && resave) {
-        if (saveToFile()) {
-          LOG_DBG("CPS", "Resaved settings to update format");
-        } else {
-          LOG_ERR("CPS", "Failed to resave settings after format update");
+      if (result) {
+        enforceFixedShortActions(*this);
+        if (resave) {
+          if (saveToFile()) {
+            LOG_DBG("CPS", "Resaved settings to update format");
+          } else {
+            LOG_ERR("CPS", "Failed to resave settings after format update");
+          }
         }
       }
       return result;
@@ -102,6 +110,7 @@ bool CrossPointSettings::loadFromFile() {
   // Fall back to binary migration
   if (Storage.exists(SETTINGS_FILE_BIN)) {
     if (loadFromBinaryFile()) {
+      enforceFixedShortActions(*this);
       if (saveToFile()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
         LOG_DBG("CPS", "Migrated settings.bin to settings.json");

@@ -16,10 +16,13 @@ void QrDisplayActivity::onEnter() {
 void QrDisplayActivity::onExit() { Activity::onExit(); }
 
 void QrDisplayActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    finish();
-    return;
+  ButtonEventManager::ButtonEvent ev;
+  while (buttonEvents.consumeEvent(ev)) {
+    if ((ev.button == MappedInputManager::Button::Back || ev.button == MappedInputManager::Button::Confirm) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      finish();
+      return;
+    }
   }
 }
 

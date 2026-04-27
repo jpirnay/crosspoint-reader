@@ -6,6 +6,7 @@
 
 #include <cstdint>
 
+#include "ButtonEventManager.h"
 #include "MappedInputManager.h"
 
 namespace ReaderUtils {
@@ -90,13 +91,21 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   // Only treat wasReleased as a page turn when the button's short-press action is default.
   // Non-default short-press actions are dispatched by the global dispatcher in main.cpp;
   // counting wasReleased as well would double-fire the action.
+  // Also suppress immediate page-turns if a double-click action is configured for the button,
+  // because the button event system delays short events until the double-click window expires.
   using BA = CrossPointSettings::BUTTON_ACTION;
-  const bool prev =
-      (SETTINGS.btnShortPageBack == BA::BTN_DEFAULT && input.wasReleased(MappedInputManager::Button::PageBack)) ||
-      (SETTINGS.btnShortLeft == BA::BTN_DEFAULT && input.wasReleased(MappedInputManager::Button::Left));
-  const bool next =
-      (SETTINGS.btnShortPageForward == BA::BTN_DEFAULT && input.wasReleased(MappedInputManager::Button::PageForward)) ||
-      (SETTINGS.btnShortRight == BA::BTN_DEFAULT && input.wasReleased(MappedInputManager::Button::Right));
+  const bool prev = (SETTINGS.btnShortPageBack == BA::BTN_DEFAULT &&
+                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageBack) &&
+                     input.wasReleased(MappedInputManager::Button::PageBack)) ||
+                    (SETTINGS.btnShortLeft == BA::BTN_DEFAULT &&
+                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Left) &&
+                     input.wasReleased(MappedInputManager::Button::Left));
+  const bool next = (SETTINGS.btnShortPageForward == BA::BTN_DEFAULT &&
+                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageForward) &&
+                     input.wasReleased(MappedInputManager::Button::PageForward)) ||
+                    (SETTINGS.btnShortRight == BA::BTN_DEFAULT &&
+                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Right) &&
+                     input.wasReleased(MappedInputManager::Button::Right));
   return {prev, next};
 }
 

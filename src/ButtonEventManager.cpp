@@ -33,6 +33,13 @@ void ButtonEventManager::pushEvent(const Button button, const PressType type) {
   eventTail = next;
 }
 
+void ButtonEventManager::pushEventFront(const Button button, const PressType type) {
+  const int prev = (eventHead - 1 + EVENT_BUF) % EVENT_BUF;
+  if (prev == eventTail) return;  // buffer full
+  eventHead = prev;
+  eventBuf[eventHead] = {button, type};
+}
+
 bool ButtonEventManager::consumeEvent(ButtonEvent& out) {
   if (eventHead == eventTail) return false;
   out = eventBuf[eventHead];

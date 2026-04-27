@@ -34,22 +34,34 @@ void EpubReaderPercentSelectionActivity::adjustPercent(const int delta) {
 
 void EpubReaderPercentSelectionActivity::loop() {
   // Back cancels, confirm selects, arrows adjust the percent.
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
-    return;
-  }
+  ButtonEventManager::ButtonEvent ev;
+  while (buttonEvents.consumeEvent(ev)) {
+    if (ev.button == MappedInputManager::Button::Back && ev.type == ButtonEventManager::PressType::Short) {
+      ActivityResult result;
+      result.isCancelled = true;
+      setResult(std::move(result));
+      finish();
+      return;
+    }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    setResult(PercentResult{percent});
-    finish();
-    return;
-  }
+    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Short) {
+      setResult(PercentResult{percent});
+      finish();
+      return;
+    }
 
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustPercent(-kSmallStep); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustPercent(kSmallStep); });
+    if ((ev.button == MappedInputManager::Button::PageBack || ev.button == MappedInputManager::Button::Left) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      adjustPercent(-kSmallStep);
+      return;
+    }
+
+    if ((ev.button == MappedInputManager::Button::PageForward || ev.button == MappedInputManager::Button::Right) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      adjustPercent(kSmallStep);
+      return;
+    }
+  }
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] { adjustPercent(kLargeStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] { adjustPercent(-kLargeStep); });

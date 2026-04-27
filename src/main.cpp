@@ -16,6 +16,7 @@
 #include <esp_ota_ops.h>
 
 #include <cstring>
+#include <vector>
 
 #include "ButtonEventManager.h"
 #include "CrossPointSettings.h"
@@ -387,88 +388,95 @@ void loop() {
   {
     using BA = CrossPointSettings::BUTTON_ACTION;
     using B = MappedInputManager::Button;
+    auto actionFor = [&](const ButtonEventManager::ButtonEvent& ev) -> uint8_t {
+      switch (ev.button) {
+        case B::Back:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortBack;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoubleBack;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongBack;
+          }
+          break;
+        case B::Confirm:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortConfirm;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoubleConfirm;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongConfirm;
+          }
+          break;
+        case B::Left:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortLeft;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoubleLeft;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongLeft;
+          }
+          break;
+        case B::Right:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortRight;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoubleRight;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongRight;
+          }
+          break;
+        case B::PageBack:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortPageBack;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoublePageBack;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongPageBack;
+          }
+          break;
+        case B::PageForward:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortPageForward;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoublePageForward;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongPageForward;
+          }
+          break;
+        case B::Power:
+          switch (ev.type) {
+            case ButtonEventManager::PressType::Short:
+              return SETTINGS.btnShortPower;
+            case ButtonEventManager::PressType::Double:
+              return SETTINGS.btnDoublePower;
+            case ButtonEventManager::PressType::Long:
+              return SETTINGS.btnLongPower;
+          }
+          break;
+        default:
+          break;  // Up/Down have no FSMs — ButtonEventManager never emits these
+      }
+      return BA::BTN_DEFAULT;
+    };
     ButtonEventManager::ButtonEvent ev;
+    std::vector<ButtonEventManager::ButtonEvent> defaultEvents;
+    defaultEvents.reserve(8);
     while (buttonEventManager.consumeEvent(ev)) {
-      auto actionFor = [&](B btn) -> uint8_t {
-        switch (btn) {
-          case B::Back:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortBack;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoubleBack;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongBack;
-            }
-            break;
-          case B::Confirm:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortConfirm;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoubleConfirm;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongConfirm;
-            }
-            break;
-          case B::Left:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortLeft;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoubleLeft;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongLeft;
-            }
-            break;
-          case B::Right:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortRight;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoubleRight;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongRight;
-            }
-            break;
-          case B::PageBack:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortPageBack;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoublePageBack;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongPageBack;
-            }
-            break;
-          case B::PageForward:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortPageForward;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoublePageForward;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongPageForward;
-            }
-            break;
-          case B::Power:
-            switch (ev.type) {
-              case ButtonEventManager::PressType::Short:
-                return SETTINGS.btnShortPower;
-              case ButtonEventManager::PressType::Double:
-                return SETTINGS.btnDoublePower;
-              case ButtonEventManager::PressType::Long:
-                return SETTINGS.btnLongPower;
-            }
-            break;
-          default:
-            break;  // Up/Down have no FSMs — ButtonEventManager never emits these
+      const uint8_t action = actionFor(ev);
+      if (action == BA::BTN_DEFAULT) {
+        if (ev.type == ButtonEventManager::PressType::Double) {
+          continue;
         }
-        return BA::BTN_DEFAULT;
-      };
-
-      const uint8_t action = actionFor(ev.button);
-      if (action == BA::BTN_DEFAULT) continue;
+        defaultEvents.push_back(ev);
+        continue;
+      }
 
       switch (static_cast<BA>(action)) {
         case BA::BTN_PAGE_FORWARD:
@@ -524,6 +532,10 @@ void loop() {
         default:
           break;
       }
+    }
+
+    for (auto it = defaultEvents.rbegin(); it != defaultEvents.rend(); ++it) {
+      buttonEventManager.pushEventFront(it->button, it->type);
     }
   }
 

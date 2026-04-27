@@ -144,8 +144,8 @@ inline const std::vector<SettingInfo> list = {
       StrId::STR_BTN_ACT_KOREADER_SYNC
 
     // Back button: short=exit reader, double=ignore, long=go home
-    SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortBack,
-                      {StrId::STR_BTN_DEF_EXIT_READER, BTN_ACT_OPTIONS}, "btnShortBack", StrId::STR_CAT_CONTROLS)
+    SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortBack, {StrId::STR_BTN_DEF_EXIT_READER},
+                      "btnShortBack", StrId::STR_CAT_CONTROLS)
         .withSubcategory(StrId::STR_MENU_BTN_ACTIONS)
         .withSubmenu(StrId::STR_BTN_BACK),
     SettingInfo::Enum(StrId::STR_BTN_DOUBLE_PRESS, &CrossPointSettings::btnDoubleBack,
@@ -156,7 +156,7 @@ inline const std::vector<SettingInfo> list = {
         .withSubmenu(StrId::STR_BTN_BACK),
     // Confirm button: short=reader menu, double=ignore, long=KOReader sync
     SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortConfirm,
-                      {StrId::STR_BTN_DEF_READER_MENU, BTN_ACT_OPTIONS}, "btnShortConfirm", StrId::STR_CAT_CONTROLS)
+                      {StrId::STR_BTN_DEF_READER_MENU}, "btnShortConfirm", StrId::STR_CAT_CONTROLS)
         .withSubmenu(StrId::STR_BTN_CONFIRM),
     SettingInfo::Enum(StrId::STR_BTN_DOUBLE_PRESS, &CrossPointSettings::btnDoubleConfirm,
                       {StrId::STR_BTN_DEF_IGNORE, BTN_ACT_OPTIONS}, "btnDoubleConfirm", StrId::STR_CAT_CONTROLS)

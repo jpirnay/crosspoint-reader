@@ -42,22 +42,40 @@ void EpubReaderChapterSelectionActivity::loop() {
   const int pageItems = getPageItems();
   const int totalItems = getTotalItems();
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const auto newSpineIndex = epub->getSpineIndexForTocIndex(selectorIndex);
-    if (newSpineIndex == -1) {
+  ButtonEventManager::ButtonEvent ev;
+  while (buttonEvents.consumeEvent(ev)) {
+    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Short) {
+      const auto newSpineIndex = epub->getSpineIndexForTocIndex(selectorIndex);
+      if (newSpineIndex == -1) {
+        ActivityResult result;
+        result.isCancelled = true;
+        setResult(std::move(result));
+        finish();
+      } else {
+        setResult(ChapterResult{newSpineIndex, selectorIndex});
+        finish();
+      }
+      return;
+    }
+    if (ev.button == MappedInputManager::Button::Back && ev.type == ButtonEventManager::PressType::Short) {
       ActivityResult result;
       result.isCancelled = true;
       setResult(std::move(result));
       finish();
-    } else {
-      setResult(ChapterResult{newSpineIndex, selectorIndex});
-      finish();
+      return;
     }
-  } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
+    if ((ev.button == MappedInputManager::Button::PageBack || ev.button == MappedInputManager::Button::Left) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
+      requestUpdate();
+      return;
+    }
+    if ((ev.button == MappedInputManager::Button::PageForward || ev.button == MappedInputManager::Button::Right) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
+      requestUpdate();
+      return;
+    }
   }
 
   buttonNavigator.onNextRelease([this, totalItems] {

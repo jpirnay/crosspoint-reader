@@ -18,35 +18,53 @@ void EpubReaderFootnotesActivity::onEnter() {
 void EpubReaderFootnotesActivity::onExit() { Activity::onExit(); }
 
 void EpubReaderFootnotesActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
-    return;
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (selectedIndex >= 0 && selectedIndex < static_cast<int>(footnotes.size())) {
-      setResult(FootnoteResult{footnotes[selectedIndex].href});
+  ButtonEventManager::ButtonEvent ev;
+  while (buttonEvents.consumeEvent(ev)) {
+    if (ev.button == MappedInputManager::Button::Back && ev.type == ButtonEventManager::PressType::Short) {
+      ActivityResult result;
+      result.isCancelled = true;
+      setResult(std::move(result));
       finish();
+      return;
     }
-    return;
+
+    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Short) {
+      if (selectedIndex >= 0 && selectedIndex < static_cast<int>(footnotes.size())) {
+        setResult(FootnoteResult{footnotes[selectedIndex].href});
+        finish();
+      }
+      return;
+    }
+
+    if ((ev.button == MappedInputManager::Button::PageBack || ev.button == MappedInputManager::Button::Left) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      advanceSelection(-1);
+      return;
+    }
+
+    if ((ev.button == MappedInputManager::Button::PageForward || ev.button == MappedInputManager::Button::Right) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      advanceSelection(1);
+      return;
+    }
   }
 
-  buttonNavigator.onNext([this] {
-    if (!footnotes.empty()) {
-      selectedIndex = (selectedIndex + 1) % footnotes.size();
-      requestUpdate();
-    }
-  });
+  buttonNavigator.onNextRelease([this] { advanceSelection(1); });
 
-  buttonNavigator.onPrevious([this] {
-    if (!footnotes.empty()) {
-      selectedIndex = (selectedIndex - 1 + footnotes.size()) % footnotes.size();
-      requestUpdate();
-    }
-  });
+  buttonNavigator.onPreviousRelease([this] { advanceSelection(-1); });
+
+  buttonNavigator.onNextContinuous([this] { advanceSelection(1); });
+
+  buttonNavigator.onPreviousContinuous([this] { advanceSelection(-1); });
+}
+
+void EpubReaderFootnotesActivity::advanceSelection(int delta) {
+  if (footnotes.empty()) {
+    return;
+  }
+  const int n = static_cast<int>(footnotes.size());
+  selectedIndex = ((selectedIndex + delta) % n + n) % n;
+  requestUpdate();
 }
 
 void EpubReaderFootnotesActivity::render(RenderLock&&) {

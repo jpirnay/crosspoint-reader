@@ -78,32 +78,40 @@ void StarredPagesActivity::deleteSelected() {
 void StarredPagesActivity::loop() {
   const int totalItems = static_cast<int>(bookmarkStore.getAll().size());
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
-    return;
+  ButtonEventManager::ButtonEvent ev;
+  while (buttonEvents.consumeEvent(ev)) {
+    if (ev.button == MappedInputManager::Button::Back && ev.type == ButtonEventManager::PressType::Short) {
+      ActivityResult result;
+      result.isCancelled = true;
+      setResult(std::move(result));
+      finish();
+      return;
+    }
+
+    if (totalItems > 0 && ev.button == MappedInputManager::Button::Confirm &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      const auto& bm = bookmarkStore.getAll()[selectorIndex];
+      setResult(StarredPageResult{bm.spineIndex, bm.pageNumber});
+      finish();
+      return;
+    }
+
+    if (totalItems > 0 &&
+        (ev.button == MappedInputManager::Button::PageBack || ev.button == MappedInputManager::Button::Left) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      startRename();
+      return;
+    }
+
+    if (totalItems > 0 &&
+        (ev.button == MappedInputManager::Button::PageForward || ev.button == MappedInputManager::Button::Right) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      deleteSelected();
+      return;
+    }
   }
 
   if (totalItems == 0) return;
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const auto& bm = bookmarkStore.getAll()[selectorIndex];
-    setResult(StarredPageResult{bm.spineIndex, bm.pageNumber});
-    finish();
-    return;
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-    startRename();
-    return;
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-    deleteSelected();
-    return;
-  }
 
   const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
 

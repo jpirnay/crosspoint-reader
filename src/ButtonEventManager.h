@@ -34,7 +34,7 @@ class ButtonEventManager {
   };
 
   // Timing constants (milliseconds)
-  static constexpr unsigned long LONG_PRESS_MS = 600;
+  static constexpr unsigned long LONG_PRESS_MS = 1000;
   static constexpr unsigned long DOUBLE_WINDOW_MS = 300;
 
   explicit ButtonEventManager(MappedInputManager& input) : input(input) {}
@@ -48,6 +48,10 @@ class ButtonEventManager {
 
   // Reset all per-button FSMs. Call on activity transitions to prevent bleed-through.
   void drain();
+
+  // Preserve a default event for activity processing after main loop dispatch.
+  // This is used when the configured action is BTN_DEFAULT.
+  void pushEventFront(Button button, PressType type);
 
   // Returns true if a double-click action is configured for this button.
   // ButtonEventManager queries CrossPointSettings internally.
