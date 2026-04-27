@@ -45,9 +45,12 @@ UI_FONT_STYLES=("Regular" "Bold")
 for size in ${UI_FONT_SIZES[@]}; do
   for style in ${UI_FONT_STYLES[@]}; do
     font_name="ubuntu_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
-    font_path="../builtinFonts/source/Ubuntu/Ubuntu-${style}.ttf"
+    ubuntu_path="../builtinFonts/source/Ubuntu/Ubuntu-${style}.ttf"
+    # NotoSans used as fallback to fill missing glyphs (e.g. Vietnamese U+1EA0-1EF9)
+    # that are absent from the Ubuntu TTF source.
+    noto_path="../builtinFonts/source/NotoSans/NotoSans-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
-    python fontconvert.py $font_name $size $font_path > $output_path
+    python fontconvert.py $font_name $size $ubuntu_path $noto_path > $output_path
     echo "Generated $output_path"
   done
 done

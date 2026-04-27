@@ -8,6 +8,10 @@ import argparse
 from collections import namedtuple
 from fontTools.ttLib import TTFont
 
+# Force UTF-8 stdout so that `> file.h` on Windows doesn't produce UTF-16 LE
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 # Originally from https://github.com/vroland/epdiy
 
 parser = argparse.ArgumentParser(description="Generate a header file from a font to be used with epdiy.")
