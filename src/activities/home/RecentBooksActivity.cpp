@@ -56,13 +56,16 @@ void RecentBooksActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !recentBooks.empty() &&
       selectorIndex < static_cast<int>(recentBooks.size())) {
-    // Long-press Confirm signals "open with KOReader sync": the reader will perform an
-    // AUTO_PULL before rendering its first page. Short-press is the unchanged direct open.
+    // Long-press Confirm signals "open with KOReader sync" only for EPUBs.
+    // Short-press is unchanged direct open.
     const bool longPress = mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS && KOREADER_STORE.hasCredentials();
-    LOG_DBG("RBA", "Selected recent book: %s (sync=%d)", recentBooks[selectorIndex].path.c_str(), longPress ? 1 : 0);
-    if (longPress) {
+    const std::string& selectedPath = recentBooks[selectorIndex].path;
+    const bool isEpubBook = FsHelpers::hasEpubExtension(selectedPath);
+    LOG_DBG("RBA", "Selected recent book: %s (sync=%d epub=%d)", selectedPath.c_str(), longPress ? 1 : 0,
+            isEpubBook ? 1 : 0);
+    if (longPress && isEpubBook) {
       auto& sync = APP_STATE.koReaderSyncSession;
-      sync.autoPullOnOpen = true;
+      sync.autoPullEpubPath = selectedPath;
       sync.exitToHomeAfterSync = false;
       APP_STATE.saveToFile();
     }

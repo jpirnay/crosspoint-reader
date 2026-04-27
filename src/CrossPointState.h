@@ -56,9 +56,8 @@ struct KOReaderSyncSessionState {
   // completion. Without this, AUTO_PUSH would bounce back into the reader the user just left.
   bool exitToHomeAfterSync = false;
   // Set by RecentBooks / FileBrowser long-press to ask the reader to perform an AUTO_PULL
-  // before rendering its first page. Consumed once on reader entry. Stored separately from
-  // `intent` because the long-press path bypasses `launchKOReaderSync`'s reader-state capture.
-  bool autoPullOnOpen = false;
+  // before rendering its first page. Stored by EPUB path so the flag cannot leak across books.
+  std::string autoPullEpubPath;
 
   void clear() {
     active = false;
@@ -76,7 +75,7 @@ struct KOReaderSyncSessionState {
     resultParagraphIndex = 0;
     resultHasParagraphIndex = false;
     exitToHomeAfterSync = false;
-    autoPullOnOpen = false;
+    autoPullEpubPath.clear();
   }
 };
 

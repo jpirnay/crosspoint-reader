@@ -187,9 +187,9 @@ void FileBrowserActivity::loop() {
       std::string fullPath = basepath;
       if (fullPath.back() != '/') fullPath += "/";
       fullPath += entry;
-      if (longPress && KOREADER_STORE.hasCredentials()) {
+      if (longPress && KOREADER_STORE.hasCredentials() && FsHelpers::hasEpubExtension(fullPath)) {
         auto& sync = APP_STATE.koReaderSyncSession;
-        sync.autoPullOnOpen = true;
+        sync.autoPullEpubPath = fullPath;
         sync.exitToHomeAfterSync = false;
         APP_STATE.saveToFile();
       }

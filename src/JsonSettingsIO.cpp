@@ -91,7 +91,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   sync["resultParagraphIndex"] = s.koReaderSyncSession.resultParagraphIndex;
   sync["resultHasParagraphIndex"] = s.koReaderSyncSession.resultHasParagraphIndex;
   sync["exitToHomeAfterSync"] = s.koReaderSyncSession.exitToHomeAfterSync;
-  sync["autoPullOnOpen"] = s.koReaderSyncSession.autoPullOnOpen;
+  sync["autoPullEpubPath"] = s.koReaderSyncSession.autoPullEpubPath;
   // Information about a pending bookmark jump
   JsonObject jump = doc["pendingBookmarkJump"].to<JsonObject>();
   jump["active"] = s.pendingBookmarkJump.active;
@@ -148,7 +148,10 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   s.koReaderSyncSession.resultParagraphIndex = sync["resultParagraphIndex"] | (uint16_t)0;
   s.koReaderSyncSession.resultHasParagraphIndex = sync["resultHasParagraphIndex"] | false;
   s.koReaderSyncSession.exitToHomeAfterSync = sync["exitToHomeAfterSync"] | false;
-  s.koReaderSyncSession.autoPullOnOpen = sync["autoPullOnOpen"] | false;
+  s.koReaderSyncSession.autoPullEpubPath = sync["autoPullEpubPath"] | std::string("");
+  if (s.koReaderSyncSession.autoPullEpubPath.empty() && (sync["autoPullOnOpen"] | false)) {
+    LOG_DBG("CPS", "Legacy autoPullOnOpen state found without epubPath - ignoring");
+  }
 
   JsonObject jump = doc["pendingBookmarkJump"].as<JsonObject>();
   s.pendingBookmarkJump.active = jump["active"] | false;

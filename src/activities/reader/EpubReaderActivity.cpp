@@ -898,6 +898,14 @@ bool EpubReaderActivity::tryAutoPushOnClose() {
   if (!epub) {
     return false;
   }
+
+  const int spineCount = epub->getSpineItemsCount();
+  if (spineCount == 0 || currentSpineIndex >= spineCount || !section) {
+    LOG_DBG("ERS", "Skipping AUTO_PUSH on end-of-book sentinel: spine=%d section=%s", currentSpineIndex,
+            section ? "present" : "null");
+    return false;
+  }
+
   // exitToHomeAfterSync flag is set inside launchKOReaderSync for AUTO_PUSH mode.
   launchKOReaderSync(SyncLaunchMode::AUTO_PUSH);
   return true;
