@@ -50,6 +50,8 @@ void SdCardFont::freeStyleMiniData(PerStyle& s) {
   s.miniBitmap = nullptr;
   s.miniIntervalCount = 0;
   s.miniGlyphCount = 0;
+  s.miniMode = PerStyle::MiniMode::NONE;
+  s.reportedMissCount = 0;
   freeStyleMiniKern(s);
   memset(&s.miniData, 0, sizeof(s.miniData));
   s.epdFont.data = &s.stubData;
@@ -667,30 +669,183 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
   return totalMissed;
 }
 
+// Returns true iff every codepoint in `codepoints[0..cpCount)` is already covered
+// by the style's current miniIntervals. O(cpCount * log intervalCount).
+bool SdCardFont::allCpsCovered(const PerStyle& s, const uint32_t* codepoints, uint32_t cpCount) {
+  if (s.miniIntervalCount == 0) return false;
+  for (uint32_t i = 0; i < cpCount; i++) {
+    const uint32_t cp = codepoints[i];
+    // Binary search miniIntervals for the range containing cp.
+    int lo = 0, hi = static_cast<int>(s.miniIntervalCount) - 1;
+    bool found = false;
+    while (lo <= hi) {
+      int mid = (lo + hi) / 2;
+      const auto& iv = s.miniIntervals[mid];
+      if (cp < iv.first) {
+        hi = mid - 1;
+      } else if (cp > iv.last) {
+        lo = mid + 1;
+      } else {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
 int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint32_t cpCount, bool metadataOnly) {
   auto& s = styles_[styleIdx];
+
+  // ---- Fast-path coverage check ----
+  // If the existing cache already covers all requested cps in a compatible mode,
+  // there's nothing to do. This is the dominant case during pagination after the
+  // first paragraph has populated the metadata cache.
+  if (s.miniMode != PerStyle::MiniMode::NONE && allCpsCovered(s, codepoints, cpCount)) {
+    // For metadata-only calls, METADATA or FULL cache both satisfy layout queries.
+    // For full (bitmap) calls, only FULL satisfies — METADATA lacks bitmap data.
+    if (metadataOnly || s.miniMode == PerStyle::MiniMode::FULL) {
+      // Already wired into miniData; nothing else to do.
+      return 0;
+    }
+  }
+
+  // ---- Decide merge vs rebuild ----
+  // Merge mode: extend the existing METADATA cache with the new cps without
+  // re-reading already-loaded glyphs. Only safe when:
+  //   - request is metadata-only (no bitmap data needed)
+  //   - existing mode is METADATA
+  //   - merged total stays within MAX_PAGE_GLYPHS
+  // In all other cases we fall back to today's full-rebuild behavior (which is
+  // also what happens for full bitmap prewarms — those are page-scoped).
+  const bool tryMerge =
+      metadataOnly && s.miniMode == PerStyle::MiniMode::METADATA && s.miniGlyphs != nullptr && s.miniGlyphCount > 0;
 
   // Map codepoints to global glyph indices for this style
   struct CpGlyphMapping {
     uint32_t codepoint;
     int32_t globalIndex;
   };
-  CpGlyphMapping* mappings = new (std::nothrow) CpGlyphMapping[cpCount];
+
+  // Worst-case allocation: existing + new (for the merge path) or just new.
+  const uint32_t mappingCapacity = tryMerge ? (s.miniGlyphCount + cpCount) : cpCount;
+  CpGlyphMapping* mappings = new (std::nothrow) CpGlyphMapping[mappingCapacity];
   if (!mappings) {
     LOG_ERR("SDCF", "Failed to allocate mapping array for style %u", styleIdx);
     return static_cast<int>(cpCount);
   }
 
   uint32_t validCount = 0;
+
+  // For merge: seed mappings with already-loaded cps + their global indices,
+  // recovered by walking miniIntervals and re-resolving via fullIntervals.
+  // (We don't store globalIndex per mini-glyph; recomputing it is a binary
+  // search per loaded cp, cheap relative to SD I/O.)
+  if (tryMerge) {
+    for (uint32_t iv = 0; iv < s.miniIntervalCount; iv++) {
+      const auto& interval = s.miniIntervals[iv];
+      for (uint32_t cp = interval.first; cp <= interval.last; cp++) {
+        int32_t gIdx = findGlobalGlyphIndex(s, cp);
+        if (gIdx < 0) continue;  // shouldn't happen; defensive
+        mappings[validCount].codepoint = cp;
+        mappings[validCount].globalIndex = gIdx;
+        validCount++;
+      }
+    }
+  }
+
+  // Mark where the existing-glyph block ends; new cps follow.
+  const uint32_t existingCount = validCount;
+
+  // Add new requested cps that aren't already in the existing block.
   for (uint32_t i = 0; i < cpCount; i++) {
-    int32_t idx = findGlobalGlyphIndex(s, codepoints[i]);
+    const uint32_t cp = codepoints[i];
+
+    // Skip cps already in the existing block (only relevant in merge mode).
+    if (existingCount > 0) {
+      bool dup = false;
+      // Existing cps are sorted; binary search.
+      int lo = 0, hi = static_cast<int>(existingCount) - 1;
+      while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (mappings[mid].codepoint < cp) {
+          lo = mid + 1;
+        } else if (mappings[mid].codepoint > cp) {
+          hi = mid - 1;
+        } else {
+          dup = true;
+          break;
+        }
+      }
+      if (dup) continue;
+    }
+
+    int32_t idx = findGlobalGlyphIndex(s, cp);
     if (idx >= 0) {
-      mappings[validCount].codepoint = codepoints[i];
+      if (validCount >= MAX_PAGE_GLYPHS) {
+        LOG_DBG("SDCF", "Cumulative cap (%u glyphs) reached for style %u; dropping merge cache", MAX_PAGE_GLYPHS,
+                styleIdx);
+        // Soft cap: discard the accumulated cache and fall back to rebuilding
+        // with just the new request set. Caller's text will be covered;
+        // already-loaded but no-longer-requested cps are lost.
+        delete[] mappings;
+        freeStyleMiniData(s);
+        // Recurse with rebuild semantics by clearing tryMerge state and trying
+        // again — implemented as inline reset below.
+        return prewarmStyle(styleIdx, codepoints, cpCount, metadataOnly);
+      }
+      mappings[validCount].codepoint = cp;
       mappings[validCount].globalIndex = idx;
       validCount++;
     }
   }
-  int missed = static_cast<int>(cpCount - validCount);
+  // Sort the full mappings array by codepoint (existing block is already sorted,
+  // so std::sort on a partially sorted array is fast in practice; insertion-sort
+  // would be optimal but std::sort is fine for our sizes).
+  if (validCount > 0) {
+    std::sort(mappings, mappings + validCount,
+              [](const CpGlyphMapping& a, const CpGlyphMapping& b) { return a.codepoint < b.codepoint; });
+  }
+
+  // Count cps that are *newly* missing this accumulation cycle (i.e. not present
+  // in mappings[] AND not previously reported). Already-reported misses are
+  // suppressed so the same 4 special chars don't spam the log every paragraph.
+  // `mappings[]` is sorted by codepoint after the std::sort above, enabling
+  // O(log validCount) lookup per requested cp.
+  int missed = 0;
+  for (uint32_t i = 0; i < cpCount; i++) {
+    const uint32_t cp = codepoints[i];
+    int lo = 0, hi = static_cast<int>(validCount) - 1;
+    bool found = false;
+    while (lo <= hi) {
+      int mid = (lo + hi) / 2;
+      if (mappings[mid].codepoint < cp) {
+        lo = mid + 1;
+      } else if (mappings[mid].codepoint > cp) {
+        hi = mid - 1;
+      } else {
+        found = true;
+        break;
+      }
+    }
+    if (found) continue;
+
+    // cp wasn't resolved. Check if we've already reported it this cycle.
+    bool alreadyReported = false;
+    for (uint8_t r = 0; r < s.reportedMissCount; r++) {
+      if (s.reportedMisses[r] == cp) {
+        alreadyReported = true;
+        break;
+      }
+    }
+    if (alreadyReported) continue;
+
+    if (s.reportedMissCount < PerStyle::MAX_REPORTED_MISSES) {
+      s.reportedMisses[s.reportedMissCount++] = cp;
+    }
+    missed++;
+  }
 
   if (validCount == 0) {
     freeStyleMiniData(s);
@@ -699,13 +854,29 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     return missed;
   }
 
-  // Build mini intervals from sorted codepoints
+  // Stash the old miniGlyphs so we can copy already-loaded entries by codepoint
+  // before freeing them. (For merge path; nullptr when not merging.)
+  EpdGlyph* oldGlyphs = tryMerge ? s.miniGlyphs : nullptr;
+  EpdUnicodeInterval* oldIntervals = tryMerge ? s.miniIntervals : nullptr;
+  uint32_t oldIntervalCount = tryMerge ? s.miniIntervalCount : 0;
+  // Detach so freeStyleMiniData doesn't delete them yet.
+  if (tryMerge) {
+    s.miniIntervals = nullptr;
+    s.miniGlyphs = nullptr;
+    s.miniIntervalCount = 0;
+    s.miniGlyphCount = 0;
+  }
+
+  // freeStyleMiniData wipes everything, including miniBitmap (which is nullptr
+  // in metadata mode anyway). Safe in either path.
   freeStyleMiniData(s);
 
   uint32_t intervalCapacity = validCount;
   s.miniIntervals = new (std::nothrow) EpdUnicodeInterval[intervalCapacity];
   if (!s.miniIntervals) {
     LOG_ERR("SDCF", "Failed to allocate mini intervals for style %u", styleIdx);
+    delete[] oldGlyphs;
+    delete[] oldIntervals;
     delete[] mappings;
     return static_cast<int>(cpCount);
   }
@@ -727,65 +898,138 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   s.miniGlyphs = new (std::nothrow) EpdGlyph[s.miniGlyphCount];
   if (!s.miniGlyphs) {
     LOG_ERR("SDCF", "Failed to allocate mini glyphs for style %u", styleIdx);
+    delete[] oldGlyphs;
+    delete[] oldIntervals;
     delete[] mappings;
     freeStyleMiniData(s);
     return static_cast<int>(cpCount);
   }
 
-  // Build sorted read order for sequential I/O
-  uint32_t* readOrder = new (std::nothrow) uint32_t[validCount];
-  if (!readOrder) {
-    LOG_ERR("SDCF", "Failed to allocate read order for style %u", styleIdx);
+  // Build a tracking array of which mappings still need SD I/O. For the merge
+  // path, copy already-loaded glyph metadata from oldGlyphs first; remaining
+  // entries get read from SD below.
+  bool* needsRead = new (std::nothrow) bool[validCount];
+  if (!needsRead) {
+    LOG_ERR("SDCF", "Failed to allocate needsRead array for style %u", styleIdx);
+    delete[] oldGlyphs;
+    delete[] oldIntervals;
     delete[] mappings;
     freeStyleMiniData(s);
     return static_cast<int>(cpCount);
   }
-  for (uint32_t i = 0; i < validCount; i++) readOrder[i] = i;
-  std::sort(readOrder, readOrder + validCount,
-            [&](uint32_t a, uint32_t b) { return mappings[a].globalIndex < mappings[b].globalIndex; });
+  for (uint32_t i = 0; i < validCount; i++) needsRead[i] = true;
 
-  FsFile file;
-  if (!Storage.openFileForRead("SDCF", filePath_, file)) {
-    LOG_ERR("SDCF", "Failed to reopen .cpfont for prewarm (style %u)", styleIdx);
-    delete[] readOrder;
-    delete[] mappings;
-    freeStyleMiniData(s);
-    return static_cast<int>(cpCount);
-  }
-
-  unsigned long sdStart = millis();
-  uint32_t seekCount = 0;
-
-  // Read glyph metadata. lastReadIndex tracks sequential reads to skip redundant
-  // seeks; INT32_MIN guarantees the first iteration always seeks to the correct
-  // offset (otherwise when gIdx == 0, the "gIdx != lastReadIndex + 1" check would
-  // be false and we'd read from the file's current position — the header — which
-  // decodes to a garbage EpdGlyph with a massive advanceX, inflating any word
-  // containing that codepoint beyond page width).
-  int32_t lastReadIndex = INT32_MIN;
-  for (uint32_t i = 0; i < validCount; i++) {
-    uint32_t mapIdx = readOrder[i];
-    int32_t gIdx = mappings[mapIdx].globalIndex;
-
-    uint32_t fileOff = s.glyphsFileOffset + static_cast<uint32_t>(gIdx) * sizeof(EpdGlyph);
-    if (gIdx != lastReadIndex + 1) {
-      file.seekSet(fileOff);
-      seekCount++;
+  if (tryMerge && oldGlyphs && oldIntervals) {
+    // For each cp in the new merged set, look it up in the old miniIntervals to
+    // see if we already have its EpdGlyph. If yes, copy it over and skip the read.
+    for (uint32_t i = 0; i < validCount; i++) {
+      const uint32_t cp = mappings[i].codepoint;
+      // Binary search oldIntervals for cp.
+      int lo = 0, hi = static_cast<int>(oldIntervalCount) - 1;
+      while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        const auto& iv = oldIntervals[mid];
+        if (cp < iv.first) {
+          hi = mid - 1;
+        } else if (cp > iv.last) {
+          lo = mid + 1;
+        } else {
+          s.miniGlyphs[i] = oldGlyphs[iv.offset + (cp - iv.first)];
+          needsRead[i] = false;
+          break;
+        }
+      }
     }
-    if (file.read(reinterpret_cast<uint8_t*>(&s.miniGlyphs[mapIdx]), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
-      LOG_ERR("SDCF", "Prewarm: short glyph read (style %u, glyph %d)", styleIdx, gIdx);
-      file.close();
-      delete[] readOrder;
+  }
+
+  delete[] oldGlyphs;
+  delete[] oldIntervals;
+
+  // Count how many SD reads are still needed, and build a sorted read order.
+  uint32_t toReadCount = 0;
+  for (uint32_t i = 0; i < validCount; i++) {
+    if (needsRead[i]) toReadCount++;
+  }
+
+  uint32_t* readOrder = nullptr;
+  if (toReadCount > 0) {
+    readOrder = new (std::nothrow) uint32_t[toReadCount];
+    if (!readOrder) {
+      LOG_ERR("SDCF", "Failed to allocate read order for style %u", styleIdx);
+      delete[] needsRead;
       delete[] mappings;
       freeStyleMiniData(s);
       return static_cast<int>(cpCount);
     }
-    lastReadIndex = gIdx;
+    uint32_t k = 0;
+    for (uint32_t i = 0; i < validCount; i++) {
+      if (needsRead[i]) readOrder[k++] = i;
+    }
+    std::sort(readOrder, readOrder + toReadCount,
+              [&](uint32_t a, uint32_t b) { return mappings[a].globalIndex < mappings[b].globalIndex; });
   }
+
+  unsigned long sdStart = millis();
+  uint32_t seekCount = 0;
+  FsFile file;
+
+  if (toReadCount > 0) {
+    if (!Storage.openFileForRead("SDCF", filePath_, file)) {
+      LOG_ERR("SDCF", "Failed to reopen .cpfont for prewarm (style %u)", styleIdx);
+      delete[] readOrder;
+      delete[] needsRead;
+      delete[] mappings;
+      freeStyleMiniData(s);
+      return static_cast<int>(cpCount);
+    }
+
+    // Read glyph metadata. lastReadIndex tracks sequential reads to skip redundant
+    // seeks; INT32_MIN guarantees the first iteration always seeks to the correct
+    // offset (otherwise when gIdx == 0, the "gIdx != lastReadIndex + 1" check would
+    // be false and we'd read from the file's current position — the header — which
+    // decodes to a garbage EpdGlyph with a massive advanceX, inflating any word
+    // containing that codepoint beyond page width).
+    int32_t lastReadIndex = INT32_MIN;
+    for (uint32_t i = 0; i < toReadCount; i++) {
+      uint32_t mapIdx = readOrder[i];
+      int32_t gIdx = mappings[mapIdx].globalIndex;
+
+      uint32_t fileOff = s.glyphsFileOffset + static_cast<uint32_t>(gIdx) * sizeof(EpdGlyph);
+      if (gIdx != lastReadIndex + 1) {
+        file.seekSet(fileOff);
+        seekCount++;
+      }
+      if (file.read(reinterpret_cast<uint8_t*>(&s.miniGlyphs[mapIdx]), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
+        LOG_ERR("SDCF", "Prewarm: short glyph read (style %u, glyph %d)", styleIdx, gIdx);
+        file.close();
+        delete[] readOrder;
+        delete[] needsRead;
+        delete[] mappings;
+        freeStyleMiniData(s);
+        return static_cast<int>(cpCount);
+      }
+      lastReadIndex = gIdx;
+    }
+  }
+  delete[] needsRead;
+  delete[] readOrder;
+  readOrder = nullptr;
 
   uint32_t totalBitmapSize = 0;
 
   if (!metadataOnly) {
+    // Full render prewarm always reads bitmap data for every glyph in the
+    // mini set. The metadata-pass file open above only covered cps that
+    // needed metadata reads — open the file now if it isn't already.
+    if (!file) {
+      if (!Storage.openFileForRead("SDCF", filePath_, file)) {
+        LOG_ERR("SDCF", "Failed to reopen .cpfont for bitmap prewarm (style %u)", styleIdx);
+        delete[] mappings;
+        freeStyleMiniData(s);
+        return static_cast<int>(cpCount);
+      }
+    }
+
     // Compute total bitmap size
     for (uint32_t i = 0; i < validCount; i++) {
       totalBitmapSize += s.miniGlyphs[i].dataLength;
@@ -795,20 +1039,29 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     if (!s.miniBitmap) {
       LOG_ERR("SDCF", "Failed to allocate mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
       file.close();
-      delete[] readOrder;
       delete[] mappings;
       freeStyleMiniData(s);
       return static_cast<int>(cpCount);
     }
 
-    // Read bitmap data sorted by file offset
-    std::sort(readOrder, readOrder + validCount,
+    // Allocate a fresh readOrder covering all validCount glyphs, sorted by
+    // bitmap file offset for sequential I/O.
+    uint32_t* bitmapOrder = new (std::nothrow) uint32_t[validCount];
+    if (!bitmapOrder) {
+      LOG_ERR("SDCF", "Failed to allocate bitmap read order for style %u", styleIdx);
+      file.close();
+      delete[] mappings;
+      freeStyleMiniData(s);
+      return static_cast<int>(cpCount);
+    }
+    for (uint32_t i = 0; i < validCount; i++) bitmapOrder[i] = i;
+    std::sort(bitmapOrder, bitmapOrder + validCount,
               [&](uint32_t a, uint32_t b) { return s.miniGlyphs[a].dataOffset < s.miniGlyphs[b].dataOffset; });
 
     uint32_t miniBitmapOffset = 0;
     uint32_t lastBitmapEnd = UINT32_MAX;
     for (uint32_t i = 0; i < validCount; i++) {
-      uint32_t mapIdx = readOrder[i];
+      uint32_t mapIdx = bitmapOrder[i];
       EpdGlyph& glyph = s.miniGlyphs[mapIdx];
 
       if (glyph.dataLength == 0) {
@@ -824,7 +1077,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       if (file.read(s.miniBitmap + miniBitmapOffset, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
         LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
         file.close();
-        delete[] readOrder;
+        delete[] bitmapOrder;
         delete[] mappings;
         freeStyleMiniData(s);
         return static_cast<int>(cpCount);
@@ -834,11 +1087,11 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       glyph.dataOffset = miniBitmapOffset;
       miniBitmapOffset += glyph.dataLength;
     }
+    delete[] bitmapOrder;
   }
 
   uint32_t sdTime = millis() - sdStart;
-  file.close();
-  delete[] readOrder;
+  if (file) file.close();
   delete[] mappings;
 
   // Full render prewarm: load the persistent kern classes + ligatures (one-time
@@ -870,6 +1123,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   s.miniData.glyphMissCtx = &overflowCtx_[styleIdx];
 
   s.epdFont.data = &s.miniData;
+  s.miniMode = metadataOnly ? PerStyle::MiniMode::METADATA : PerStyle::MiniMode::FULL;
 
   // Accumulate stats
   stats_.sdReadTimeMs += sdTime;
@@ -884,6 +1138,16 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 
 void SdCardFont::clearCache() {
   clearOverflow();
+  for (uint8_t i = 0; i < MAX_STYLES; i++) {
+    if (!styles_[i].present) continue;
+    freeStyleMiniData(styles_[i]);
+    applyGlyphMissCallback(i);
+  }
+}
+
+void SdCardFont::clearAccumulation() {
+  // Same as clearCache() but skips the overflow ring buffer (per-glyph on-demand
+  // loads are independent of the cumulative metadata cache).
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     if (!styles_[i].present) continue;
     freeStyleMiniData(styles_[i]);

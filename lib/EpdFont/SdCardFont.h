@@ -28,6 +28,12 @@ class SdCardFont {
   // Free mini data for all styles, restore stub EpdFontData.
   void clearCache();
 
+  // Soft cache reset: drop the cumulative metadata-only prewarm cache built
+  // up by repeated layout-time ensureSdCardFontReady() calls. Bitmap-mode
+  // (FULL) caches are also dropped. Call this between sections to bound the
+  // cumulative cp set growth across pagination.
+  void clearAccumulation();
+
   // Returns pointer to the managed EpdFont for a given style.
   // Returns nullptr if the style is not present.
   EpdFont* getEpdFont(uint8_t style = 0);
@@ -117,6 +123,25 @@ class SdCardFont {
     uint32_t miniIntervalCount = 0;
     uint32_t miniGlyphCount = 0;
 
+    // Cache mode for the current mini buffers:
+    //   NONE     = empty / freshly cleared, no glyphs loaded
+    //   METADATA = miniGlyphs has glyph metrics only (no bitmap data); built
+    //              up incrementally across paragraph-level ensureSdCardFontReady
+    //              calls during pagination. Safe to merge new cps into.
+    //   FULL     = miniGlyphs + miniBitmap loaded, page-scoped (built once per
+    //              page render). Layout-only prewarm calls are no-ops in this
+    //              mode (overflow handler covers any uncovered cp at draw time).
+    enum class MiniMode : uint8_t { NONE, METADATA, FULL };
+    MiniMode miniMode = MiniMode::NONE;
+
+    // Codepoints already reported as missing during the current accumulation
+    // cycle. Cleared by clearAccumulation() / freeStyleAll(). Bounded by
+    // MAX_REPORTED_MISSES; once full, further misses go unreported (the cps
+    // still cleanly fall back to the replacement glyph in EpdFont::getGlyph).
+    static constexpr uint8_t MAX_REPORTED_MISSES = 32;
+    uint32_t reportedMisses[MAX_REPORTED_MISSES] = {};
+    uint8_t reportedMissCount = 0;
+
     // Per-page mini kern matrix (built by buildMiniKernMatrix on each full
     // prewarm). miniKernLeftClasses/miniKernRightClasses map ONLY the codepoints
     // used on the current page to renumbered class IDs (1..miniKern*ClassCount).
@@ -166,6 +191,7 @@ class SdCardFont {
   bool loaded_ = false;
 
   // Per-style helpers
+  static bool allCpsCovered(const PerStyle& s, const uint32_t* codepoints, uint32_t cpCount);
   void freeStyleMiniData(PerStyle& s);
   void freeStyleAll(PerStyle& s);
   void freeStyleKernLigatureData(PerStyle& s);

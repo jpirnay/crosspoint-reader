@@ -50,6 +50,12 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const 
   }
 }
 
+void GfxRenderer::clearSdCardFontAccumulation() const {
+  for (auto& [id, font] : sdCardFonts_) {
+    font->clearAccumulation();
+  }
+}
+
 void GfxRenderer::begin() {
   frameBuffer = display.getFrameBuffer();
   if (!frameBuffer) {

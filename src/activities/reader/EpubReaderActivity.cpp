@@ -1223,6 +1223,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         GUI.fillPopupProgress(renderer, popupRect, progress);
       };
 
+      // Reset cumulative SD font metadata cache so this section starts fresh.
+      // Pagination will rebuild only the cps it actually encounters, bounded
+      // by MAX_PAGE_GLYPHS per style.
+      renderer.clearSdCardFontAccumulation();
       if (!section->createSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering,
@@ -1385,6 +1389,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   }
 
   LOG_DBG("ERS", "Silently indexing next chapter: %d", nextSpineIndex);
+  // Reset cumulative SD font metadata cache for the new section.
+  renderer.clearSdCardFontAccumulation();
   if (!nextSection.createSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                      viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
