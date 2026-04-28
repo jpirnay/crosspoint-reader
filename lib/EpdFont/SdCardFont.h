@@ -12,6 +12,10 @@ class SdCardFont {
   static constexpr uint8_t MAX_STYLES = 4;
 
   SdCardFont() = default;
+  SdCardFont(const SdCardFont&) = delete;
+  SdCardFont& operator=(const SdCardFont&) = delete;
+  SdCardFont(SdCardFont&&) = delete;
+  SdCardFont& operator=(SdCardFont&&) = delete;
   ~SdCardFont();
 
   // Load .cpfont file: reads header + intervals into RAM, records file layout offsets.
