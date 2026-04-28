@@ -264,52 +264,44 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // SD card fonts inherit the Bookerly-style line compression (the most neutral
-  // values) since we have no per-family metadata for SD fonts.
-  if (sdFontFamilyName[0] != '\0') {
+  const int effectiveFontId = getReaderFontId();
+  const int bookerlyId = getBuiltinReaderFontId(BOOKERLY, fontSize);
+  const int notosansId = getBuiltinReaderFontId(NOTOSANS, fontSize);
+  const int opendyslexicId = getBuiltinReaderFontId(OPENDYSLEXIC, fontSize);
+
+  if (effectiveFontId == notosansId) {
     switch (lineSpacing) {
       case TIGHT:
-        return 0.95f;
+        return 0.90f;
       case NORMAL:
       default:
-        return 1.0f;
+        return 0.95f;
       case WIDE:
-        return 1.1f;
+        return 1.0f;
     }
   }
 
-  switch (fontFamily) {
-    case BOOKERLY:
+  if (effectiveFontId == opendyslexicId) {
+    switch (lineSpacing) {
+      case TIGHT:
+        return 0.90f;
+      case NORMAL:
+      default:
+        return 0.95f;
+      case WIDE:
+        return 1.0f;
+    }
+  }
+
+  // Bookerly or any SD card font: use the Bookerly-style neutral values.
+  switch (lineSpacing) {
+    case TIGHT:
+      return 0.95f;
+    case NORMAL:
     default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-      }
-    case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-    case OPENDYSLEXIC:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
+      return 1.0f;
+    case WIDE:
+      return 1.1f;
   }
 }
 
@@ -392,7 +384,7 @@ int CrossPointSettings::getReaderFontId() const {
   // resolveSdCardFontId() returns 0 if the named family isn't loaded
   // (e.g. SD card removed since selection) — fall through to built-in.
   if (sdFontFamilyName[0] != '\0') {
-    int id = resolveSdCardFontId(sdFontFamilyName);
+    int id = resolveSdCardFontId(sdFontFamilyName, fontSize);
     if (id != 0) return id;
   }
   return getBuiltinReaderFontId(fontFamily, fontSize);

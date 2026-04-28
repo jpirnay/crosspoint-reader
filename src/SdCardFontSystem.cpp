@@ -13,7 +13,9 @@
 
 // Free-function resolver used by CrossPointSettings::getReaderFontId().
 // Resolved by the linker — no callback indirection stored in settings.
-int resolveSdCardFontId(const char* familyName) { return sdFontSystem.resolveFontId(familyName, 0); }
+int resolveSdCardFontId(const char* familyName, uint8_t fontSizeEnum) {
+  return sdFontSystem.resolveFontId(familyName, fontSizeEnum);
+}
 
 // --- Font-family dynamic SettingInfo trampolines ---
 //
@@ -145,9 +147,17 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
   }
 }
 
-int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t /*fontSizeEnum*/) const {
-  // The manager loads exactly one size (closest to SETTINGS.fontSize), so the
-  // enum is implicit — always return the single loaded font ID for this family.
-  // ensureLoaded() must have been called with the current settings before this.
+static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum) {
+  if (fontSizeEnum >= sizeof(FONT_SIZE_TO_PT)) fontSizeEnum = 1;  // default to MEDIUM
+  return FONT_SIZE_TO_PT[fontSizeEnum];
+}
+
+int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t fontSizeEnum) const {
+  // The manager loads exactly one size for the active SD family. Resolve only
+  // if the requested family matches the loaded family and the requested size
+  // matches the loaded size. otherwise return 0 so callers can fall back.
+  if (!familyName || familyName[0] == '\0') return 0;
+  if (manager_.currentFamilyName() != familyName) return 0;
+  if (manager_.currentPointSize() != targetPtSizeFromEnum(fontSizeEnum)) return 0;
   return manager_.getFontId(familyName);
 }

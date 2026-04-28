@@ -11,11 +11,11 @@ extern SdCardFontSystem sdFontSystem;
 // Defined in main.cpp; call before entering the reader or after settings change.
 extern void ensureSdFontLoaded();
 
-// Resolve the SD card font ID for the given family name.
-// Returns 0 if no SD font with that family name is currently loaded.
+// Resolve the SD card font ID for the given family name and font size enum.
+// Returns 0 if no SD font with that family name and size is currently loaded.
 // Free function (not stored as a callback in CrossPointSettings) so the linker
 // can resolve it directly without runtime indirection.
-int resolveSdCardFontId(const char* familyName);
+int resolveSdCardFontId(const char* familyName, uint8_t fontSizeEnum);
 
 // Trampolines used by the dynamic font-family SettingInfo. They walk
 // sdFontSystem's registry on each call to translate between

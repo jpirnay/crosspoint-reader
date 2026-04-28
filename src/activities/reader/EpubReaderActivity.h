@@ -181,6 +181,7 @@ class EpubReaderActivity final : public Activity {
   bool getEffectiveEmbeddedStyle() const;
   uint8_t getEffectiveImageRendering() const;
   int getEffectiveReaderFontId() const;
+  float getEffectiveReaderLineCompression() const;
   bool stepPageState(bool isForwardTurn);
   void pageTurn(bool isForwardTurn);
   void runRenderBenchmark();

@@ -30,6 +30,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "SdCardFontGlobals.h"
 #include "StarredPagesActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -1072,6 +1073,48 @@ uint8_t EpubReaderActivity::getEffectiveImageRendering() const {
   return SETTINGS.imageRendering;
 }
 
+float EpubReaderActivity::getEffectiveReaderLineCompression() const {
+  const uint8_t fontSize = (bookFontSizeOverride >= 0) ? static_cast<uint8_t>(bookFontSizeOverride) : SETTINGS.fontSize;
+  const int effectiveFontId = getEffectiveReaderFontId();
+  const int bookerlyId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::BOOKERLY, fontSize);
+  const int notosansId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::NOTOSANS, fontSize);
+  const int opendyslexicId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::OPENDYSLEXIC, fontSize);
+
+  if (effectiveFontId == notosansId) {
+    switch (SETTINGS.lineSpacing) {
+      case CrossPointSettings::TIGHT:
+        return 0.90f;
+      case CrossPointSettings::NORMAL:
+      default:
+        return 0.95f;
+      case CrossPointSettings::WIDE:
+        return 1.0f;
+    }
+  }
+
+  if (effectiveFontId == opendyslexicId) {
+    switch (SETTINGS.lineSpacing) {
+      case CrossPointSettings::TIGHT:
+        return 0.90f;
+      case CrossPointSettings::NORMAL:
+      default:
+        return 0.95f;
+      case CrossPointSettings::WIDE:
+        return 1.0f;
+    }
+  }
+
+  switch (SETTINGS.lineSpacing) {
+    case CrossPointSettings::TIGHT:
+      return 0.95f;
+    case CrossPointSettings::NORMAL:
+    default:
+      return 1.0f;
+    case CrossPointSettings::WIDE:
+      return 1.1f;
+  }
+}
+
 int EpubReaderActivity::getEffectiveReaderFontId() const {
   // Per-book font override: when set, force a specific BUILT-IN family even if
   // an SD card font is the global default. This makes the override predictable
@@ -1086,8 +1129,8 @@ int EpubReaderActivity::getEffectiveReaderFontId() const {
   // SETTINGS.getReaderFontId() is the canonical answer.
   if (bookFontSizeOverride >= 0) {
     if (SETTINGS.sdFontFamilyName[0] != '\0') {
-      // SD font selected globally — size override doesn't change which family resolves.
-      return SETTINGS.getReaderFontId();
+      const int id = resolveSdCardFontId(SETTINGS.sdFontFamilyName, fontSize);
+      if (id != 0) return id;
     }
     return CrossPointSettings::getBuiltinReaderFontId(SETTINGS.fontFamily, fontSize);
   }
@@ -1206,7 +1249,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     section = std::make_unique<Section>(epub, currentSpineIndex, renderer);
     const unsigned long sectionStart = millis();
 
-    if (!section->loadSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
+    if (!section->loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
       LOG_DBG("ERS", "Cache not found, building...");
@@ -1227,7 +1270,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       // Pagination will rebuild only the cps it actually encounters, bounded
       // by MAX_PAGE_GLYPHS per style.
       renderer.clearSdCardFontAccumulation();
-      if (!section->createSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
+      if (!section->createSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering,
                                       progressFn)) {
@@ -1382,7 +1425,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   const uint8_t imageRendering = getEffectiveImageRendering();
 
   Section nextSection(epub, nextSpineIndex, renderer);
-  if (nextSection.loadSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
+  if (nextSection.loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
     return;
@@ -1391,7 +1434,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   LOG_DBG("ERS", "Silently indexing next chapter: %d", nextSpineIndex);
   // Reset cumulative SD font metadata cache for the new section.
   renderer.clearSdCardFontAccumulation();
-  if (!nextSection.createSectionFile(getEffectiveReaderFontId(), SETTINGS.getReaderLineCompression(),
+  if (!nextSection.createSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                      viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
@@ -1744,12 +1787,12 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
 
   auto section = std::make_unique<Section>(epub, spineIndex, renderer);
   if (!section->loadSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize),
-                                SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+                                getEffectiveReaderLineCompression(), SETTINGS.extraParagraphSpacing,
                                 SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
                                 SETTINGS.embeddedStyle, SETTINGS.imageRendering)) {
     LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding", spineIndex);
     if (!section->createSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize),
-                                    SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+                                    getEffectiveReaderLineCompression(), SETTINGS.extraParagraphSpacing,
                                     SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
                                     SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering)) {
       LOG_ERR("SLP", "EPUB: failed to rebuild section cache for spine %d", spineIndex);

@@ -283,6 +283,7 @@ void ActivityManager::goToBrowser() {
 }
 
 void ActivityManager::goToReader(std::string path) {
+  RenderLock lock;
   ensureSdFontLoaded();
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
 }
@@ -303,6 +304,7 @@ void ActivityManager::goToKOReaderSync() {
 void ActivityManager::replaceWithReader(std::string path, ReturnHint hint) {
   returnHint = std::move(hint);
   hasReturnHint = true;
+  RenderLock lock;
   ensureSdFontLoaded();
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
 }
