@@ -22,8 +22,11 @@ class SdCardFont {
   // styleMask: bitmask of styles to prewarm (bit 0=regular, 1=bold, 2=italic, 3=bolditalic).
   // Default 0x0F = all present styles.
   // When metadataOnly=true, only glyph metrics are loaded (no bitmap data).
+  // If loadKernLigatureData=true, kern/ligature metadata is also loaded so layout
+  // measurement calls that use applyLigatures()/getKerning() produce correct results.
   // Returns number of glyphs that couldn't be loaded (0 on full success).
-  int prewarm(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false);
+  int prewarm(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false,
+              bool loadKernLigatureData = false);
 
   // Free mini data for all styles, restore stub EpdFontData.
   void clearCache();

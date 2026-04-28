@@ -43,7 +43,8 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const 
     // Metadata-only: loads glyph metrics (advanceX) without bitmap data.
     // Saves ~50-100KB heap vs full prewarm — layout only needs advance widths.
     // Prewarm all present styles (0x0F) for layout measurement.
-    int missed = it->second->prewarm(utf8Text, 0x0F, /*metadataOnly=*/true);
+    int missed = it->second->prewarm(utf8Text, 0x0F, /*metadataOnly=*/true,
+                                     /*loadKernLigatureData=*/true);
     if (missed > 0) {
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
