@@ -918,7 +918,7 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
     renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
   }
 
-  const bool invert = isSelected && !inactiveSelection;
+  const bool invert = isSelected && !inactiveSelection && keyType != KeyboardKeyType::Disabled;
 
   if (keyType == KeyboardKeyType::Space) {
     const int lineHalfWidth = rect.width * 3 / 10;
