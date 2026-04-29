@@ -415,7 +415,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const OpdsAcqu
                                 ? acquisition.href
                                 : UrlUtils::buildUrl(SETTINGS.opdsServerUrl, acquisition.href);
   std::string filename = "/" +
-                         StringUtils::sanitizeFilename(book.title + (book.author.empty() ? "" : " - " + book.author)) +
+                         StringUtils::sanitizeFilename((book.author.empty() ? "" : book.author + " - ") + book.title) +
                          acquisition.fileExtension;
 
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
