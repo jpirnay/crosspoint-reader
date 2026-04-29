@@ -1919,6 +1919,11 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     return 0;
   }
 
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) {
+    fontCacheManager_->recordText(text, fontId, style);
+    return 0;
+  }
+
   uint32_t cp;
   uint32_t prevCp = 0;
   int widthPx = 0;
@@ -1990,6 +1995,11 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
+    return;
+  }
+
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) {
+    fontCacheManager_->recordText(text, fontId, style);
     return;
   }
 
