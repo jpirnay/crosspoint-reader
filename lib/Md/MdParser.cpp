@@ -4,11 +4,22 @@
 
 namespace MdParser {
 
-static EpdFontFamily::Style combineFlags(bool bold, bool italic) {
-  if (bold && italic) return EpdFontFamily::BOLD_ITALIC;
-  if (bold) return EpdFontFamily::BOLD;
-  if (italic) return EpdFontFamily::ITALIC;
-  return EpdFontFamily::REGULAR;
+static EpdFontFamily::Style combineFlags(bool bold, bool italic, bool strike) {
+  EpdFontFamily::Style result = EpdFontFamily::REGULAR;
+  if (bold)
+    result =
+        static_cast<EpdFontFamily::Style>(static_cast<uint8_t>(result) | static_cast<uint8_t>(EpdFontFamily::BOLD));
+  if (italic)
+    result =
+        static_cast<EpdFontFamily::Style>(static_cast<uint8_t>(result) | static_cast<uint8_t>(EpdFontFamily::ITALIC));
+  if (bold && italic)
+    result = static_cast<EpdFontFamily::Style>(
+        static_cast<uint8_t>(EpdFontFamily::BOLD_ITALIC) |
+        (static_cast<uint8_t>(result) & static_cast<uint8_t>(EpdFontFamily::STRIKETHROUGH)));
+  if (strike)
+    result = static_cast<EpdFontFamily::Style>(static_cast<uint8_t>(result) |
+                                               static_cast<uint8_t>(EpdFontFamily::STRIKETHROUGH));
+  return result;
 }
 
 static constexpr int TAB_WIDTH = 4;
@@ -63,11 +74,12 @@ std::vector<Span> parseInline(const std::string& text) {
   std::string current;
   bool bold = false;
   bool italic = false;
+  bool strike = false;
   size_t i = 0;
 
   auto emitSpan = [&]() {
     if (!current.empty()) {
-      spans.push_back({std::move(current), combineFlags(bold, italic)});
+      spans.push_back({std::move(current), combineFlags(bold, italic, strike)});
       current.clear();
     }
   };
@@ -108,6 +120,14 @@ std::vector<Span> parseInline(const std::string& text) {
         italicMarker = c;
       }
       i += 3;
+      continue;
+    }
+
+    // ~~ — toggle strikethrough
+    if (c == '~' && i + 1 < text.size() && text[i + 1] == '~') {
+      emitSpan();
+      strike = !strike;
+      i += 2;
       continue;
     }
 
