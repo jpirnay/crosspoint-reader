@@ -93,6 +93,11 @@ std::vector<Span> parseInline(const std::string& text) {
     // Escaped character
     if (c == '\\' && i + 1 < text.size()) {
       char next = text[i + 1];
+      if (next == '~' && i + 2 < text.size() && text[i + 2] == '~') {
+        current.append("~~");
+        i += 3;
+        continue;
+      }
       if (next == '*' || next == '_' || next == '`' || next == '[' || next == '!' || next == '~' || next == '\\') {
         current += next;
         i += 2;
