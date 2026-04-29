@@ -34,6 +34,14 @@ struct PngContext {
   int dstHeight{0};
   int lastDstY{-1};  // Track last rendered destination Y to avoid duplicates
 
+  // tRNS support for grayscale / truecolor PNGs. PNGdec exposes a single transparent
+  // sample value (grayscale) or RGB triplet (truecolor) via getTransparentColor() and
+  // sets hasAlpha=1 on those pixel types when the chunk is present. Indexed PNGs use
+  // the per-entry alpha array stored at palette[768..1023] instead.
+  bool hasTrnsKey{false};
+  uint8_t trnsGray{0};
+  uint8_t trnsR{0}, trnsG{0}, trnsB{0};
+
   PixelCache cache;
   bool caching{false};
 
@@ -175,48 +183,102 @@ constexpr size_t MIN_FREE_HEAP_FOR_PNG = PNG_DECODER_APPROX_SIZE + 16 * 1024;  /
 // Required storage is therefore approximately: 2 * (pitch + 1) + alignment slack.
 // If PNG_MAX_BUFFERED_PIXELS is smaller than this requirement for a given image,
 // PNGdec can overrun its internal buffer before our draw callback executes.
-int bytesPerPixelFromType(int pixelType) {
+
+// PNG row pitch in bytes — matches PNGdec's internal calculation in PNGParseInfo
+// (png.inl). bpp is the per-channel bit depth (1/2/4/8 for grayscale & indexed,
+// 8 elsewhere). For sub-byte depths the row is bit-packed: pitch < width.
+int pngPitchBytes(int srcWidth, int pixelType, int bpp) {
   switch (pixelType) {
     case PNG_PIXEL_TRUECOLOR:
-      return 3;
+      return ((3 * bpp) * srcWidth + 7) / 8;
     case PNG_PIXEL_GRAY_ALPHA:
-      return 2;
+      return ((2 * bpp) * srcWidth + 7) / 8;
     case PNG_PIXEL_TRUECOLOR_ALPHA:
-      return 4;
+      return ((4 * bpp) * srcWidth + 7) / 8;
     case PNG_PIXEL_GRAYSCALE:
     case PNG_PIXEL_INDEXED:
     default:
-      return 1;
+      return (srcWidth * bpp + 7) / 8;
   }
 }
 
-int requiredPngInternalBufferBytes(int srcWidth, int pixelType) {
+int requiredPngInternalBufferBytes(int srcWidth, int pixelType, int bpp) {
   // +1 filter byte per scanline, *2 for current+previous lines, +32 for alignment margin.
-  int pitch = srcWidth * bytesPerPixelFromType(pixelType);
+  int pitch = pngPitchBytes(srcWidth, pixelType, bpp);
   return ((pitch + 1) * 2) + 32;
+}
+
+// Extract the bpp-bit sample at index `x` from a packed scanline (MSB-first).
+// Supports bpp values 1, 2, 4, 8 — the only depths PNG allows for grayscale and indexed.
+inline uint8_t extractPackedSample(const uint8_t* pPixels, int x, int bpp) {
+  if (bpp == 8) return pPixels[x];
+  const int pixelsPerByte = 8 / bpp;
+  const uint8_t mask = (uint8_t)((1 << bpp) - 1);
+  const int byteIdx = x / pixelsPerByte;
+  const int shift = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bpp;
+  return (pPixels[byteIdx] >> shift) & mask;
 }
 
 // Convert entire source line to grayscale with alpha blending to white background.
 // For indexed PNGs with tRNS chunk, alpha values are stored at palette[768] onwards.
+// `bpp` is the per-channel bit depth from PNGdec (1, 2, 4, or 8 for grayscale/indexed).
+// Sub-byte depths require unpacking the bit-packed scanline before lookup; treating each
+// byte as a single sample silently corrupts the output (PNGdec reports indexed-with-tRNS
+// PNGs at 1/2/4 bpp this way and the consequences are uninitialized palette reads).
+// For grayscale and truecolor PNGs, `ctx` carries any tRNS color-key set on the image —
+// matching pixels are composited to white instead of their decoded value.
 // Processing the whole line at once improves cache locality and reduces per-pixel overhead.
-void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixelType, uint8_t* palette, int hasAlpha) {
+void convertLineToGray(const PngContext& ctx, uint8_t* pPixels, uint8_t* grayLine, int width, int pixelType, int bpp,
+                       uint8_t* palette, int hasAlpha) {
   switch (pixelType) {
-    case PNG_PIXEL_GRAYSCALE:
-      memcpy(grayLine, pPixels, width);
-      break;
-
-    case PNG_PIXEL_TRUECOLOR:
-      for (int x = 0; x < width; x++) {
-        uint8_t* p = &pPixels[x * 3];
-        grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
+    case PNG_PIXEL_GRAYSCALE: {
+      // tRNS for grayscale stores the transparent sample value at native bit depth.
+      // Compare against the raw packed sample before scaling to 8-bit gray.
+      const bool useKey = ctx.hasTrnsKey;
+      const uint8_t key = ctx.trnsGray;
+      if (bpp == 8) {
+        if (useKey) {
+          for (int x = 0; x < width; x++) {
+            uint8_t sample = pPixels[x];
+            grayLine[x] = (sample == key) ? 255 : sample;
+          }
+        } else {
+          memcpy(grayLine, pPixels, width);
+        }
+      } else {
+        const int maxVal = (1 << bpp) - 1;
+        for (int x = 0; x < width; x++) {
+          uint8_t sample = extractPackedSample(pPixels, x, bpp);
+          if (useKey && sample == key) {
+            grayLine[x] = 255;
+          } else {
+            grayLine[x] = (uint8_t)((sample * 255) / maxVal);
+          }
+        }
       }
       break;
+    }
+
+    case PNG_PIXEL_TRUECOLOR: {
+      // tRNS for truecolor stores an 8-bit-per-channel RGB triplet to match exactly.
+      const bool useKey = ctx.hasTrnsKey;
+      const uint8_t kr = ctx.trnsR, kg = ctx.trnsG, kb = ctx.trnsB;
+      for (int x = 0; x < width; x++) {
+        uint8_t* p = &pPixels[x * 3];
+        if (useKey && p[0] == kr && p[1] == kg && p[2] == kb) {
+          grayLine[x] = 255;
+        } else {
+          grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
+        }
+      }
+      break;
+    }
 
     case PNG_PIXEL_INDEXED:
       if (palette) {
         if (hasAlpha) {
           for (int x = 0; x < width; x++) {
-            uint8_t idx = pPixels[x];
+            uint8_t idx = extractPackedSample(pPixels, x, bpp);
             uint8_t* p = &palette[idx * 3];
             uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
             uint8_t alpha = palette[768 + idx];
@@ -224,12 +286,16 @@ void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixel
           }
         } else {
           for (int x = 0; x < width; x++) {
-            uint8_t* p = &palette[pPixels[x] * 3];
+            uint8_t idx = extractPackedSample(pPixels, x, bpp);
+            uint8_t* p = &palette[idx * 3];
             grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
           }
         }
       } else {
-        memcpy(grayLine, pPixels, width);
+        // Indexed PNG without palette is malformed (PNGdec should always populate it).
+        // Fill white so downstream dithering produces a clean blank rather than treating
+        // raw bit-packed data as gray values.
+        memset(grayLine, 255, width);
       }
       break;
 
@@ -277,8 +343,8 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   if (outY >= ctx->screenHeight) return 1;
 
   // Convert entire source line to grayscale (improves cache locality)
-  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->pPalette,
-                    pDraw->iHasAlpha);
+  convertLineToGray(*ctx, pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->iBpp,
+                    pDraw->pPalette, pDraw->iHasAlpha);
 
   // Render scaled row using Bresenham-style integer stepping (no floating-point division)
   int dstWidth = ctx->dstWidth;
@@ -307,10 +373,15 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
   for (int dstX = 0; dstX < dstWidth; dstX++) {
     int outX = outXBase + dstX;
-    if (outX < screenWidth) {
-      uint8_t gray = ctx->grayLineBuffer[srcX];
 
-      uint8_t ditheredGray = ditherGray(*ctx, gray, dstX, outX, outY);
+    // Always run dithering — error-diffusion ditherers carry per-column state across
+    // rows, and skipping pixels that fall off the right edge would leave stale error
+    // values that bleed into the next row's edge pixels. Only the framebuffer/cache
+    // writes are guarded by the screen-bounds check.
+    uint8_t gray = ctx->grayLineBuffer[srcX];
+    uint8_t ditheredGray = ditherGray(*ctx, gray, dstX, outX, outY);
+
+    if (outX >= 0 && outX < screenWidth) {
       pw.writePixel(outX, ditheredGray);
       if (caching) cw.writePixel(outX, ditheredGray);
     }
@@ -329,30 +400,49 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 }  // namespace
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
+  // PNG file layout: 8-byte signature, then chunks. The IHDR chunk is mandatory and
+  // must be the first chunk: 4 bytes length + "IHDR" + 13 bytes IHDR data + 4 bytes CRC.
+  // Width and height live at bytes 16..23 (big-endian uint32s) of the file.
+  // Reading those bytes directly avoids allocating PNGdec's ~42 KB working buffers
+  // — important on the C3 where dimension queries can run while decode buffers from
+  // a previous image are still pinned. We deliberately don't validate the CRC here;
+  // a corrupt IHDR will surface during the actual decode.
+  FsFile f;
+  if (!Storage.openFileForRead("PNG", imagePath, f)) {
+    LOG_ERR("PNG", "Failed to open file for dimensions: %s", imagePath.c_str());
     return false;
   }
 
-  std::unique_ptr<PNG> png(new (std::nothrow) PNG());
-  if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder for dimensions");
+  uint8_t hdr[24];
+  int n = f.read(hdr, sizeof(hdr));
+  f.close();
+  if (n < (int)sizeof(hdr)) {
+    LOG_ERR("PNG", "Short read on PNG header: %s", imagePath.c_str());
     return false;
   }
 
-  int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
-                     nullptr);
-
-  if (rc != 0) {
-    LOG_ERR("PNG", "Failed to open PNG for dimensions: %d", rc);
+  // Validate PNG signature: 89 50 4E 47 0D 0A 1A 0A
+  static constexpr uint8_t kPngSig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+  if (memcmp(hdr, kPngSig, 8) != 0) {
+    LOG_ERR("PNG", "Not a PNG file: %s", imagePath.c_str());
+    return false;
+  }
+  // Chunk type at hdr[12..15] must be "IHDR"
+  if (hdr[12] != 'I' || hdr[13] != 'H' || hdr[14] != 'D' || hdr[15] != 'R') {
+    LOG_ERR("PNG", "First chunk not IHDR: %s", imagePath.c_str());
     return false;
   }
 
-  out.width = png->getWidth();
-  out.height = png->getHeight();
+  uint32_t width = ((uint32_t)hdr[16] << 24) | ((uint32_t)hdr[17] << 16) | ((uint32_t)hdr[18] << 8) | (uint32_t)hdr[19];
+  uint32_t height =
+      ((uint32_t)hdr[20] << 24) | ((uint32_t)hdr[21] << 16) | ((uint32_t)hdr[22] << 8) | (uint32_t)hdr[23];
+  if (width == 0 || height == 0 || width > 0x7FFF || height > 0x7FFF) {
+    LOG_ERR("PNG", "Implausible PNG dimensions %ux%u: %s", width, height, imagePath.c_str());
+    return false;
+  }
 
-  png->close();
+  out.width = (int16_t)width;
+  out.height = (int16_t)height;
   return true;
 }
 
@@ -412,11 +502,15 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   }
   ctx.lastDstY = -1;  // Reset row tracking
 
-  LOG_DBG("PNG", "PNG %dx%d -> %dx%d (scale %.2f), bpp: %d", ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight,
-          ctx.scale, png->getBpp());
-
+  // PNGdec's getBpp() actually returns per-channel bit depth (1/2/4/8), not bits-per-pixel.
+  // Capture both type and depth here so we can size buffers and validate up front.
   const int pixelType = png->getPixelType();
-  const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType);
+  const int channelDepth = png->getBpp();
+
+  LOG_DBG("PNG", "PNG %dx%d -> %dx%d (scale %.2f), pixelType=%d channelDepth=%d", ctx.srcWidth, ctx.srcHeight,
+          ctx.dstWidth, ctx.dstHeight, ctx.scale, pixelType, channelDepth);
+
+  const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType, channelDepth);
   if (requiredInternal > PNG_MAX_BUFFERED_PIXELS) {
     LOG_ERR("PNG",
             "PNG row buffer too small: need %d bytes for width=%d type=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
@@ -426,8 +520,31 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     return false;
   }
 
-  if (png->getBpp() != 8) {
-    warnUnsupportedFeature("bit depth (" + std::to_string(png->getBpp()) + "bpp)", imagePath);
+  // Validate per-channel bit depth for the pixel type. Grayscale/indexed allow 1/2/4/8
+  // (all unpacked by convertLineToGray); the alpha and truecolor variants only allow 8
+  // in practice — PNGdec rejects 16-bit at open() — so anything else here is a surprise.
+  if (channelDepth != 8 && pixelType != PNG_PIXEL_GRAYSCALE && pixelType != PNG_PIXEL_INDEXED) {
+    warnUnsupportedFeature("bit depth (" + std::to_string(channelDepth) + " bits/channel)", imagePath);
+  }
+
+  // Capture tRNS color-key for grayscale / truecolor PNGs. PNGdec sets iHasAlpha=1 on
+  // those types when a tRNS chunk is present and stores the transparent value via
+  // getTransparentColor(). Indexed PNGs use the per-entry alpha array at palette[768..]
+  // and don't need the color-key path.
+  if (png->hasAlpha() && pixelType != PNG_PIXEL_INDEXED &&
+      (pixelType == PNG_PIXEL_GRAYSCALE || pixelType == PNG_PIXEL_TRUECOLOR)) {
+    uint32_t trns = png->getTransparentColor();
+    ctx.hasTrnsKey = true;
+    if (pixelType == PNG_PIXEL_GRAYSCALE) {
+      // PNGdec stores the lower byte of the 2-byte tRNS sample. For 1/2/4 bpp grayscale
+      // this matches the bit-packed sample value we extract during line conversion.
+      ctx.trnsGray = (uint8_t)(trns & 0xFF);
+    } else {
+      // Truecolor: R<<16 | G<<8 | B (each component is the lower byte of a 2-byte sample).
+      ctx.trnsR = (uint8_t)((trns >> 16) & 0xFF);
+      ctx.trnsG = (uint8_t)((trns >> 8) & 0xFF);
+      ctx.trnsB = (uint8_t)(trns & 0xFF);
+    }
   }
 
   // Allocate grayscale line buffer on demand (~3.2 KB) - freed after decode
