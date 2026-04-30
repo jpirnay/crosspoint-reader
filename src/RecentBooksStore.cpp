@@ -26,7 +26,7 @@ void RecentBooksStore::addBook(const std::string& path, const std::string& title
   int8_t imageRenderingOverride = -1;
   int8_t fontFamilyOverride = -1;
   int8_t fontSizeOverride = -1;
-  bool bionicReadingOverride = false;
+  int8_t bionicReadingOverride = -1;
 
   // Remove existing entry if present
   auto it =

@@ -456,7 +456,7 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
     book.fontFamilyOverride =
         clampInt8(obj["fontFamilyOverride"] | -1, -1, CrossPointSettings::FONT_FAMILY_COUNT - 1, -1);
     book.fontSizeOverride = clampInt8(obj["fontSizeOverride"] | -1, -1, CrossPointSettings::FONT_SIZE_COUNT - 1, -1);
-    book.bionicReadingOverride = obj["bionicReadingOverride"] | false;
+    book.bionicReadingOverride = clampInt8(obj["bionicReadingOverride"] | -1, -1, 1, -1);
     store.recentBooks.push_back(book);
   }
 

@@ -149,6 +149,9 @@ void ParsedText::layoutAndExtractLines(
 
   // Apply fixed transforms before any per-line layout work.
   applyParagraphIndent();
+  if (bionicReadingEnabled) {
+    applyBionicReadingTransform();
+  }
 
   // Ensure SD card font glyph metrics are loaded before measuring word widths.
   // For flash-based fonts isSdCardFont() returns false and this block is skipped
@@ -504,6 +507,69 @@ void ParsedText::applyParagraphIndent() {
     // so paragraphs remain visually distinguishable.
     words.front().insert(0, "\xe2\x80\x83");
   }
+}
+
+void ParsedText::applyBionicReadingTransform() {
+  if (words.empty()) {
+    return;
+  }
+
+  std::vector<std::string> transformedWords;
+  std::vector<EpdFontFamily::Style> transformedStyles;
+  std::vector<bool> transformedContinues;
+  transformedWords.reserve(words.size() * 2);
+  transformedStyles.reserve(wordStyles.size() * 2);
+  transformedContinues.reserve(wordContinues.size() * 2);
+
+  for (size_t i = 0; i < words.size(); ++i) {
+    const std::string& word = words[i];
+    const auto originalStyle = wordStyles[i];
+    const bool attachToPrevious = wordContinues[i];
+
+    const unsigned char* ptr = reinterpret_cast<const unsigned char*>(word.c_str());
+    int codepointCount = 0;
+    while (utf8NextCodepoint(&ptr)) {
+      codepointCount++;
+    }
+
+    if (codepointCount <= 3) {
+      transformedWords.push_back(word);
+      transformedStyles.push_back(originalStyle);
+      transformedContinues.push_back(attachToPrevious);
+      continue;
+    }
+
+    const int boldPrefixCount = std::max(1, (codepointCount + 1) / 2);
+    ptr = reinterpret_cast<const unsigned char*>(word.c_str());
+    const unsigned char* prefixEnd = ptr;
+    for (int j = 0; j < boldPrefixCount && *prefixEnd; ++j) {
+      utf8NextCodepoint(&prefixEnd);
+    }
+    const size_t prefixByteCount =
+        static_cast<size_t>(prefixEnd - reinterpret_cast<const unsigned char*>(word.c_str()));
+    if (prefixByteCount >= word.size()) {
+      transformedWords.push_back(word);
+      transformedStyles.push_back(originalStyle);
+      transformedContinues.push_back(attachToPrevious);
+      continue;
+    }
+
+    const std::string prefix(word.data(), prefixByteCount);
+    const std::string suffix(word.data() + prefixByteCount, word.size() - prefixByteCount);
+    const auto boldStyle = static_cast<EpdFontFamily::Style>(originalStyle | EpdFontFamily::BOLD);
+
+    transformedWords.push_back(prefix);
+    transformedStyles.push_back(boldStyle);
+    transformedContinues.push_back(attachToPrevious);
+
+    transformedWords.push_back(suffix);
+    transformedStyles.push_back(originalStyle);
+    transformedContinues.push_back(true);
+  }
+
+  words = std::move(transformedWords);
+  wordStyles = std::move(transformedStyles);
+  wordContinues = std::move(transformedContinues);
 }
 
 // Builds break indices while opportunistically splitting the word that would overflow the current line.

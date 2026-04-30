@@ -117,6 +117,8 @@ inline const std::vector<SettingInfo> list = {
                         StrId::STR_CAT_READER),
     SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
                         StrId::STR_CAT_READER),
+    SettingInfo::Toggle(StrId::STR_BIONIC_READING, &CrossPointSettings::bionicReading, "bionicReading",
+                        StrId::STR_CAT_READER),
     SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                       {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                       "imageRendering", StrId::STR_CAT_READER),

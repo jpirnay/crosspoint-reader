@@ -128,6 +128,7 @@ class ChapterHtmlSlimParser final : public Print {
   int currentFootnoteLinkTextLen = 0;
   std::vector<std::pair<int, FootnoteEntry>> pendingFootnotes;  // <wordIndex, entry>
   int wordsExtractedInBlock = 0;
+  bool bionicReadingEnabled = false;
 
   // Per-chapter caches: resolveStyle and parseInlineStyle are called for every HTML element;
   // caching by (tag|classAttr) and styleAttr avoids repeated string operations and hash lookups.
@@ -149,16 +150,14 @@ class ChapterHtmlSlimParser final : public Print {
   static void XMLCALL endElement(void* userData, const XML_Char* name);
 
  public:
-  explicit ChapterHtmlSlimParser(std::shared_ptr<Epub> epub, GfxRenderer& renderer, const int fontId,
-                                 const float lineCompression, const bool extraParagraphSpacing,
-                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
-                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
-                                 const std::function<void(std::unique_ptr<Page>)>& completePageFn,
-                                 const bool embeddedStyle, const std::string& contentBase,
-                                 const std::string& imageBasePath, const uint8_t imageRendering = 0,
-                                 std::vector<std::string> tocAnchors = {},
-                                 const std::function<void(int)>& progressFn = nullptr,
-                                 const CssParser* cssParser = nullptr)
+  explicit ChapterHtmlSlimParser(
+      std::shared_ptr<Epub> epub, GfxRenderer& renderer, const int fontId, const float lineCompression,
+      const bool extraParagraphSpacing, const uint8_t paragraphAlignment, const uint16_t viewportWidth,
+      const uint16_t viewportHeight, const bool hyphenationEnabled, const bool bionicReadingEnabled,
+      const std::function<void(std::unique_ptr<Page>)>& completePageFn, const bool embeddedStyle,
+      const std::string& contentBase, const std::string& imageBasePath, const uint8_t imageRendering = 0,
+      std::vector<std::string> tocAnchors = {}, const std::function<void(int)>& progressFn = nullptr,
+      const CssParser* cssParser = nullptr)
 
       : epub(epub),
         renderer(renderer),
@@ -169,6 +168,7 @@ class ChapterHtmlSlimParser final : public Print {
         viewportWidth(viewportWidth),
         viewportHeight(viewportHeight),
         hyphenationEnabled(hyphenationEnabled),
+        bionicReadingEnabled(bionicReadingEnabled),
         completePageFn(completePageFn),
         progressFn(progressFn),
         cssParser(cssParser),

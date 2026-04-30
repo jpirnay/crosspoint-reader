@@ -191,7 +191,9 @@ void EpubReaderActivity::onEnter() {
   bookImageRenderingOverride = currentBook.imageRenderingOverride;
   bookFontFamilyOverride = currentBook.fontFamilyOverride;
   bookFontSizeOverride = currentBook.fontSizeOverride;
-  bookBionicReadingOverride = currentBook.bionicReadingOverride;
+  bookBionicReadingOverride = (currentBook.bionicReadingOverride >= 0)
+                                  ? static_cast<bool>(currentBook.bionicReadingOverride)
+                                  : static_cast<bool>(SETTINGS.bionicReading);
   logReaderMemSnapshot("onEnter_after_recent_books");
 
   // Trigger first update
@@ -1254,7 +1256,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     if (!section->loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                  viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
+                                  viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, bookBionicReadingOverride,
+                                  imageRendering)) {
       LOG_DBG("ERS", "Cache not found, building...");
       lastRenderStats.cacheRebuilt = true;
 
@@ -1275,8 +1278,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       renderer.clearSdCardFontAccumulation();
       if (!section->createSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                      viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering,
-                                      progressFn)) {
+                                      viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
+                                      bookBionicReadingOverride, imageRendering, progressFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
         return;
@@ -1430,7 +1433,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   Section nextSection(epub, nextSpineIndex, renderer);
   if (nextSection.loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                  viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
+                                  viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, bookBionicReadingOverride,
+                                  imageRendering)) {
     return;
   }
 
@@ -1439,7 +1443,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   renderer.clearSdCardFontAccumulation();
   if (!nextSection.createSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                     viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, imageRendering)) {
+                                     viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
+                                     bookBionicReadingOverride, imageRendering)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }
 }
@@ -1822,12 +1827,13 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   if (!section->loadSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize), effectiveLineCompression,
                                 SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                 viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                SETTINGS.imageRendering)) {
+                                static_cast<bool>(SETTINGS.bionicReading), SETTINGS.imageRendering)) {
     LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding", spineIndex);
     if (!section->createSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize),
                                     effectiveLineCompression, SETTINGS.extraParagraphSpacing,
                                     SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
-                                    SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering)) {
+                                    SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
+                                    static_cast<bool>(SETTINGS.bionicReading), SETTINGS.imageRendering)) {
       LOG_ERR("SLP", "EPUB: failed to rebuild section cache for spine %d", spineIndex);
       return false;
     }
