@@ -1,10 +1,9 @@
 #pragma once
 
+#include <HalStorage.h>
 #include <Print.h>
 
 #include <functional>
-
-class FsFile;
 
 /**
  * @brief Lightweight GIF decoder for extracting the first frame
@@ -51,7 +50,7 @@ class TinyGifDecoder {
    * @note GIF interlace flag is ignored - all data read sequentially
    * @note Only ERROR messages are printed to Serial on failure
    */
-  static bool decodeGifToBmp(FsFile& input, Print& output, int maxWidth = 480, int maxHeight = 800,
+  static bool decodeGifToBmp(HalFile& input, Print& output, int maxWidth = 480, int maxHeight = 800,
                              std::function<bool()> shouldAbort = nullptr);
 
  private:
@@ -87,9 +86,6 @@ class TinyGifDecoder {
   /** @brief Parse image descriptor (position, size, flags) */
   static bool parseImageDescriptor(const uint8_t*& data, size_t& size, ImageDescriptor& imgDesc);
 
-  /** @brief Skip GIF extension blocks */
-  static bool skipExtensions(const uint8_t*& data, size_t& size);
-
   /**
    * @brief Decompress LZW-compressed GIF image data
    *
@@ -108,7 +104,7 @@ class TinyGifDecoder {
    * @param shouldAbort Optional callback to cancel decoding early
    * @return true on success, false on error
    */
-  static bool decompressLZW(FsFile& input, uint8_t* output, size_t outputSize, int width, int height,
+  static bool decompressLZW(HalFile& input, uint8_t* output, size_t outputSize, int width, int height,
                             const uint8_t* colorTable, int colorTableSize, uint8_t minCodeSize,
                             std::function<bool()> shouldAbort);
 
@@ -123,7 +119,4 @@ class TinyGifDecoder {
    * @param height Image height
    */
   static void writeBmpHeader(Print& output, int width, int height);
-
-  /** @brief Convert RGB565 to RGB888 (unused, kept for compatibility) */
-  static void rgb565ToRgb888(uint16_t rgb565, uint8_t& r, uint8_t& g, uint8_t& b);
 };

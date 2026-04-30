@@ -2,14 +2,14 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <Logging.h>
-#include <SdFat.h>
 
+#include "Bitmap.h"
 #include "GifToBmpConverter.h"
 #include "ImageDecoderFactory.h"
-#include "PngToFramebufferConverter.h"
 #include "JpegToFramebufferConverter.h"
-#include "Bitmap.h"
+#include "PngToFramebufferConverter.h"
 
 bool GifToFramebufferConverter::supportsFormat(const std::string& extension) {
   return FsHelpers::hasGifExtension(extension);

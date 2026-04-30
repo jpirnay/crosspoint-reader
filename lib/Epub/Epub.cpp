@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <GifToBmpConverter.h>
+#include <HalDisplay.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <JpegToBmpConverter.h>
@@ -655,8 +656,10 @@ bool Epub::generateCoverBmp(bool cropped) const {
       coverGif.close();
       return false;
     }
-    const bool success =
-        GifToBmpConverter::gifFileToBmpStream(coverGif, coverBmp, cropped ? 480 : 480, cropped ? 800 : 800);
+    // Match the JPG/PNG cover convention: portrait orientation (height becomes width).
+    const int targetWidth = display.getDisplayHeight();
+    const int targetHeight = display.getDisplayWidth();
+    const bool success = GifToBmpConverter::gifFileToBmpStream(coverGif, coverBmp, targetWidth, targetHeight);
     coverGif.close();
     coverBmp.close();
     Storage.remove(coverGifTempPath.c_str());
