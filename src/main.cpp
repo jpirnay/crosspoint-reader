@@ -540,6 +540,9 @@ void loop() {
         case BA::BTN_KOREADER_SYNC:
           activityManager.dispatchButtonAction(BA::BTN_KOREADER_SYNC);
           break;
+        case BA::BTN_SYNC_NTP_NOW:
+          activityManager.goToSyncTime();
+          break;
         default:
           break;
       }

@@ -69,7 +69,7 @@ void SyncTimeActivity::onEnter() {
 
 void SyncTimeActivity::onExit() {
   Activity::onExit();
-  HalClock::wifiOff(true);
+  HalClock::wifiOff();
 }
 
 void SyncTimeActivity::onWifiSelectionComplete(bool success) {
@@ -102,7 +102,7 @@ void SyncTimeActivity::performSync() {
     driftSeconds = (int32_t)(time(nullptr) - preSyncTime);
   }
 
-  HalClock::wifiOff(true);
+  HalClock::wifiOff();
 
   state = ok ? SUCCESS : FAILED;
   requestUpdate();

@@ -145,7 +145,7 @@ inline const std::vector<SettingInfo> list = {
       StrId::STR_BTN_ACT_FORCE_REFRESH, StrId::STR_BTN_ACT_OPEN_TOC, StrId::STR_BTN_ACT_OPEN_BOOKMARKS, \
       StrId::STR_BTN_ACT_STAR_PAGE, StrId::STR_BTN_ACT_FOOTNOTES, StrId::STR_BTN_ACT_NEXT_SECTION,      \
       StrId::STR_BTN_ACT_PREV_SECTION, StrId::STR_BTN_ACT_EXIT_READER, StrId::STR_BTN_ACT_READER_MENU,  \
-      StrId::STR_BTN_ACT_KOREADER_SYNC
+      StrId::STR_BTN_ACT_KOREADER_SYNC, StrId::STR_BTN_ACT_SYNC_NTP_NOW
 
     // Back button: short=exit reader, double=ignore, long=go home
     SettingInfo::Enum(StrId::STR_BTN_SHORT_PRESS, &CrossPointSettings::btnShortBack, {StrId::STR_BTN_DEF_EXIT_READER},

@@ -685,10 +685,12 @@ void formatLogTime(char* buf, size_t bufSize) {
   snprintf(buf, bufSize, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 }
 
-void wifiOff(bool skipNtpSync) {
-  if (!skipNtpSync && isApproximate() && WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
-    syncNtp();
-  }
+void wifiOff() {
+  // NTP sync is now an explicit user action only (see SyncTimeActivity, bindable
+  // via BTN_SYNC_NTP_NOW). Tearing down WiFi never piggybacks on it: the cost
+  // (5s SNTP wait + heap churn pre-TLS) outweighed the benefit, since uploads
+  // aren't timestamp-signed and TLS cert validation tolerates a clock that's
+  // months old.
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }

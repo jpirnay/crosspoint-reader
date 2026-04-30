@@ -3,6 +3,7 @@
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
+#include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
@@ -17,8 +18,6 @@
 #include "fontIds.h"
 
 namespace {
-constexpr time_t NTP_RESYNC_MIN_INTERVAL_SEC = 15 * 60;
-
 // Emits heap snapshots around sync stages so we can correlate TLS failures with
 // fragmentation and not just total free heap.
 void logSyncMemSnapshot(const char* stage) {
@@ -41,19 +40,6 @@ void trimMemoryBeforeTls(const GfxRenderer& renderer) {
   }
 }
 
-bool shouldSyncNtpNow() {
-  const time_t lastSync = HalClock::lastSyncTime();
-  const time_t now = HalClock::now();
-  if (lastSync <= 0 || now <= 0) {
-    return true;
-  }
-
-  const time_t age = now - lastSync;
-  if (age < 0) {
-    return true;
-  }
-  return age >= NTP_RESYNC_MIN_INTERVAL_SEC;
-}
 }  // namespace
 
 void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
@@ -65,21 +51,10 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
 
   LOG_DBG("KOSync", "WiFi connected, starting sync");
 
-  {
-    RenderLock lock(*this);
-    state = SYNCING;
-    statusMessage = tr(STR_SYNCING_TIME);
-  }
-  requestUpdate();
-
-  // Avoid repeated NTP churn during rapid sync retries; it can fragment heap
-  // right before TLS. Re-sync only when clock is stale.
-  if (shouldSyncNtpNow()) {
-    HalClock::syncNtp();
-  } else {
-    LOG_DBG("KOSync", "Skipping NTP sync (recently synced)");
-  }
-
+  // NTP sync is no longer performed here. TLS cert validation tolerates a
+  // clock that is months old, and uploads aren't timestamp-signed by us.
+  // Users with a never-set clock can run SyncTimeActivity (bindable to
+  // BTN_SYNC_NTP_NOW) once after first boot.
   {
     RenderLock lock(*this);
     statusMessage = tr(STR_CALC_HASH);
@@ -172,7 +147,7 @@ void KOReaderSyncActivity::performSync() {
       LOG_DBG("KOSync", "AUTO_PUSH skipped: remote %.4f >= local %.4f", warmupProgress.percentage,
               localProgress.percentage);
       KOReaderSyncClient::endPersistentSession();
-      HalClock::wifiOff(true);
+      HalClock::wifiOff();
       // Reuse UPLOAD_COMPLETE outcome so the resume path is identical to a successful push;
       // there is nothing to apply to the reader and progress.bin already reflects local state.
       APP_STATE.koReaderSyncSession.outcome = KOReaderSyncOutcomeState::UPLOAD_COMPLETE;
@@ -215,7 +190,7 @@ void KOReaderSyncActivity::performSync() {
       // Auto-pull at book open: nothing to apply, just open the book with local progress.
       // No user-visible failure since the user opted into "open with sync, if available".
       KOReaderSyncClient::endPersistentSession();
-      HalClock::wifiOff(true);
+      HalClock::wifiOff();
       resumeReader(KOReaderSyncOutcomeState::CANCELLED);
       return;
     }
@@ -265,7 +240,7 @@ void KOReaderSyncActivity::performSync() {
     if (!ensureRemotePositionMapped()) {
       if (syncIntent == KOReaderSyncIntentState::AUTO_PULL) {
         // Auto-pull was best-effort. Fail silently and just open the book.
-        HalClock::wifiOff(true);
+        HalClock::wifiOff();
         resumeReader(KOReaderSyncOutcomeState::CANCELLED);
         return;
       }
@@ -291,7 +266,7 @@ void KOReaderSyncActivity::performSync() {
     if (syncIntent == KOReaderSyncIntentState::AUTO_PULL) {
       // Auto-pull skips the success-screen dwell — the reader will render the new
       // position immediately, which is the only visible feedback the user needs.
-      HalClock::wifiOff(true);
+      HalClock::wifiOff();
       resumeReader(KOReaderSyncOutcomeState::APPLIED_REMOTE);
       return;
     }
@@ -409,7 +384,7 @@ void KOReaderSyncActivity::performUpload() {
   logSyncMemSnapshot("after_updateProgress");
 
   if (result != KOReaderSyncClient::OK) {
-    HalClock::wifiOff(true);
+    HalClock::wifiOff();
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
@@ -426,7 +401,7 @@ void KOReaderSyncActivity::performUpload() {
     return;
   }
 
-  HalClock::wifiOff(true);
+  HalClock::wifiOff();
   APP_STATE.koReaderSyncSession.outcome = KOReaderSyncOutcomeState::UPLOAD_COMPLETE;
   APP_STATE.saveToFile();
   if (syncIntent == KOReaderSyncIntentState::AUTO_PUSH) {
@@ -474,7 +449,7 @@ void KOReaderSyncActivity::onExit() {
 
   logSyncMemSnapshot("onExit_before_cleanup");
   KOReaderSyncClient::endPersistentSession();
-  HalClock::wifiOff(true);
+  HalClock::wifiOff();
   releaseEpubForMapping();
   logSyncMemSnapshot("onExit_after_cleanup");
 }
@@ -509,10 +484,55 @@ void KOReaderSyncActivity::resumeReader(const KOReaderSyncOutcomeState outcome, 
     sync.resultParagraphIndex = 0;
     sync.resultHasParagraphIndex = false;
   }
+  const bool exitToHome = sync.exitToHomeAfterSync;
+  // AUTO_PULL is the one path that opens a never-paginated chapter on a heap
+  // already fragmented by TLS (book wasn't open before sync, so EpubReader
+  // would paginate from a contig drop of ~45KB and OOM on glyph-rich books).
+  // Side-step the in-process handoff: optionally write the resolved position
+  // to progress.bin and reboot. The next boot paginates with a clean heap.
+  // For non-success AUTO_PULL outcomes (cancelled / failed / 404) we still
+  // reboot — TLS already fragmented the heap regardless of GET result, and
+  // pagination needs the clean post-boot heap either way. We just skip the
+  // progress.bin write so the user lands at their existing local position.
+  // All other intents (COMPARE / PULL_REMOTE / PUSH / AUTO_PUSH) either don't
+  // re-paginate or do so on already-cached sections, and keep the existing
+  // in-process resume.
+  if (sync.intent == KOReaderSyncIntentState::AUTO_PULL) {
+    if (outcome == KOReaderSyncOutcomeState::APPLIED_REMOTE && !sync.epubPath.empty()) {
+      const std::string targetCachePath = Epub::cachePathFor(sync.epubPath, "/.crosspoint");
+      FsFile f;
+      if (Storage.openFileForWrite("KOSync", targetCachePath + "/progress.bin", f)) {
+        const int spineIdx = sync.resultSpineIndex;
+        const int pageIdx = sync.resultPage;
+        uint8_t data[7] = {static_cast<uint8_t>(spineIdx & 0xFF),
+                           static_cast<uint8_t>((spineIdx >> 8) & 0xFF),
+                           static_cast<uint8_t>(pageIdx & 0xFF),
+                           static_cast<uint8_t>((pageIdx >> 8) & 0xFF),
+                           /* pageCount unknown until first paginate */ 0,
+                           0,
+                           /* percent — placeholder; saveProgress() rewrites on first render */ 0};
+        f.write(data, sizeof(data));
+        f.close();
+        LOG_DBG("KOSync", "AUTO_PULL wrote synced position to progress.bin: spine=%d page=%d", spineIdx, pageIdx);
+      } else {
+        LOG_ERR("KOSync", "AUTO_PULL failed to write progress.bin at %s", targetCachePath.c_str());
+      }
+    }
+    // Clear the session so the post-reboot reader doesn't try to re-apply.
+    sync.clear();
+    APP_STATE.openEpubPath = epubPath;
+    APP_STATE.lastSleepFromReader = true;
+    APP_STATE.readerActivityLoadCount = 0;
+    APP_STATE.saveToFile();
+    logSyncMemSnapshot("before_restart");
+    HalClock::wifiOff();
+    LOG_DBG("KOSync", "AUTO_PULL restart (outcome=%d)", static_cast<int>(outcome));
+    ESP.restart();
+    return;  // not reached
+  }
   // Honor exit-to-home flag set by reader-close auto-sync — bouncing back into the reader
   // the user just left would be jarring. The session state is consumed and cleared by the
   // home destination's normal flow (no reader to apply it to in this case).
-  const bool exitToHome = sync.exitToHomeAfterSync;
   if (exitToHome) {
     sync.clear();
   }

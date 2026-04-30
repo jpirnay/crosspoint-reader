@@ -42,8 +42,14 @@ class Epub {
 
  public:
   explicit Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
-    // create a cache key based on the filepath
-    cachePath = cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(this->filepath));
+    cachePath = cachePathFor(this->filepath, cacheDir);
+  }
+  // Returns the same cache path the Epub constructor would derive, without
+  // having to instantiate (and thereby load) an Epub. Used by callers that
+  // need to write into an EPUB's cache directory across activity boundaries
+  // (e.g. KOSync writing progress.bin before a process restart).
+  static std::string cachePathFor(const std::string& filepath, const std::string& cacheDir) {
+    return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
   }
   ~Epub() = default;
   std::string& getBasePath() { return contentBasePath; }

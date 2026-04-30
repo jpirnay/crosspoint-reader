@@ -22,6 +22,7 @@
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "settings/SyncTimeActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "weather/WeatherActivity.h"
 
@@ -359,6 +360,8 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 }
 
 void ActivityManager::goToWeather() { replaceActivity(std::make_unique<WeatherActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToSyncTime() { replaceActivity(std::make_unique<SyncTimeActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goHome(std::string focusBookPath, int focusSelectorIndex) {
   hasReturnHint = false;

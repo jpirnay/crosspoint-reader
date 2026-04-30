@@ -82,9 +82,8 @@ void formatTime(char* buf, size_t bufSize, bool use24h);
 /// synced, or an empty string if not.
 void formatLogTime(char* buf, size_t bufSize);
 
-/// Tear down WiFi cleanly.  When skipNtpSync is false (default) and the
-/// clock is approximate, performs an opportunistic NTP sync before
-/// disconnecting — essentially free since we already have a connection.
-void wifiOff(bool skipNtpSync = false);
+/// Tear down WiFi cleanly. Never performs an NTP sync — that is an explicit
+/// user action only (see the BTN_SYNC_NTP_NOW button binding).
+void wifiOff();
 
 }  // namespace HalClock

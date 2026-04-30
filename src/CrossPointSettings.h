@@ -285,6 +285,7 @@ class CrossPointSettings {
     BTN_EXIT_READER,
     BTN_READER_MENU,
     BTN_KOREADER_SYNC,
+    BTN_SYNC_NTP_NOW,
     BUTTON_ACTION_COUNT
   };
 
