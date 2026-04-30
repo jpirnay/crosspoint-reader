@@ -503,82 +503,51 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
     ctx.readBuf = fileReadBuffer;
     ctx.readBufSize = chunkSize;
 
+    if (!ctx.reader.init(true)) {
+      LOG_ERR("ZIP", "Failed to init inflate reader");
+      free(outputBuffer);
+      free(fileReadBuffer);
+      return false;
+    }
+    ctx.reader.setReadCallback(zipReadCallback);
+
     bool success = false;
-    if (ctx.reader.init(true)) {
-      ctx.reader.setReadCallback(zipReadCallback);
+    size_t totalProduced = 0;
 
-      size_t totalProduced = 0;
-      while (true) {
-        size_t produced;
-        const InflateStatus status = ctx.reader.readAtMost(outputBuffer, chunkSize, &produced);
-        totalProduced += produced;
-        if (totalProduced > static_cast<size_t>(inflatedDataSize)) {
-          LOG_ERR("ZIP", "Decompressed size exceeds expected (%zu > %zu)", totalProduced,
-                  static_cast<size_t>(inflatedDataSize));
-          break;
-        }
+    while (true) {
+      size_t produced;
+      const InflateStatus status = ctx.reader.readAtMost(outputBuffer, chunkSize, &produced);
 
-        if (produced > 0) {
-          if (out.write(outputBuffer, produced) != produced) {
-            LOG_ERR("ZIP", "Failed to write all output bytes to stream");
-            break;
-          }
-        }
-
-        if (status == InflateStatus::Done) {
-          if (totalProduced != static_cast<size_t>(inflatedDataSize)) {
-            LOG_ERR("ZIP", "Decompressed size mismatch (expected %zu, got %zu)", static_cast<size_t>(inflatedDataSize),
-                    totalProduced);
-            break;
-          }
-          LOG_DBG("ZIP", "Decompressed %d bytes into %d bytes", deflatedDataSize, inflatedDataSize);
-          success = true;
-          break;
-        }
-
-        if (status == InflateStatus::Error) {
-          LOG_ERR("ZIP", "Decompression failed");
-          break;
-        }
-        // InflateStatus::Ok: output buffer full, continue
+      totalProduced += produced;
+      if (totalProduced > static_cast<size_t>(inflatedDataSize)) {
+        LOG_ERR("ZIP", "Decompressed size exceeds expected (%zu > %zu)", totalProduced,
+                static_cast<size_t>(inflatedDataSize));
+        break;
       }
-    } else {
-      LOG_DBG("ZIP", "Inflate reader init failed, falling back to one-shot decompression");
-      file.seek(fileOffset);
 
-      auto* deflatedData = static_cast<uint8_t*>(malloc(deflatedDataSize));
-      if (!deflatedData) {
-        LOG_ERR("ZIP", "Failed to allocate memory for deflated data fallback");
-      } else {
-        const size_t dataRead = file.read(deflatedData, deflatedDataSize);
-        if (dataRead != deflatedDataSize) {
-          LOG_ERR("ZIP", "Failed to read deflated fallback data, expected %zu got %zu", deflatedDataSize, dataRead);
-        } else {
-          auto* fallbackBuffer = static_cast<uint8_t*>(malloc(inflatedDataSize));
-          if (!fallbackBuffer) {
-            LOG_ERR("ZIP", "Failed to allocate fallback output buffer (%zu bytes)", inflatedDataSize);
-          } else {
-            InflateReader fallbackReader;
-            if (!fallbackReader.init(false)) {
-              LOG_ERR("ZIP", "Failed to init one-shot inflate reader fallback");
-            } else {
-              fallbackReader.setSource(deflatedData, deflatedDataSize);
-              if (fallbackReader.read(fallbackBuffer, inflatedDataSize)) {
-                if (out.write(fallbackBuffer, inflatedDataSize) == inflatedDataSize) {
-                  success = true;
-                  LOG_DBG("ZIP", "One-shot decompressed %d bytes into %d bytes", deflatedDataSize, inflatedDataSize);
-                } else {
-                  LOG_ERR("ZIP", "Failed to write fallback decompressed output to stream");
-                }
-              } else {
-                LOG_ERR("ZIP", "Fallback decompression failed");
-              }
-            }
-            free(fallbackBuffer);
-          }
+      if (produced > 0) {
+        if (out.write(outputBuffer, produced) != produced) {
+          LOG_ERR("ZIP", "Failed to write all output bytes to stream");
+          break;
         }
-        free(deflatedData);
       }
+
+      if (status == InflateStatus::Done) {
+        if (totalProduced != static_cast<size_t>(inflatedDataSize)) {
+          LOG_ERR("ZIP", "Decompressed size mismatch (expected %zu, got %zu)", static_cast<size_t>(inflatedDataSize),
+                  totalProduced);
+          break;
+        }
+        LOG_DBG("ZIP", "Decompressed %d bytes into %d bytes", deflatedDataSize, inflatedDataSize);
+        success = true;
+        break;
+      }
+
+      if (status == InflateStatus::Error) {
+        LOG_ERR("ZIP", "Decompression failed");
+        break;
+      }
+      // InflateStatus::Ok: output buffer full, continue
     }
 
     free(outputBuffer);
