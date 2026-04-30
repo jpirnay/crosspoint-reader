@@ -96,7 +96,7 @@ void FileBrowserActivity::loadFiles() {
       if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
           FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
           FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
-          FsHelpers::hasPngExtension(filename)) {
+          FsHelpers::hasPngExtension(filename) || FsHelpers::hasGifExtension(filename)) {
         files.emplace_back(filename);
       }
     }

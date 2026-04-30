@@ -11,6 +11,7 @@
 
 std::unique_ptr<JpegToFramebufferConverter> ImageDecoderFactory::jpegDecoder = nullptr;
 std::unique_ptr<PngToFramebufferConverter> ImageDecoderFactory::pngDecoder = nullptr;
+std::unique_ptr<GifToFramebufferConverter> ImageDecoderFactory::gifDecoder = nullptr;
 
 ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& imagePath) {
   std::string ext = imagePath;

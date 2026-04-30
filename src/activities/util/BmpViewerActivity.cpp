@@ -27,7 +27,8 @@ uint8_t normalizeImageDitherModeValue(uint8_t mode) { return static_cast<uint8_t
 bool isBmpFile(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
 
 bool isSupportedImageFile(const std::string& path) {
-  return FsHelpers::hasBmpExtension(path) || FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path);
+  return FsHelpers::hasBmpExtension(path) || FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path) ||
+         FsHelpers::hasGifExtension(path);
 }
 
 void computeCenteredImagePlacement(const int imageWidth, const int imageHeight, const int pageWidth,
