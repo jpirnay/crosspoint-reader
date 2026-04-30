@@ -123,6 +123,17 @@ std::string buildLinePreview(const std::vector<std::string>& words, const std::v
   return preview;
 }
 
+constexpr int kBionicReadingMinCodepoints = 4;
+constexpr int kBionicReadingMinBoldPrefix = 1;
+constexpr int kBionicReadingBoldPrefixNumerator = 1;
+constexpr int kBionicReadingBoldPrefixDenominator = 2;
+
+static int computeBionicBoldPrefixCount(const int codepointCount) {
+  return std::max(kBionicReadingMinBoldPrefix,
+                  (codepointCount * kBionicReadingBoldPrefixNumerator + kBionicReadingBoldPrefixDenominator - 1) /
+                      kBionicReadingBoldPrefixDenominator);
+}
+
 }  // namespace
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
@@ -532,14 +543,14 @@ void ParsedText::applyBionicReadingTransform() {
       codepointCount++;
     }
 
-    if (codepointCount <= 3) {
+    if (codepointCount < kBionicReadingMinCodepoints) {
       transformedWords.push_back(word);
       transformedStyles.push_back(originalStyle);
       transformedContinues.push_back(attachToPrevious);
       continue;
     }
 
-    const int boldPrefixCount = std::max(1, (codepointCount + 1) / 2);
+    const int boldPrefixCount = computeBionicBoldPrefixCount(codepointCount);
     ptr = reinterpret_cast<const unsigned char*>(word.c_str());
     const unsigned char* prefixEnd = ptr;
     for (int j = 0; j < boldPrefixCount && *prefixEnd; ++j) {
