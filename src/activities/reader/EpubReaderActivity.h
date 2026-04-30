@@ -135,6 +135,7 @@ class EpubReaderActivity final : public Activity {
   int8_t bookImageRenderingOverride = -1;
   int8_t bookFontFamilyOverride = -1;
   int8_t bookFontSizeOverride = -1;
+  bool bookBionicReadingOverride = false;
 
   // Bookmarks (starred pages)
   BookmarkStore bookmarkStore;
@@ -176,7 +177,7 @@ class EpubReaderActivity final : public Activity {
   void applyTextDarkness(uint8_t textDarkness);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void applyBookReaderOverrides(int8_t embeddedStyleOverride, int8_t imageRenderingOverride, int8_t fontFamilyOverride,
-                                int8_t fontSizeOverride);
+                                int8_t fontSizeOverride, bool bionicReadingOverride);
   void openReaderMenu();
   bool getEffectiveEmbeddedStyle() const;
   uint8_t getEffectiveImageRendering() const;

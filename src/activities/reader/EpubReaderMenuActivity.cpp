@@ -30,14 +30,12 @@ std::string defaultFontFamilyLabel(const SettingInfo& item) {
 }
 }  // namespace
 
-EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                               const std::string& title, const int currentPage, const int totalPages,
-                                               const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const int8_t initialEmbeddedStyleOverride,
-                                               const int8_t initialImageRenderingOverride,
-                                               const int8_t initialFontFamilyOverride,
-                                               const int8_t initialFontSizeOverride, const uint8_t initialTextDarkness,
-                                               const bool hasStarredPages, const bool isCurrentPageStarred)
+EpubReaderMenuActivity::EpubReaderMenuActivity(
+    GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
+    const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
+    const int8_t initialEmbeddedStyleOverride, const int8_t initialImageRenderingOverride,
+    const int8_t initialFontFamilyOverride, const int8_t initialFontSizeOverride, const uint8_t initialTextDarkness,
+    const bool initialBionicReadingOverride, const bool hasStarredPages, const bool isCurrentPageStarred)
     : MenuListActivity("EpubReaderMenu", renderer, mappedInput),
       currentPageStarred(isCurrentPageStarred),
       pendingOrientation(currentOrientation),
@@ -46,6 +44,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       pendingFontFamilyOverride(initialFontFamilyOverride),
       pendingFontSizeOverride(initialFontSizeOverride),
       pendingTextDarkness(initialTextDarkness),
+      pendingBionicReading(initialBionicReadingOverride),
       title(title),
       currentPage(currentPage),
       totalPages(totalPages),
@@ -161,6 +160,15 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
           [](void* ctx, uint8_t v) { static_cast<EpubReaderMenuActivity*>(ctx)->pendingTextDarkness = v; })
           .withSubmenu(StrId::STR_READER_OVERRIDES));
 
+  menuItems.push_back(
+      SettingInfo::DynamicEnumCtx(
+          StrId::STR_BIONIC_READING, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, self,
+          [](const void* ctx) -> uint8_t {
+            return static_cast<const EpubReaderMenuActivity*>(ctx)->pendingBionicReading ? 1 : 0;
+          },
+          [](void* ctx, uint8_t v) { static_cast<EpubReaderMenuActivity*>(ctx)->pendingBionicReading = (v != 0); })
+          .withSubmenu(StrId::STR_READER_OVERRIDES));
+
   // Helper functions, reading ruler, auto page turn, orientation
   menuItems.push_back(SettingInfo::Separator(StrId::STR_READER_UTILS));
   // Auto page turn: ACTION type with custom cycling in onActionSelected
@@ -240,7 +248,7 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForSettingActio
 void EpubReaderMenuActivity::finishWithAction(MenuAction action) {
   setResult(MenuResult{static_cast<int>(action), -1, pendingOrientation, selectedPageTurnOption,
                        pendingEmbeddedStyleOverride, pendingImageRenderingOverride, pendingFontFamilyOverride,
-                       pendingFontSizeOverride, pendingTextDarkness});
+                       pendingFontSizeOverride, pendingTextDarkness, static_cast<uint8_t>(pendingBionicReading)});
   finish();
 }
 
@@ -273,7 +281,8 @@ void EpubReaderMenuActivity::onBackPressed() {
                            pendingImageRenderingOverride,
                            pendingFontFamilyOverride,
                            pendingFontSizeOverride,
-                           pendingTextDarkness};
+                           pendingTextDarkness,
+                           static_cast<uint8_t>(pendingBionicReading)};
   setResult(std::move(result));
   finish();
 }
