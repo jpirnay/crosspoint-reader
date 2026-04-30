@@ -30,8 +30,14 @@
 #endif
 
 void ActivityManager::begin() {
+  // Stack sized for the chapter-render pipeline: HTML parser callbacks recurse
+  // through CSS resolveStyle, then into LOG_DBG → vsnprintf (~700B newlib frame)
+  // and into Serial → FreeRTOS queue calls, all reachable from a single render
+  // tick. 8KB overflows on fresh-cache section builds (observed in fm3_r1.html
+  // and contents.xhtml). 16KB gives headroom without significantly cutting into
+  // free heap (~225KB total on ESP32-C3).
   xTaskCreate(&renderTaskTrampoline, "ActivityManagerRender",
-              8192,              // Stack size
+              16384,             // Stack size
               this,              // Parameters
               1,                 // Priority
               &renderTaskHandle  // Task handle
