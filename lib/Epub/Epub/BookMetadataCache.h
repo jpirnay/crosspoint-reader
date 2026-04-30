@@ -3,8 +3,8 @@
 #include <HalStorage.h>
 
 #include <algorithm>
-#include <deque>
 #include <string>
+#include <vector>
 
 class BookMetadataCache {
  public:
@@ -65,7 +65,7 @@ class BookMetadataCache {
     uint16_t hrefLen;   // length for collision reduction
     int16_t spineIndex;
   };
-  std::deque<SpineHrefIndexEntry> spineHrefIndex;
+  std::vector<SpineHrefIndexEntry> spineHrefIndex;
   bool useSpineHrefIndex = false;
 
   static constexpr uint16_t LARGE_SPINE_THRESHOLD = 400;
@@ -84,6 +84,11 @@ class BookMetadataCache {
   uint32_t writeTocEntry(FsFile& file, const TocEntry& entry) const;
   SpineEntry readSpineEntry(FsFile& file) const;
   TocEntry readTocEntry(FsFile& file) const;
+  // Out-parameter overloads reuse the caller's string capacity inside hot
+  // build loops, eliminating per-iteration std::string allocation churn that
+  // would otherwise fragment the heap during book.bin construction.
+  void readSpineEntry(FsFile& file, SpineEntry& out) const;
+  void readTocEntry(FsFile& file, TocEntry& out) const;
 
  public:
   BookMetadata coreMetadata;

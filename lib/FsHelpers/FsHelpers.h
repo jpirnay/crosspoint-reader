@@ -7,6 +7,10 @@
 namespace FsHelpers {
 
 std::string normalisePath(const std::string& path);
+// Out-parameter overload that reuses `out`'s capacity and performs the
+// normalisation in-place without allocating a temporary components vector.
+// Use inside hot loops to keep heap fragmentation bounded.
+void normalisePath(const std::string& path, std::string& out);
 
 /**
  * Check if the given filename ends with the specified extension (case-insensitive).

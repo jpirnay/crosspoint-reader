@@ -2,6 +2,8 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <expat.h>
 
 #include <algorithm>
@@ -33,6 +35,13 @@ struct ReverseState : StackState {
   int spineIndex;
   std::string targetNorm;
   std::string targetNoIndex;
+  // Scratch buffers reused across every checkMatch / onCharData invocation.
+  // Without these, each match check would allocate three fresh std::strings
+  // (currentXPath, normalizeXPath result, removeIndices result) per element,
+  // fragmenting the heap during a multi-thousand-element parse.
+  std::string xpathScratch;
+  std::string normScratch;
+  std::string noIndexScratch;
 
   int targetTextNodeIndex = 0;
   int targetCharOffset = 0;
@@ -47,6 +56,11 @@ struct ReverseState : StackState {
   const char* bestTierName = nullptr;
 
   ReverseState(const int spineIndex, const std::string& xpath) : spineIndex(spineIndex) {
+    // Pre-grow scratch buffers to a typical xpath size to avoid the first few
+    // grow-and-copy reallocations during the parse.
+    xpathScratch.reserve(128);
+    normScratch.reserve(128);
+    noIndexScratch.reserve(128);
     // Parse optional text-node suffix before normalizing for element matching.
     // KOReader emits two shapes that both land here:
     //   /text()[N].M  — explicit 1-based text-node index + codepoint offset
@@ -89,8 +103,8 @@ struct ReverseState : StackState {
         }
       }
     }
-    targetNorm = normalizeXPath(xpath);
-    targetNoIndex = removeIndices(targetNorm);
+    normalizeXPath(xpath, targetNorm);
+    removeIndices(targetNorm, targetNoIndex);
   }
 
   void onStartElement(const XML_Char* rawName) {
@@ -116,7 +130,9 @@ struct ReverseState : StackState {
     const size_t codepoints = countUtf8Codepoints(text, len);
 
     if (targetTextNodeIndex > 0 && !stack.empty()) {
-      const std::string xpath = normalizeXPath(currentXPath(spineIndex));
+      buildCurrentXPath(spineIndex, xpathScratch);
+      normalizeXPath(xpathScratch, normScratch);
+      const std::string& xpath = normScratch;
       if (xpath == targetNorm) {
         stack.back().hasText = true;
         if (!inParentTextNode) {
@@ -155,7 +171,9 @@ struct ReverseState : StackState {
   }
 
   void checkMatch() {
-    const std::string xpath = normalizeXPath(currentXPath(spineIndex));
+    buildCurrentXPath(spineIndex, xpathScratch);
+    normalizeXPath(xpathScratch, normScratch);
+    const std::string& xpath = normScratch;
     const int depth = pathDepth(xpath);
 
     const bool targetIsTextSelector = targetTextNodeIndex > 0;
@@ -176,10 +194,10 @@ struct ReverseState : StackState {
       return;
     }
 
-    const std::string xpathNoIdx = removeIndices(xpath);
-    if (xpathNoIdx == targetNoIndex) {
+    removeIndices(xpath, noIndexScratch);
+    if (noIndexScratch == targetNoIndex) {
       tryUpdate(MatchTier::EXACT_NO_IDX, depth, "index-insensitive", false);
-    } else if (isAncestorPath(xpathNoIdx, targetNoIndex)) {
+    } else if (isAncestorPath(noIndexScratch, targetNoIndex)) {
       tryUpdate(MatchTier::ANCESTOR_NO_IDX, depth, "index-insensitive-ancestor", false);
     }
   }
@@ -206,6 +224,10 @@ bool findProgressForXPathInternal(const std::shared_ptr<Epub>& epub, const int s
     return false;
   }
 
+  LOG_DBG("KOX", "Reverse start: spine=%d free=%lu contig=%lu", spineIndex,
+          static_cast<unsigned long>(esp_get_free_heap_size()),
+          static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT)));
+
   const std::string tmpPath = decompressToTempFile(epub, spineIndex);
   if (tmpPath.empty()) {
     return false;
@@ -230,6 +252,10 @@ bool findProgressForXPathInternal(const std::shared_ptr<Epub>& epub, const int s
   }
   XML_ParserFree(parser);
   Storage.remove(tmpPath.c_str());
+
+  LOG_DBG("KOX", "Reverse end: spine=%d free=%lu contig=%lu", spineIndex,
+          static_cast<unsigned long>(esp_get_free_heap_size()),
+          static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT)));
 
   if (!parseOk || state.bestTier == MatchTier::NONE) {
     LOG_DBG("KOX", "Reverse: spine=%d no match for '%s'", spineIndex, xpath.c_str());
