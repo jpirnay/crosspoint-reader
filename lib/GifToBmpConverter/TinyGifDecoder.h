@@ -4,6 +4,8 @@
 
 #include <functional>
 
+class FsFile;
+
 /**
  * @brief Lightweight GIF decoder for extracting the first frame
  *
@@ -37,8 +39,7 @@ class TinyGifDecoder {
    * to the provided Print stream. The BMP includes proper row padding for
    * 4-byte alignment.
    *
-   * @param gifData Pointer to GIF file data in memory
-   * @param gifSize Size of GIF data in bytes
+   * @param input Open GIF file handle to read from
    * @param output Print stream to write BMP data to
    * @param maxWidth Maximum allowed image width (default 480)
    * @param maxHeight Maximum allowed image height (default 800)
@@ -50,8 +51,8 @@ class TinyGifDecoder {
    * @note GIF interlace flag is ignored - all data read sequentially
    * @note Only ERROR messages are printed to Serial on failure
    */
-  static bool decodeGifToBmp(const uint8_t* gifData, size_t gifSize, Print& output, int maxWidth = 480,
-                             int maxHeight = 800, std::function<bool()> shouldAbort = nullptr);
+  static bool decodeGifToBmp(FsFile& input, Print& output, int maxWidth = 480, int maxHeight = 800,
+                             std::function<bool()> shouldAbort = nullptr);
 
  private:
   // GIF file format structures
@@ -96,8 +97,7 @@ class TinyGifDecoder {
    * codes and GIF-specific sub-block structure. Uses dynamic memory
    * allocation scaled to image size.
    *
-   * @param compressedData LZW compressed data (in GIF sub-blocks)
-   * @param compressedSize Size of compressed data
+   * @param input Open GIF file handle positioned at the first LZW sub-block
    * @param output Buffer to write decompressed palette indices
    * @param outputSize Expected output size (width * height)
    * @param width Image width (for validation)
@@ -105,10 +105,12 @@ class TinyGifDecoder {
    * @param colorTable RGB color palette (3 bytes per entry)
    * @param colorTableSize Number of palette entries
    * @param minCodeSize Minimum LZW code size (from GIF)
+   * @param shouldAbort Optional callback to cancel decoding early
    * @return true on success, false on error
    */
-  static bool decompressLZW(const uint8_t* compressedData, size_t compressedSize, uint8_t* output, size_t outputSize,
-                            int width, int height, const uint8_t* colorTable, int colorTableSize, uint8_t minCodeSize);
+  static bool decompressLZW(FsFile& input, uint8_t* output, size_t outputSize, int width, int height,
+                            const uint8_t* colorTable, int colorTableSize, uint8_t minCodeSize,
+                            std::function<bool()> shouldAbort);
 
   /**
    * @brief Write BMP file header with proper row padding calculation

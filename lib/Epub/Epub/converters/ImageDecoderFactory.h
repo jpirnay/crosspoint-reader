@@ -7,6 +7,7 @@
 
 class JpegToFramebufferConverter;
 class PngToFramebufferConverter;
+class GifToFramebufferConverter;
 
 class ImageDecoderFactory {
  public:

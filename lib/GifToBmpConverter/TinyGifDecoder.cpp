@@ -32,6 +32,7 @@
 #include "TinyGifDecoder.h"
 
 #include <Logging.h>
+#include <SdFat.h>
 
 #include <cstring>
 #include <vector>
@@ -87,184 +88,242 @@ struct BMPHeader {
 };
 #pragma pack(pop)
 
-bool TinyGifDecoder::decodeGifToBmp(const uint8_t* gifData, size_t gifSize, Print& output, int maxWidth, int maxHeight,
-                                    std::function<bool()> shouldAbort) {
-  const uint8_t* data = gifData;
-  size_t size = gifSize;
+struct GifStream {
+  FsFile& file;
+  uint8_t blockBuffer[256];
+  int blockRemaining = 0;
+  int blockPosition = 0;
 
-  // Parse GIF header
-  if (!parseHeader(data, size)) {
+  GifStream(FsFile& file) : file(file), blockRemaining(0), blockPosition(0) {}
+
+  bool readByte(uint8_t& value) {
+    int bytesRead = file.read(&value, 1);
+    return bytesRead == 1;
+  }
+
+  bool readBytes(uint8_t* buffer, size_t length) {
+    if (length == 0) return true;
+    int bytesRead = file.read(buffer, length);
+    return bytesRead == (int)length;
+  }
+
+  bool skipBytes(size_t length) {
+    uint8_t discard[128];
+    while (length > 0) {
+      size_t chunk = length > sizeof(discard) ? sizeof(discard) : length;
+      if (!readBytes(discard, chunk)) return false;
+      length -= chunk;
+    }
+    return true;
+  }
+
+  bool readCompressedByte(uint8_t& value) {
+    if (blockRemaining == 0) {
+      uint8_t blockSize;
+      if (!readByte(blockSize)) return false;
+      if (blockSize == 0) return false;
+      if (!readBytes(blockBuffer, blockSize)) return false;
+      blockRemaining = blockSize;
+      blockPosition = 0;
+    }
+    value = blockBuffer[blockPosition++];
+    blockRemaining--;
+    return true;
+  }
+
+  bool skipSubBlocks() {
+    while (true) {
+      uint8_t blockSize;
+      if (!readByte(blockSize)) return false;
+      if (blockSize == 0) return true;
+      if (!skipBytes(blockSize)) return false;
+    }
+  }
+};
+
+bool TinyGifDecoder::decodeGifToBmp(FsFile& file, Print& output, int maxWidth, int maxHeight,
+                                    std::function<bool()> shouldAbort) {
+  if (!file.isOpen()) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid GIF file handle");
+    return false;
+  }
+
+  if (!file.seek(0)) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to seek GIF file");
+    return false;
+  }
+
+  auto readBytes = [&](uint8_t* buffer, size_t length) -> bool {
+    if (length == 0) return true;
+    int bytesRead = file.read(buffer, length);
+    return bytesRead == (int)length;
+  };
+
+  auto readByte = [&](uint8_t& value) -> bool {
+    int bytesRead = file.read(&value, 1);
+    return bytesRead == 1;
+  };
+
+  uint8_t header[6];
+  if (!readBytes(header, sizeof(header))) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to read GIF header");
+    return false;
+  }
+  const uint8_t* dataPtr = header;
+  size_t sizeLeft = sizeof(header);
+  if (!parseHeader(dataPtr, sizeLeft)) {
     LOG_ERR("TinyGIF", "ERROR: Invalid GIF header");
     return false;
   }
 
-  // Parse logical screen descriptor
+  uint8_t lsdBuffer[7];
+  if (!readBytes(lsdBuffer, sizeof(lsdBuffer))) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to read logical screen descriptor");
+    return false;
+  }
+  dataPtr = lsdBuffer;
+  sizeLeft = sizeof(lsdBuffer);
   LogicalScreenDescriptor lsd;
-  if (!parseLogicalScreen(data, size, lsd)) {
+  if (!parseLogicalScreen(dataPtr, sizeLeft, lsd)) {
     LOG_ERR("TinyGIF", "ERROR: Invalid logical screen descriptor");
     return false;
   }
 
-  // Parse global color table if present
-  uint8_t* globalColorTable = nullptr;
-  int globalColorTableSize = 0;
+  std::vector<uint8_t> globalColorTable;
   if ((lsd.flags & 0x80) != 0) {
     int tableSize = 1 << ((lsd.flags & 0x07) + 1);
-    globalColorTableSize = tableSize * 3;
-    if (size < (size_t)globalColorTableSize) {
-      LOG_ERR("TinyGIF", "ERROR: Not enough data for global color table");
-      return false;
-    }
-    globalColorTable = (uint8_t*)malloc(globalColorTableSize);
-    if (!globalColorTable) {
-      LOG_ERR("TinyGIF", "ERROR: Failed to allocate global color table");
-      return false;
-    }
-    memcpy(globalColorTable, data, globalColorTableSize);
-    data += globalColorTableSize;
-    size -= globalColorTableSize;
-  }
-
-  // Skip extensions until we find the first image
-  while (size > 0 && *data != 0x2C) {
-    if (!skipExtensions(data, size)) {
-      if (globalColorTable) free(globalColorTable);
+    size_t globalSize = (size_t)tableSize * 3;
+    globalColorTable.resize(globalSize);
+    if (!readBytes(globalColorTable.data(), globalSize)) {
+      LOG_ERR("TinyGIF", "ERROR: Failed to read global color table");
       return false;
     }
   }
 
-  if (size == 0 || *data != 0x2C) {
-    LOG_ERR("TinyGIF", "ERROR: No image found");
-    if (globalColorTable) free(globalColorTable);
+  GifStream stream(file);
+
+  // Skip any extensions until the first image descriptor
+  uint8_t marker;
+  do {
+    if (!stream.readByte(marker)) {
+      LOG_ERR("TinyGIF", "ERROR: Failed to locate image descriptor");
+      return false;
+    }
+
+    if (marker == 0x3B) {
+      LOG_ERR("TinyGIF", "ERROR: GIF trailer reached before image");
+      return false;
+    }
+
+    if (marker == 0x21) {
+      uint8_t extensionLabel;
+      if (!stream.readByte(extensionLabel)) {
+        LOG_ERR("TinyGIF", "ERROR: Failed to read extension label");
+        return false;
+      }
+      if (!stream.skipSubBlocks()) {
+        LOG_ERR("TinyGIF", "ERROR: Failed to skip extension blocks");
+        return false;
+      }
+      continue;
+    }
+
+    if (marker != 0x2C) {
+      LOG_ERR("TinyGIF", "ERROR: Unexpected GIF block 0x%02X", marker);
+      return false;
+    }
+  } while (marker != 0x2C);
+
+  uint8_t imageDescriptor[9];
+  if (!stream.readBytes(imageDescriptor, sizeof(imageDescriptor))) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to read image descriptor");
     return false;
   }
 
-  // Parse image descriptor
+  dataPtr = imageDescriptor;
+  sizeLeft = sizeof(imageDescriptor);
   ImageDescriptor imgDesc;
-  if (!parseImageDescriptor(data, size, imgDesc)) {
+  if (!parseImageDescriptor(dataPtr, sizeLeft, imgDesc)) {
     LOG_ERR("TinyGIF", "ERROR: Invalid image descriptor");
-    if (globalColorTable) free(globalColorTable);
     return false;
   }
 
-  // Parse local color table if present
-  uint8_t* localColorTable = nullptr;
-  int localColorTableSize = 0;
+  std::vector<uint8_t> localColorTable;
   if ((imgDesc.flags & 0x80) != 0) {
     int tableSize = 1 << ((imgDesc.flags & 0x07) + 1);
-    localColorTableSize = tableSize * 3;
-    if (size < (size_t)localColorTableSize) {
-      LOG_ERR("TinyGIF", "ERROR: Not enough data for local color table");
-      if (globalColorTable) free(globalColorTable);
+    size_t localSize = (size_t)tableSize * 3;
+    localColorTable.resize(localSize);
+    if (!stream.readBytes(localColorTable.data(), localSize)) {
+      LOG_ERR("TinyGIF", "ERROR: Failed to read local color table");
       return false;
     }
-    localColorTable = (uint8_t*)malloc(localColorTableSize);
-    if (!localColorTable) {
-      LOG_ERR("TinyGIF", "ERROR: Failed to allocate local color table");
-      if (globalColorTable) free(globalColorTable);
-      return false;
-    }
-    memcpy(localColorTable, data, localColorTableSize);
-    data += localColorTableSize;
-    size -= localColorTableSize;
   }
 
-  // Use local color table if present, otherwise global, otherwise basic palette
-  const uint8_t* colorTable = localColorTable ? localColorTable : (globalColorTable ? globalColorTable : basicPalette);
-  int colorTableEntries =
-      localColorTable ? (localColorTableSize / 3) : (globalColorTable ? (globalColorTableSize / 3) : 256);
+  const uint8_t* colorTable = nullptr;
+  int colorTableEntries = 256;
+  if (!localColorTable.empty()) {
+    colorTable = localColorTable.data();
+    colorTableEntries = localColorTable.size() / 3;
+  } else if (!globalColorTable.empty()) {
+    colorTable = globalColorTable.data();
+    colorTableEntries = globalColorTable.size() / 3;
+  } else {
+    colorTable = basicPalette;
+    colorTableEntries = 256;
+  }
 
-  // Validate and allocate buffer for decompressed image
-  int width = imgDesc.width;
-  int height = imgDesc.height;
-
-  if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
-    LOG_ERR("TinyGIF", "ERROR: Invalid dimensions %dx%d", width, height);
-    if (globalColorTable) free(globalColorTable);
-    if (localColorTable) free(localColorTable);
+  uint8_t lzwMinCodeSize;
+  if (!stream.readByte(lzwMinCodeSize)) {
+    LOG_ERR("TinyGIF", "ERROR: Missing LZW minimum code size");
     return false;
   }
-  if (height > SIZE_MAX / width) {
-    LOG_ERR("TinyGIF", "ERROR: Image dimensions would overflow");
-    if (globalColorTable) free(globalColorTable);
-    if (localColorTable) free(localColorTable);
+
+  int width = imgDesc.width;
+  int height = imgDesc.height;
+  if (width <= 0 || height <= 0 || width > maxWidth || height > maxHeight) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid GIF dimensions %dx%d", width, height);
+    return false;
+  }
+  if ((size_t)width * (size_t)height > SIZE_MAX) {
+    LOG_ERR("TinyGIF", "ERROR: GIF image size overflow");
     return false;
   }
 
   size_t imageSize = (size_t)width * height;
-  uint8_t* imageBuffer = (uint8_t*)malloc(imageSize);
-  if (!imageBuffer) {
-    LOG_ERR("TinyGIF", "ERROR: Failed to allocate image buffer");
-    if (globalColorTable) free(globalColorTable);
-    if (localColorTable) free(localColorTable);
-    return false;
-  }
-
-  // Read LZW minimum code size
-  if (size < 1) {
-    LOG_ERR("TinyGIF", "ERROR: Missing LZW code size");
-    free(imageBuffer);
-    if (globalColorTable) free(globalColorTable);
-    if (localColorTable) free(localColorTable);
-    return false;
-  }
-  uint8_t lzwMinCodeSize = *data++;
-  size--;
-
-  // Decompress LZW data
-  if (!decompressLZW(data, size, imageBuffer, imageSize, width, height, colorTable, colorTableEntries,
-                     lzwMinCodeSize)) {
+  std::vector<uint8_t> imageBuffer(imageSize);
+  if (!decompressLZW(file, imageBuffer.data(), imageSize, width, height, colorTable, colorTableEntries, lzwMinCodeSize,
+                     shouldAbort)) {
     LOG_ERR("TinyGIF", "ERROR: LZW decompression failed");
-    free(imageBuffer);
-    if (globalColorTable) free(globalColorTable);
-    if (localColorTable) free(localColorTable);
     return false;
   }
 
-  // Write BMP header
   writeBmpHeader(output, width, height);
 
-  // Write image data (BMP is bottom-up with 4-byte row alignment)
-  int rowBytes = width * 3;  // 24-bit RGB
+  int rowBytes = width * 3;
   int padding = (4 - (rowBytes % 4)) % 4;
+  std::vector<uint8_t> rowBuffer(rowBytes + padding);
 
   for (int y = height - 1; y >= 0; y--) {
-    // Write pixel data for this row
+    size_t rowStart = (size_t)y * width;
+    size_t rowPos = 0;
     for (int x = 0; x < width; x++) {
-      size_t pixelIndex = (size_t)y * width + x;
-      if (pixelIndex >= imageSize) {
-        // Safety check - should never happen but prevents crash
-        output.write((uint8_t)0);
-        output.write((uint8_t)0);
-        output.write((uint8_t)0);
-        continue;
-      }
-      uint8_t pixel = imageBuffer[pixelIndex];
+      uint8_t pixel = imageBuffer[rowStart + x];
       if (pixel < colorTableEntries) {
-        uint8_t r = colorTable[pixel * 3];
-        uint8_t g = colorTable[pixel * 3 + 1];
-        uint8_t b = colorTable[pixel * 3 + 2];
-        output.write(b);  // BMP is BGR
-        output.write(g);
-        output.write(r);
+        rowBuffer[rowPos++] = colorTable[pixel * 3 + 2];
+        rowBuffer[rowPos++] = colorTable[pixel * 3 + 1];
+        rowBuffer[rowPos++] = colorTable[pixel * 3];
       } else {
-        // Out of range, use black
-        output.write((uint8_t)0);
-        output.write((uint8_t)0);
-        output.write((uint8_t)0);
+        rowBuffer[rowPos++] = 0;
+        rowBuffer[rowPos++] = 0;
+        rowBuffer[rowPos++] = 0;
       }
     }
-
-    // Write padding bytes to align row to 4-byte boundary
     for (int p = 0; p < padding; p++) {
-      output.write((uint8_t)0);
+      rowBuffer[rowPos++] = 0;
     }
+    output.write(rowBuffer.data(), rowBuffer.size());
   }
 
-  // Cleanup
-  free(imageBuffer);
-  if (globalColorTable) free(globalColorTable);
-  if (localColorTable) free(localColorTable);
   return true;
 }
 
@@ -348,19 +407,15 @@ void TinyGifDecoder::writeBmpHeader(Print& output, int width, int height) {
   output.write((uint8_t*)&header, sizeof(header));
 }
 
-bool TinyGifDecoder::decompressLZW(const uint8_t* compressedData, size_t compressedSize, uint8_t* output,
-                                   size_t outputSize, int width, int height, const uint8_t* colorTable,
-                                   int colorTableSize, uint8_t minCodeSize) {
+bool TinyGifDecoder::decompressLZW(FsFile& input, uint8_t* output, size_t outputSize, int width, int height,
+                                   const uint8_t* colorTable, int colorTableSize, uint8_t minCodeSize,
+                                   std::function<bool()> shouldAbort) {
   // Validate input parameters
-  if (!compressedData || !output || !colorTable) {
+  if (!output || !colorTable) {
     LOG_ERR("TinyGIF", "LZW ERROR: NULL pointer");
     return false;
   }
-  if (compressedSize == 0 || outputSize == 0) {
-    LOG_ERR("TinyGIF", "LZW ERROR: Invalid size");
-    return false;
-  }
-  if (width <= 0 || height <= 0 || (size_t)width * height != outputSize) {
+  if (outputSize == 0 || width <= 0 || height <= 0 || (size_t)width * height != outputSize) {
     LOG_ERR("TinyGIF", "LZW ERROR: Dimension mismatch");
     return false;
   }
@@ -369,106 +424,61 @@ bool TinyGifDecoder::decompressLZW(const uint8_t* compressedData, size_t compres
     return false;
   }
 
-  const uint8_t* data = compressedData;
-  size_t size = compressedSize;
+  GifStream stream(input);
   uint8_t* outPtr = output;
   size_t outRemaining = outputSize;
 
-  // Initialize LZW parameters
-  int codeSize = minCodeSize + 1;
   const int MAX_CODE = 4096;
   const int CLEAR_CODE = 1 << minCodeSize;
   const int END_CODE = CLEAR_CODE + 1;
-
   if (CLEAR_CODE >= MAX_CODE || END_CODE >= MAX_CODE) {
     LOG_ERR("TinyGIF", "LZW ERROR: Invalid code range");
     return false;
   }
 
-  // Allocate code table (dynamic size based on image dimensions)
-  size_t calculatedSize = outputSize * 16;
-  if (calculatedSize > 64 * 1024) calculatedSize = 64 * 1024;
-  if (calculatedSize < 8 * 1024) calculatedSize = 8 * 1024;
-  const int MAX_CODE_TABLE_SIZE = calculatedSize;
-
-  uint8_t* codeTableBuffer = (uint8_t*)malloc(MAX_CODE_TABLE_SIZE);
-  if (!codeTableBuffer) {
-    LOG_ERR("TinyGIF", "LZW ERROR: Failed to allocate code table buffer");
-    return false;
-  }
-
   struct CodeEntry {
-    uint16_t offset;
-    uint16_t length;
-    bool used;
+    int16_t prefix;
+    uint8_t suffix;
   };
 
   CodeEntry* codeTable = (CodeEntry*)malloc(MAX_CODE * sizeof(CodeEntry));
   if (!codeTable) {
     LOG_ERR("TinyGIF", "LZW ERROR: Failed to allocate code table");
-    free(codeTableBuffer);
     return false;
   }
-  memset(codeTable, 0, MAX_CODE * sizeof(CodeEntry));
 
-  uint16_t bufferUsed = 0;
-
-  // Initialize code table with single bytes
-  int nextCode = END_CODE + 1;
   for (int i = 0; i < CLEAR_CODE; i++) {
-    if (bufferUsed + 1 > MAX_CODE_TABLE_SIZE) {
-      LOG_ERR("TinyGIF", "LZW: Code table buffer overflow");
-      free(codeTable);
-      free(codeTableBuffer);
-      return false;
-    }
-    codeTable[i].offset = bufferUsed;
-    codeTable[i].length = 1;
-    codeTable[i].used = true;
-    codeTableBuffer[bufferUsed++] = (uint8_t)i;
+    codeTable[i].prefix = -1;
+    codeTable[i].suffix = (uint8_t)i;
   }
 
-  // Bit reading state
+  int codeSize = minCodeSize + 1;
+  int nextCode = END_CODE + 1;
   uint32_t bitBuffer = 0;
   int bitsInBuffer = 0;
-  uint8_t currentBlockSize = 0;
-  int bytesRemainingInBlock = 0;
+  uint8_t decodeStack[4096];
+  uint8_t* outPtr = output;
+  size_t outRemaining = outputSize;
 
-  // Function to read bits from the GIF sub-block stream
   auto readBits = [&](int numBits) -> int {
-    // Validate requested bits
-    if (numBits < 0 || numBits > 12) return -1;
-
-    // Fill bit buffer as needed (limit to 24 bits before adding 8 more = 32 max)
+    if (numBits < 1 || numBits > 12) {
+      return -1;
+    }
     while (bitsInBuffer < numBits) {
-      // Safety check to prevent overflow
-      if (bitsInBuffer >= 24) {
-        LOG_ERR("TinyGIF", "LZW: Bit buffer overflow prevention (have %d, need %d)", bitsInBuffer, numBits);
+      if (shouldAbort && shouldAbort()) {
         return -1;
       }
-
-      // Check if we need to start a new block
-      if (bytesRemainingInBlock == 0) {
-        if (size == 0) return -1;
-        currentBlockSize = *data++;
-        size--;
-        if (currentBlockSize == 0) return -1;  // End of data
-        if (size < currentBlockSize) return -1;
-        bytesRemainingInBlock = currentBlockSize;
+      uint8_t value;
+      if (!stream.readCompressedByte(value)) {
+        return -1;
       }
-
-      // Read one byte from current block
-      bitBuffer |= ((uint32_t)*data++) << bitsInBuffer;
+      bitBuffer |= ((uint32_t)value) << bitsInBuffer;
       bitsInBuffer += 8;
-      bytesRemainingInBlock--;
-      size--;
     }
-
-    // Extract the requested bits
-    int result = bitBuffer & ((1 << numBits) - 1);
+    int code = bitBuffer & ((1 << numBits) - 1);
     bitBuffer >>= numBits;
     bitsInBuffer -= numBits;
-    return result;
+    return code;
   };
 
   // Main decompression loop
@@ -476,116 +486,64 @@ bool TinyGifDecoder::decompressLZW(const uint8_t* compressedData, size_t compres
   bool firstCode = true;
 
   while (true) {
-    int code = readBits(codeSize);
-    if (code < 0) break;  // End of data
+    if (shouldAbort && shouldAbort()) {
+      break;
+    }
 
+    int code = readBits(codeSize);
+    if (code < 0) break;
     if (code == END_CODE) break;
 
     if (code == CLEAR_CODE) {
-      // Reset code table
-      for (int i = END_CODE + 1; i < nextCode; i++) {
-        codeTable[i].used = false;
-      }
-      nextCode = END_CODE + 1;
       codeSize = minCodeSize + 1;
+      nextCode = END_CODE + 1;
       prevCode = -1;
       firstCode = true;
-      bufferUsed = CLEAR_CODE;
+      bitBuffer = 0;
+      bitsInBuffer = 0;
       continue;
     }
 
-    // Get current string data
-    uint16_t currentOffset;
-    uint16_t currentLength;
-
-    if (code < 0 || code >= MAX_CODE) {
-      LOG_ERR("TinyGIF", "LZW ERROR: Code %d out of bounds", code);
-      free(codeTable);
-      free(codeTableBuffer);
-      return false;
-    }
-
-    if (code < nextCode && codeTable[code].used) {
-      currentOffset = codeTable[code].offset;
-      currentLength = codeTable[code].length;
-    } else if (code == nextCode && prevCode >= 0 && prevCode < MAX_CODE && codeTable[prevCode].used) {
-      // Special case: KwKwK pattern
-      currentOffset = codeTable[prevCode].offset;
-      currentLength = codeTable[prevCode].length + 1;
-
-      if (currentOffset >= bufferUsed || currentOffset + currentLength - 1 >= MAX_CODE_TABLE_SIZE) {
-        LOG_ERR("TinyGIF", "LZW ERROR: Buffer overflow");
+    int stackSize = 0;
+    if (code < nextCode) {
+      int cursor = code;
+      while (cursor >= 0 && stackSize < (int)sizeof(decodeStack)) {
+        decodeStack[stackSize++] = codeTable[cursor].suffix;
+        cursor = codeTable[cursor].prefix;
+      }
+    } else if (code == nextCode && prevCode >= 0) {
+      int cursor = prevCode;
+      while (cursor >= 0 && stackSize < (int)sizeof(decodeStack)) {
+        decodeStack[stackSize++] = codeTable[cursor].suffix;
+        cursor = codeTable[cursor].prefix;
+      }
+      if (stackSize >= (int)sizeof(decodeStack)) {
+        LOG_ERR("TinyGIF", "LZW ERROR: Stack overflow");
         free(codeTable);
-        free(codeTableBuffer);
         return false;
       }
+      decodeStack[stackSize++] = decodeStack[stackSize - 1];
     } else {
       LOG_ERR("TinyGIF", "LZW ERROR: Invalid code %d", code);
       free(codeTable);
-      free(codeTableBuffer);
       return false;
     }
 
-    if (currentOffset >= bufferUsed) {
-      LOG_ERR("TinyGIF", "LZW ERROR: Invalid offset");
+    if (outRemaining < (size_t)stackSize) {
+      LOG_ERR("TinyGIF", "LZW ERROR: Output overflow");
       free(codeTable);
-      free(codeTableBuffer);
       return false;
     }
 
-    // Output the decoded string
-    if (outRemaining < currentLength) {
-      LOG_ERR("TinyGIF", "LZW ERROR: Output buffer overflow");
-      free(codeTable);
-      free(codeTableBuffer);
-      return false;
+    for (int i = stackSize - 1; i >= 0; i--) {
+      *outPtr++ = decodeStack[i];
     }
+    outRemaining -= stackSize;
 
-    if (code == nextCode && prevCode >= 0) {
-      // Special case: KwKwK pattern
-      if (currentOffset + currentLength - 1 > bufferUsed || codeTable[prevCode].offset >= bufferUsed) {
-        LOG_ERR("TinyGIF", "LZW ERROR: Invalid special case offset");
-        free(codeTable);
-        free(codeTableBuffer);
-        return false;
-      }
-      memcpy(outPtr, codeTableBuffer + currentOffset, currentLength - 1);
-      outPtr[currentLength - 1] = codeTableBuffer[codeTable[prevCode].offset];
-    } else {
-      // Normal case
-      if (currentOffset + currentLength > bufferUsed) {
-        LOG_ERR("TinyGIF", "LZW ERROR: Source buffer overflow");
-        free(codeTable);
-        free(codeTableBuffer);
-        return false;
-      }
-      memcpy(outPtr, codeTableBuffer + currentOffset, currentLength);
-    }
-    outPtr += currentLength;
-    outRemaining -= currentLength;
-
-    // Add new code to table
-    if (!firstCode && prevCode >= 0 && prevCode < MAX_CODE && nextCode < MAX_CODE) {
-      if (!codeTable[prevCode].used || codeTable[prevCode].offset + codeTable[prevCode].length > bufferUsed ||
-          bufferUsed + codeTable[prevCode].length + 1 > MAX_CODE_TABLE_SIZE || currentOffset >= bufferUsed) {
-        LOG_ERR("TinyGIF", "LZW ERROR: Cannot add new table entry");
-        free(codeTable);
-        free(codeTableBuffer);
-        return false;
-      }
-
-      uint16_t prevLength = codeTable[prevCode].length;
-      uint16_t prevOffset = codeTable[prevCode].offset;
-
-      memcpy(codeTableBuffer + bufferUsed, codeTableBuffer + prevOffset, prevLength);
-      codeTableBuffer[bufferUsed + prevLength] = codeTableBuffer[currentOffset];
-
-      codeTable[nextCode].offset = bufferUsed;
-      codeTable[nextCode].length = prevLength + 1;
-      codeTable[nextCode].used = true;
-      bufferUsed += prevLength + 1;
+    if (!firstCode && prevCode >= 0 && nextCode < MAX_CODE) {
+      codeTable[nextCode].prefix = prevCode;
+      codeTable[nextCode].suffix = decodeStack[stackSize - 1];
       nextCode++;
-
       if (nextCode == (1 << codeSize) && codeSize < 12) {
         codeSize++;
       }
@@ -595,8 +553,7 @@ bool TinyGifDecoder::decompressLZW(const uint8_t* compressedData, size_t compres
     firstCode = false;
   }
 
-  bool success = outPtr > output;
+  bool success = outRemaining == 0;
   free(codeTable);
-  free(codeTableBuffer);
   return success;
 }

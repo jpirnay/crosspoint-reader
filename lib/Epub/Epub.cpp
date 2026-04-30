@@ -1,6 +1,7 @@
 #include "Epub.h"
 
 #include <FsHelpers.h>
+#include <GifToBmpConverter.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <JpegToBmpConverter.h>
@@ -155,7 +156,7 @@ bool Epub::parseTocNcxFile() const {
   LOG_DBG("EBP", "Parsing toc ncx file: %s", tocNcxItem.c_str());
 
   const auto tmpNcxPath = getCachePath() + "/toc.ncx";
-  FsFile tempNcxFile;
+  HalFile tempNcxFile;
   if (!Storage.openFileForWrite("EBP", tmpNcxPath, tempNcxFile)) {
     return false;
   }
@@ -212,7 +213,7 @@ bool Epub::parseTocNavFile() const {
   LOG_DBG("EBP", "Parsing toc nav file: %s", tocNavItem.c_str());
 
   const auto tmpNavPath = getCachePath() + "/toc.nav";
-  FsFile tempNavFile;
+  HalFile tempNavFile;
   if (!Storage.openFileForWrite("EBP", tmpNavPath, tempNavFile)) {
     return false;
   }
@@ -302,7 +303,7 @@ void Epub::parseCssFiles() const {
 
     // Extract CSS file to temp location
     const auto tmpCssPath = getCachePath() + "/.tmp.css";
-    FsFile tempCssFile;
+    HalFile tempCssFile;
     if (!Storage.openFileForWrite("EBP", tmpCssPath, tempCssFile)) {
       LOG_ERR("EBP", "Could not create temp CSS file");
       continue;
@@ -572,7 +573,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
     LOG_DBG("EBP", "Generating BMP from JPG cover image (%s mode)", cropped ? "cropped" : "fit");
     const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
 
-    FsFile coverJpg;
+    HalFile coverJpg;
     if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
       return false;
     }
@@ -583,7 +584,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
       return false;
     }
 
-    FsFile coverBmp;
+    HalFile coverBmp;
     if (!Storage.openFileForWrite("EBP", getCoverBmpPath(cropped), coverBmp)) {
       coverJpg.close();
       return false;
@@ -605,7 +606,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
     LOG_DBG("EBP", "Generating BMP from PNG cover image (%s mode)", cropped ? "cropped" : "fit");
     const auto coverPngTempPath = getCachePath() + "/.cover.png";
 
-    FsFile coverPng;
+    HalFile coverPng;
     if (!Storage.openFileForWrite("EBP", coverPngTempPath, coverPng)) {
       return false;
     }
@@ -616,7 +617,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
       return false;
     }
 
-    FsFile coverBmp;
+    HalFile coverBmp;
     if (!Storage.openFileForWrite("EBP", getCoverBmpPath(cropped), coverBmp)) {
       coverPng.close();
       return false;
@@ -631,6 +632,40 @@ bool Epub::generateCoverBmp(bool cropped) const {
       Storage.remove(getCoverBmpPath(cropped).c_str());
     }
     LOG_DBG("EBP", "Generated BMP from PNG cover image, success: %s", success ? "yes" : "no");
+    return success;
+  }
+
+  if (FsHelpers::hasGifExtension(coverImageHref)) {
+    LOG_DBG("EBP", "Generating BMP from GIF cover image (%s mode)", cropped ? "cropped" : "fit");
+    const auto coverGifTempPath = getCachePath() + "/.cover.gif";
+
+    HalFile coverGif;
+    if (!Storage.openFileForWrite("EBP", coverGifTempPath, coverGif)) {
+      return false;
+    }
+    readItemContentsToStream(coverImageHref, coverGif, 1024);
+    coverGif.close();
+
+    if (!Storage.openFileForRead("EBP", coverGifTempPath, coverGif)) {
+      return false;
+    }
+
+    HalFile coverBmp;
+    if (!Storage.openFileForWrite("EBP", getCoverBmpPath(cropped), coverBmp)) {
+      coverGif.close();
+      return false;
+    }
+    const bool success =
+        GifToBmpConverter::gifFileToBmpStream(coverGif, coverBmp, cropped ? 480 : 480, cropped ? 800 : 800);
+    coverGif.close();
+    coverBmp.close();
+    Storage.remove(coverGifTempPath.c_str());
+
+    if (!success) {
+      LOG_ERR("EBP", "Failed to generate BMP from GIF cover image");
+      Storage.remove(getCoverBmpPath(cropped).c_str());
+    }
+    LOG_DBG("EBP", "Generated BMP from GIF cover image, success: %s", success ? "yes" : "no");
     return success;
   }
 
@@ -659,7 +694,7 @@ bool Epub::generateThumbBmp(int height) const {
     LOG_DBG("EBP", "Generating thumb BMP from JPG cover image");
     const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
 
-    FsFile coverJpg;
+    HalFile coverJpg;
     if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
       return false;
     }
@@ -670,7 +705,7 @@ bool Epub::generateThumbBmp(int height) const {
       return false;
     }
 
-    FsFile thumbBmp;
+    HalFile thumbBmp;
     if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
       coverJpg.close();
       return false;
@@ -695,7 +730,7 @@ bool Epub::generateThumbBmp(int height) const {
     LOG_DBG("EBP", "Generating thumb BMP from PNG cover image");
     const auto coverPngTempPath = getCachePath() + "/.cover.png";
 
-    FsFile coverPng;
+    HalFile coverPng;
     if (!Storage.openFileForWrite("EBP", coverPngTempPath, coverPng)) {
       return false;
     }
@@ -706,7 +741,7 @@ bool Epub::generateThumbBmp(int height) const {
       return false;
     }
 
-    FsFile thumbBmp;
+    HalFile thumbBmp;
     if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
       coverPng.close();
       return false;
@@ -730,7 +765,7 @@ bool Epub::generateThumbBmp(int height) const {
   }
 
   // Write an empty bmp file to avoid generation attempts in the future
-  FsFile thumbBmp;
+  HalFile thumbBmp;
   Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp);
   thumbBmp.close();
   return false;

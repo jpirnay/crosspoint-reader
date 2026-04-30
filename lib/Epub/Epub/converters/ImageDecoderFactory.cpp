@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "GifToFramebufferConverter.h"
 #include "JpegToFramebufferConverter.h"
 #include "PngToFramebufferConverter.h"
 
@@ -33,6 +34,12 @@ ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& im
       pngDecoder.reset(new PngToFramebufferConverter());
     }
     return pngDecoder.get();
+  } else if (GifToFramebufferConverter::supportsFormat(ext)) {
+    static std::unique_ptr<GifToFramebufferConverter> gifDecoder;
+    if (!gifDecoder) {
+      gifDecoder.reset(new GifToFramebufferConverter());
+    }
+    return gifDecoder.get();
   }
 
   LOG_ERR("DEC", "No decoder found for image: %s", imagePath.c_str());

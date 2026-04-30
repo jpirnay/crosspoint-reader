@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HalStorage.h>
 #include <Print.h>
 
 #include <memory>
