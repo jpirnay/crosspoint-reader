@@ -53,6 +53,33 @@ class TinyGifDecoder {
   static bool decodeGifToBmp(HalFile& input, Print& output, int maxWidth = 480, int maxHeight = 800,
                              std::function<bool()> shouldAbort = nullptr);
 
+  /**
+   * @brief Decode a GIF file to palette indices + RGB palette (no BMP wrapping)
+   *
+   * Decodes the first frame of a GIF file directly into caller-provided heap buffers.
+   * Used by the framebuffer renderer to apply dithering and write the cache without
+   * the temp-BMP indirection.
+   *
+   * @param input Open GIF file handle to read from
+   * @param maxWidth Maximum allowed image width
+   * @param maxHeight Maximum allowed image height
+   * @param[out] outIndices Palette indices for each pixel (caller frees with free()).
+   *                        Size = outWidth * outHeight bytes.
+   * @param[out] outPalette RGB palette, 3 bytes per entry (caller frees with free()).
+   *                        Size = outPaletteEntries * 3 bytes.
+   * @param[out] outPaletteEntries Number of palette entries (max 256)
+   * @param[out] outWidth Decoded image width
+   * @param[out] outHeight Decoded image height
+   * @param shouldAbort Optional callback to abort decoding
+   * @return true on success; on failure all out buffers are nullptr/0
+   *
+   * @note The palette is RGB (R, G, B) order, not BGR.
+   * @note Palette entries beyond colorTableSize should be treated as black.
+   */
+  static bool decodeGifToBuffer(HalFile& input, int maxWidth, int maxHeight, uint8_t** outIndices, uint8_t** outPalette,
+                                int* outPaletteEntries, int* outWidth, int* outHeight,
+                                std::function<bool()> shouldAbort = nullptr);
+
  private:
   // GIF file format structures
   struct GifHeader {

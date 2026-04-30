@@ -338,6 +338,190 @@ bool TinyGifDecoder::decodeGifToBmp(HalFile& file, Print& output, int maxWidth, 
   return true;
 }
 
+bool TinyGifDecoder::decodeGifToBuffer(HalFile& file, int maxWidth, int maxHeight, uint8_t** outIndices,
+                                       uint8_t** outPalette, int* outPaletteEntries, int* outWidth, int* outHeight,
+                                       std::function<bool()> shouldAbort) {
+  if (outIndices) *outIndices = nullptr;
+  if (outPalette) *outPalette = nullptr;
+  if (outPaletteEntries) *outPaletteEntries = 0;
+  if (outWidth) *outWidth = 0;
+  if (outHeight) *outHeight = 0;
+
+  if (!outIndices || !outPalette || !outPaletteEntries || !outWidth || !outHeight) {
+    LOG_ERR("TinyGIF", "decodeGifToBuffer: NULL output pointer");
+    return false;
+  }
+
+  if (!file.isOpen()) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid GIF file handle");
+    return false;
+  }
+
+  if (!file.seek(0)) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to seek GIF file");
+    return false;
+  }
+
+  auto readBytes = [&](uint8_t* buffer, size_t length) -> bool {
+    if (length == 0) return true;
+    int bytesRead = file.read(buffer, length);
+    return bytesRead == (int)length;
+  };
+
+  uint8_t header[6];
+  if (!readBytes(header, sizeof(header))) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to read GIF header");
+    return false;
+  }
+  const uint8_t* dataPtr = header;
+  size_t sizeLeft = sizeof(header);
+  if (!parseHeader(dataPtr, sizeLeft)) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid GIF header");
+    return false;
+  }
+
+  uint8_t lsdBuffer[7];
+  if (!readBytes(lsdBuffer, sizeof(lsdBuffer))) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to read logical screen descriptor");
+    return false;
+  }
+  dataPtr = lsdBuffer;
+  sizeLeft = sizeof(lsdBuffer);
+  LogicalScreenDescriptor lsd;
+  if (!parseLogicalScreen(dataPtr, sizeLeft, lsd)) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid logical screen descriptor");
+    return false;
+  }
+
+  std::vector<uint8_t> globalColorTable;
+  if ((lsd.flags & 0x80) != 0) {
+    int tableSize = 1 << ((lsd.flags & 0x07) + 1);
+    size_t globalSize = (size_t)tableSize * 3;
+    globalColorTable.resize(globalSize);
+    if (!readBytes(globalColorTable.data(), globalSize)) {
+      LOG_ERR("TinyGIF", "ERROR: Failed to read global color table");
+      return false;
+    }
+  }
+
+  GifStream stream(file);
+
+  while (true) {
+    uint8_t marker;
+    if (!stream.readByte(marker)) {
+      LOG_ERR("TinyGIF", "ERROR: Failed to locate image descriptor");
+      return false;
+    }
+    if (marker == 0x2C) break;
+    if (marker == 0x3B) {
+      LOG_ERR("TinyGIF", "ERROR: GIF trailer reached before image");
+      return false;
+    }
+    if (marker == 0x21) {
+      uint8_t extensionLabel;
+      if (!stream.readByte(extensionLabel)) {
+        LOG_ERR("TinyGIF", "ERROR: Failed to read extension label");
+        return false;
+      }
+      if (!stream.skipSubBlocks()) {
+        LOG_ERR("TinyGIF", "ERROR: Failed to skip extension blocks");
+        return false;
+      }
+      continue;
+    }
+    LOG_ERR("TinyGIF", "ERROR: Unexpected GIF block 0x%02X", marker);
+    return false;
+  }
+
+  uint8_t imageDescriptor[9];
+  if (!stream.readBytes(imageDescriptor, sizeof(imageDescriptor))) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to read image descriptor");
+    return false;
+  }
+  dataPtr = imageDescriptor;
+  sizeLeft = sizeof(imageDescriptor);
+  ImageDescriptor imgDesc;
+  if (!parseImageDescriptor(dataPtr, sizeLeft, imgDesc)) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid image descriptor");
+    return false;
+  }
+
+  std::vector<uint8_t> localColorTable;
+  if ((imgDesc.flags & 0x80) != 0) {
+    int tableSize = 1 << ((imgDesc.flags & 0x07) + 1);
+    size_t localSize = (size_t)tableSize * 3;
+    localColorTable.resize(localSize);
+    if (!stream.readBytes(localColorTable.data(), localSize)) {
+      LOG_ERR("TinyGIF", "ERROR: Failed to read local color table");
+      return false;
+    }
+  }
+
+  const uint8_t* sourcePalette = nullptr;
+  int colorTableEntries = 256;
+  if (!localColorTable.empty()) {
+    sourcePalette = localColorTable.data();
+    colorTableEntries = localColorTable.size() / 3;
+  } else if (!globalColorTable.empty()) {
+    sourcePalette = globalColorTable.data();
+    colorTableEntries = globalColorTable.size() / 3;
+  } else {
+    sourcePalette = basicPalette;
+    colorTableEntries = 256;
+  }
+
+  uint8_t lzwMinCodeSize;
+  if (!stream.readByte(lzwMinCodeSize)) {
+    LOG_ERR("TinyGIF", "ERROR: Missing LZW minimum code size");
+    return false;
+  }
+
+  int width = imgDesc.width;
+  int height = imgDesc.height;
+  if (width <= 0 || height <= 0 || width > maxWidth || height > maxHeight) {
+    LOG_ERR("TinyGIF", "ERROR: Invalid GIF dimensions %dx%d", width, height);
+    return false;
+  }
+
+  const size_t maxImageBufferBytes = (size_t)maxWidth * (size_t)maxHeight;
+  size_t imageSize = (size_t)width * height;
+  if (imageSize == 0 || imageSize > maxImageBufferBytes) {
+    LOG_ERR("TinyGIF", "ERROR: GIF image buffer too large (%zu bytes)", imageSize);
+    return false;
+  }
+
+  uint8_t* indices = (uint8_t*)malloc(imageSize);
+  if (!indices) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to allocate index buffer (%zu bytes)", imageSize);
+    return false;
+  }
+
+  if (!decompressLZW(file, indices, imageSize, width, height, sourcePalette, colorTableEntries, lzwMinCodeSize,
+                     shouldAbort)) {
+    LOG_ERR("TinyGIF", "ERROR: LZW decompression failed");
+    free(indices);
+    return false;
+  }
+
+  // Copy palette into a caller-owned heap buffer so the (possibly stack/std::vector-backed)
+  // sourcePalette pointer goes out of scope cleanly.
+  const size_t paletteBytes = (size_t)colorTableEntries * 3;
+  uint8_t* palette = (uint8_t*)malloc(paletteBytes);
+  if (!palette) {
+    LOG_ERR("TinyGIF", "ERROR: Failed to allocate palette buffer (%zu bytes)", paletteBytes);
+    free(indices);
+    return false;
+  }
+  memcpy(palette, sourcePalette, paletteBytes);
+
+  *outIndices = indices;
+  *outPalette = palette;
+  *outPaletteEntries = colorTableEntries;
+  *outWidth = width;
+  *outHeight = height;
+  return true;
+}
+
 bool TinyGifDecoder::parseHeader(const uint8_t*& data, size_t& size) {
   if (size < 6) return false;
   if (memcmp(data, "GIF87a", 6) != 0 && memcmp(data, "GIF89a", 6) != 0) return false;
