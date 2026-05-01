@@ -36,6 +36,134 @@ inline uint32_t paragraphLutEntryOffset(uint32_t lutStart, uint16_t page) {
 }
 }  // namespace
 
+#include <algorithm>
+
+namespace {
+constexpr uint32_t FNV_PRIME = 0x01000193;         // 16777619
+constexpr uint32_t FNV_OFFSET_BASIS = 0x811C9DC5;  // 2166136261
+
+uint32_t fnv1a(const uint8_t* data, size_t length) {
+  uint32_t hash = FNV_OFFSET_BASIS;
+  for (size_t i = 0; i < length; ++i) {
+    hash ^= data[i];
+    hash *= FNV_PRIME;
+  }
+  return hash;
+}
+}  // namespace
+
+uint32_t Section::calculatePropertyHash(int fontId, float lineCompression, bool extraParagraphSpacing,
+                                        uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
+                                        bool hyphenationEnabled, bool embeddedStyle, bool bionicReadingEnabled,
+                                        uint8_t imageRendering) {
+  uint8_t buffer[64];
+  size_t offset = 0;
+
+  auto append = [&](const void* ptr, size_t size) {
+    memcpy(buffer + offset, ptr, size);
+    offset += size;
+  };
+
+  append(&fontId, sizeof(fontId));
+  append(&lineCompression, sizeof(lineCompression));
+  append(&extraParagraphSpacing, sizeof(extraParagraphSpacing));
+  append(&paragraphAlignment, sizeof(paragraphAlignment));
+  append(&viewportWidth, sizeof(viewportWidth));
+  append(&viewportHeight, sizeof(viewportHeight));
+  append(&hyphenationEnabled, sizeof(hyphenationEnabled));
+  append(&embeddedStyle, sizeof(embeddedStyle));
+  append(&bionicReadingEnabled, sizeof(bionicReadingEnabled));
+  append(&imageRendering, sizeof(imageRendering));
+
+  return fnv1a(buffer, offset);
+}
+
+std::string Section::getSectionFilePath(uint32_t propertyHash) const {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%d_%08x", spineIndex, propertyHash);
+  return epub->getCachePath() + "/sections/" + buf + ".bin";
+}
+
+std::string Section::getImageBasePath(uint32_t propertyHash) const {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "img_%d_%08x_", spineIndex, propertyHash);
+  return epub->getCachePath() + "/" + buf;
+}
+
+struct SectionVariant {
+  std::string filename;
+  uint16_t date;
+  uint16_t time;
+};
+
+void Section::evictOldVariants() const {
+  // We keep up to 3 most recently accessed/modified variants to prevent SD card bloat
+  constexpr size_t MAX_VARIANTS = 3;
+
+  std::string sectionsDir = epub->getCachePath() + "/sections";
+  auto files = Storage.listFiles(sectionsDir.c_str(), 100);
+
+  std::vector<SectionVariant> variants;
+
+  // Find all cache variants belonging to this spineIndex
+  char prefix[16];
+  snprintf(prefix, sizeof(prefix), "%d_", spineIndex);
+  size_t prefixLen = strlen(prefix);
+
+  for (const auto& file : files) {
+    if (file.startsWith(prefix) && file.endsWith(".bin")) {
+      HalFile hf = Storage.open((sectionsDir + "/" + file.c_str()).c_str(), O_RDONLY);
+      if (hf) {
+        uint16_t md, mt;
+        if (hf.getModifyDateTime(&md, &mt)) {
+          variants.push_back({file.c_str(), md, mt});
+        } else {
+          // If we can't get modified time, assume it's very old to evict it
+          variants.push_back({file.c_str(), 0, 0});
+        }
+      }
+    }
+  }
+
+  if (variants.size() <= MAX_VARIANTS) return;
+
+  // Sort descending by modified date and time
+  std::sort(variants.begin(), variants.end(), [](const SectionVariant& a, const SectionVariant& b) {
+    if (a.date != b.date) return a.date > b.date;
+    return a.time > b.time;
+  });
+
+  // Delete everything after MAX_VARIANTS limit
+  for (size_t i = MAX_VARIANTS; i < variants.size(); ++i) {
+    std::string targetPath = sectionsDir + "/" + variants[i].filename;
+    Storage.remove(targetPath.c_str());
+    LOG_DBG("SCT", "Evicted old section cache: %s", targetPath.c_str());
+
+    // Extract the hash to also clean up associated images
+    // Filename format: spineIndex_hash.bin
+    size_t underscore = variants[i].filename.find('_');
+    size_t dot = variants[i].filename.find('.');
+    if (underscore != std::string::npos && dot != std::string::npos && dot > underscore) {
+      std::string hashStr = variants[i].filename.substr(underscore + 1, dot - underscore - 1);
+      uint32_t parsedHash = strtoul(hashStr.c_str(), nullptr, 16);
+      if (parsedHash != 0 || hashStr == "00000000") {
+        std::string imgBasePath = getImageBasePath(parsedHash);
+        // Find and delete matching images
+        auto rootFiles = Storage.listFiles(epub->getCachePath().c_str(), 100);
+        size_t lastSlash = imgBasePath.find_last_of('/');
+        std::string imgPrefix = (lastSlash != std::string::npos) ? imgBasePath.substr(lastSlash + 1) : imgBasePath;
+
+        for (const auto& rf : rootFiles) {
+          if (rf.startsWith(imgPrefix.c_str())) {
+            Storage.remove((epub->getCachePath() + "/" + rf.c_str()).c_str());
+            LOG_DBG("SCT", "Evicted old image cache: %s", rf.c_str());
+          }
+        }
+      }
+    }
+  }
+}
+
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
@@ -89,6 +217,11 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
                               const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                               const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                               const bool bionicReadingEnabled, const uint8_t imageRendering) {
+  uint32_t propertyHash =
+      calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+                            viewportHeight, hyphenationEnabled, embeddedStyle, bionicReadingEnabled, imageRendering);
+  filePath = getSectionFilePath(propertyHash);
+
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -195,6 +328,11 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                                 const bool bionicReadingEnabled, const uint8_t imageRendering,
                                 const std::function<void(int)>& progressFn) {
+  uint32_t propertyHash =
+      calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+                            viewportHeight, hyphenationEnabled, embeddedStyle, bionicReadingEnabled, imageRendering);
+  filePath = getSectionFilePath(propertyHash);
+
   const uint32_t phaseTotalStart = millis();
   const auto localPath = epub->getSpineItem(spineIndex).href;
 
@@ -222,7 +360,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // Derive the content base directory and image cache path prefix for the parser
   size_t lastSlash = localPath.find_last_of('/');
   std::string contentBase = (lastSlash != std::string::npos) ? localPath.substr(0, lastSlash + 1) : "";
-  std::string imageBasePath = epub->getCachePath() + "/img_" + std::to_string(spineIndex) + "_";
+  std::string imageBasePath = getImageBasePath(propertyHash);
+
+  // Evict old variants for this spine to keep cache size controlled
+  evictOldVariants();
 
   CssParser* cssParser = nullptr;
   if (embeddedStyle) {
