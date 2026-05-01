@@ -398,7 +398,7 @@ void OpdsBookBrowserActivity::chooseBookFormat(const OpdsEntry& book) {
 
   selectedBookIndex = selectorIndex;
   formatSelectorIndex = 0;
-  formatSelectionLabels = buildOpdsFormatSelectionLabels(book.acquisitionLinks, SETTINGS.opdsServerUrl);
+  formatSelectionLabels = buildOpdsFormatSelectionLabels(book.acquisitionLinks, server.url);
   state = BrowserState::FORMAT_SELECTION;
   requestUpdate();
 }
@@ -411,9 +411,8 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const OpdsAcqu
   downloadTotal = 0;
   requestUpdate(true);
 
-  std::string downloadUrl = (acquisition.href.rfind("http", 0) == 0)
-                                ? acquisition.href
-                                : UrlUtils::buildUrl(SETTINGS.opdsServerUrl, acquisition.href);
+  std::string downloadUrl =
+      (acquisition.href.rfind("http", 0) == 0) ? acquisition.href : UrlUtils::buildUrl(server.url, acquisition.href);
   std::string filename = "/" +
                          StringUtils::sanitizeFilename((book.author.empty() ? "" : book.author + " - ") + book.title) +
                          acquisition.fileExtension;
