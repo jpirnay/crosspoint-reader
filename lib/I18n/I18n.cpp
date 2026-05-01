@@ -27,7 +27,12 @@ const char* I18n::get(StrId id) const {
 
   // Use generated helper function - no hardcoded switch needed!
   const LangStrings lang = getLanguageStrings(_language);
-  return lang.data + lang.offsets[index];
+  const char* result = lang.data + lang.offsets[index];
+  if (_language != Language::EN && result[0] == '\0') {
+    const LangStrings english = getLanguageStrings(Language::EN);
+    return english.data + english.offsets[index];
+  }
+  return result;
 }
 
 void I18n::setLanguage(Language lang) {
@@ -64,17 +69,16 @@ void I18n::saveSettings() {
   }
 
   serialization::writePod(file, SETTINGS_VERSION);
+  serialization::writeString(file, getLanguageCode(_language));
 
-  const char* code = getLanguageCode(_language);
-  serialization::writeString(file, code);
-
-  LOG_DBG("I18N", "Settings saved: code=%s", code);
+  file.close();
+  LOG_INF("I18N", "Settings saved: language=%d code=%s", static_cast<int>(_language), getLanguageCode(_language));
 }
 
 void I18n::loadSettings() {
   FsFile file;
   if (!Storage.openFileForRead("I18N", SETTINGS_FILE, file)) {
-    LOG_DBG("I18N", "No settings file, using default");
+    LOG_INF("I18N", "No settings file, using default (English)");
     return;
   }
 
@@ -84,28 +88,44 @@ void I18n::loadSettings() {
   if (version == SETTINGS_VERSION) {
     std::string code;
     serialization::readString(file, code);
+    bool found = false;
 
     for (uint8_t i = 0; i < getLanguageCount(); i++) {
       if (code == LANGUAGE_CODES[i]) {
         _language = static_cast<Language>(i);
-        LOG_DBG("I18N", "Loaded language: %s", code.c_str());
-        return;
+        found = true;
+        break;
       }
     }
 
-    LOG_ERR("I18N", "Unknown language code: %s", code.c_str());
+    if (found) {
+      LOG_INF("I18N", "Loaded language code: %s (%d)", code.c_str(), static_cast<int>(_language));
+    } else {
+      LOG_ERR("I18N", "Unknown language code in settings: %s", code.c_str());
+    }
+    file.close();
     return;
   }
 
+  // Legacy migration path: version 1 stored language enum index directly.
   if (version == 1) {
     uint8_t lang;
     serialization::readPod(file, lang);
     if (lang < static_cast<size_t>(Language::_COUNT)) {
       _language = static_cast<Language>(lang);
+      LOG_INF("I18N", "Migrating v1 language index: %d -> %s", static_cast<int>(_language), getLanguageCode(_language));
+      file.close();
       saveSettings();
-      LOG_INF("I18N", "Migrated v1 language setting");
+      return;
     }
+    file.close();
+    LOG_ERR("I18N", "Invalid v1 language index: %d", static_cast<int>(lang));
+    return;
   }
+
+  LOG_ERR("I18N", "Settings version mismatch: %d\n", static_cast<int>(version));
+
+  file.close();
 }
 
 // Generate character set for a specific language
