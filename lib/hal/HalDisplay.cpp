@@ -50,20 +50,30 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
   }
 }
 
-void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
+void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, uint8_t fadingFix) {
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
 
+  bool turnOffScreen = (fadingFix > FADING_FIX_OFF);
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
+
+  if (fadingFix == FADING_FIX_SCREEN_OFF_REFRESH) {
+    einkDisplay.refreshDisplay(EInkDisplay::FAST_REFRESH, true);
+  }
 }
 
-void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
+void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, uint8_t fadingFix) {
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
 
+  bool turnOffScreen = (fadingFix > FADING_FIX_OFF);
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
+
+  if (fadingFix == FADING_FIX_SCREEN_OFF_REFRESH) {
+    einkDisplay.refreshDisplay(EInkDisplay::FAST_REFRESH, true);
+  }
 }
 
 void HalDisplay::deepSleep() { einkDisplay.deepSleep(); }
@@ -80,7 +90,14 @@ void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay
 
 void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) { einkDisplay.cleanupGrayscaleBuffers(bwBuffer); }
 
-void HalDisplay::displayGrayBuffer(bool turnOffScreen) { einkDisplay.displayGrayBuffer(turnOffScreen); }
+void HalDisplay::displayGrayBuffer(uint8_t fadingFix) {
+  bool turnOffScreen = (fadingFix > FADING_FIX_OFF);
+  einkDisplay.displayGrayBuffer(turnOffScreen);
+
+  if (fadingFix == FADING_FIX_SCREEN_OFF_REFRESH) {
+    einkDisplay.refreshDisplay(EInkDisplay::FAST_REFRESH, true);
+  }
+}
 
 uint16_t HalDisplay::getDisplayWidth() const { return einkDisplay.getDisplayWidth(); }
 

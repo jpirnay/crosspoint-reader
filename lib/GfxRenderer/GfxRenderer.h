@@ -37,7 +37,7 @@ class GfxRenderer {
   HalDisplay& display;
   std::atomic<int> renderMode;
   std::atomic<int> orientation;
-  std::atomic<bool> fadingFix;
+  std::atomic<uint8_t> fadingFix;
   // Text darkness for 2-bit grayscale glyph rendering.
   std::atomic<uint8_t> textDarkness;
   //   0 = Normal     — true 4-level AA (raw=1 → light gray, raw=2 → dark gray)
@@ -90,7 +90,7 @@ class GfxRenderer {
       : display(halDisplay),
         renderMode(static_cast<int>(BW)),
         orientation(static_cast<int>(Portrait)),
-        fadingFix(false),
+        fadingFix(0),
         textDarkness(1) {}
   ~GfxRenderer() { freeBwBufferChunks(); }
 
@@ -125,7 +125,7 @@ class GfxRenderer {
   Orientation getOrientation() const { return static_cast<Orientation>(orientation.load(std::memory_order_relaxed)); }
 
   // Fading fix control
-  void setFadingFix(const bool enabled) { fadingFix.store(enabled, std::memory_order_relaxed); }
+  void setFadingFix(const uint8_t mode) { fadingFix.store(mode, std::memory_order_relaxed); }
 
   // Screen ops
   int getScreenWidth() const;

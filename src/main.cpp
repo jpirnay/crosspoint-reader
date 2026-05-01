@@ -553,6 +553,10 @@ void loop() {
         case BA::BTN_KOREADER_SYNC:
           activityManager.dispatchButtonAction(BA::BTN_KOREADER_SYNC);
           break;
+        case BA::BTN_CYCLE_FADING_FIX:
+          SETTINGS.fadingFix = (SETTINGS.fadingFix + 1) % 3;
+          SETTINGS.saveToFile();
+          break;
         default:
           break;
       }
