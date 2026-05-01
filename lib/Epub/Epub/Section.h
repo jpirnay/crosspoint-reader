@@ -38,15 +38,26 @@ class Section {
   // Caller is responsible for closing `outFile`. Returns false on any I/O or validation error.
   bool readParagraphLutHeader(FsFile& outFile, uint16_t& outCount, uint32_t& outLutStart) const;
 
+  // Calculates a stable hash for a given set of rendering properties.
+  // Used to suffix cache files so multiple variants can coexist safely without constant recompilation.
+  static uint32_t calculatePropertyHash(int fontId, float lineCompression, bool extraParagraphSpacing,
+                                        uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
+                                        bool hyphenationEnabled, bool embeddedStyle, bool bionicReadingEnabled,
+                                        uint8_t imageRendering);
+
+  // Computes the active file path for this section based on rendering properties
+  std::string getSectionFilePath(uint32_t propertyHash) const;
+  // Computes the image base path for extract images related to this specific section variant
+  std::string getImageBasePath(uint32_t propertyHash) const;
+  // Garbage collection: Keep only the most recent N variants per chapter
+  void evictOldVariants() const;
+
  public:
   uint16_t pageCount = 0;
   int currentPage = 0;
 
   explicit Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRenderer& renderer)
-      : epub(epub),
-        spineIndex(spineIndex),
-        renderer(renderer),
-        filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
+      : epub(epub), spineIndex(spineIndex), renderer(renderer) {}
   ~Section() = default;
   bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                        uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle,
