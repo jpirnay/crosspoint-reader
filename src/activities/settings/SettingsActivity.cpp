@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "FontSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "SettingActionDispatch.h"
 #include "SettingsList.h"
@@ -96,6 +97,9 @@ void SettingsActivity::onEnter() {
 
   addToMoved(readerSettings, lastReaderSub,
              SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+  addToMoved(readerSettings, lastReaderSub,
+             std::move(SettingInfo::Action(StrId::STR_FONT_DOWNLOAD, SettingAction::DownloadFonts)
+                           .withSubcategory(StrId::STR_MENU_READER_FONT)));
 
   addToMoved(systemSettings, lastSystemSub, SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   addToMoved(systemSettings, lastSystemSub,
@@ -106,6 +110,9 @@ void SettingsActivity::onEnter() {
                            .withSubcategory(StrId::STR_MENU_SYS_NETWORK)));
   addToMoved(systemSettings, lastSystemSub,
              std::move(SettingInfo::Action(StrId::STR_OPDS_BROWSER, SettingAction::OPDSBrowser)
+                           .withSubcategory(StrId::STR_MENU_SYS_NETWORK)));
+  addToMoved(systemSettings, lastSystemSub,
+             std::move(SettingInfo::Action(StrId::STR_FONT_DOWNLOAD, SettingAction::DownloadFonts)
                            .withSubcategory(StrId::STR_MENU_SYS_NETWORK)));
   addToMoved(systemSettings, lastSystemSub,
              std::move(SettingInfo::Action(StrId::STR_CLOCK_SETTINGS, SettingAction::ClockSettings)
@@ -226,6 +233,15 @@ void SettingsActivity::toggleCurrentSetting() {
 
   const auto& setting = (*currentSettings)[selectedSetting];
   if (setting.isSeparator) return;
+
+  if (setting.type == SettingType::ENUM && setting.nameId == StrId::STR_FONT_FAMILY) {
+    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) {
+                             SETTINGS.saveToFile();
+                             needsHalfRefresh = true;
+                           });
+    return;
+  }
 
   if (setting.type == SettingType::ACTION) {
     auto resultHandler = [this](const ActivityResult& result) {

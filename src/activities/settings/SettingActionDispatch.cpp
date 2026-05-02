@@ -4,6 +4,7 @@
 #include "ClearCacheActivity.h"
 #include "ClockSettingsActivity.h"
 #include "DetectTimezoneActivity.h"
+#include "FontDownloadActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "OpdsServerListActivity.h"
@@ -21,6 +22,8 @@ std::unique_ptr<Activity> createActivityForAction(SettingAction action, GfxRende
       return std::make_unique<ButtonRemapActivity>(renderer, mappedInput);
     case SettingAction::CustomiseStatusBar:
       return std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput);
+    case SettingAction::DownloadFonts:
+      return std::make_unique<FontDownloadActivity>(renderer, mappedInput);
     case SettingAction::ClockSettings:
       return std::make_unique<ClockSettingsActivity>(renderer, mappedInput);
     case SettingAction::KOReaderSync:
