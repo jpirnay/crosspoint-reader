@@ -189,6 +189,20 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
   partWordBufferIndex = 0;
   nextWordContinues = false;
+
+  if (currentTextBlock->size() > 96) {
+    LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
+    const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
+    const uint16_t effectiveWidth =
+        (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+    currentTextBlock->layoutAndExtractLines(
+        renderer, fontId, effectiveWidth,
+        [this](const std::shared_ptr<TextBlock>& textBlock, const bool lineEndsWithHyphenatedWord,
+               const bool suppressHyphenationRetry) {
+          return addLineToPage(textBlock, lineEndsWithHyphenatedWord, suppressHyphenationRetry);
+        },
+        false);
+  }
 }
 
 // Emit the current page, keeping paragraphLutPerPage and completedPageCount in lockstep.
@@ -1205,26 +1219,6 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     }
 
     self->partWordBuffer[self->partWordBufferIndex++] = s[i];
-  }
-
-  // Flush when words approach the doubling boundary that would require a
-  // large contiguous realloc.  96 fires before capacity reaches 128
-  // (the next doubling after 64), keeping the realloc below 1.5KB and
-  // releasing excess capacity via shrink_to_fit in layoutAndExtractLines.
-  // The original 750-word threshold was too late for low-heap devices.
-  if (self->currentTextBlock->size() > 96) {
-    LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
-    const int horizontalInset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
-    const uint16_t effectiveWidth = (horizontalInset < self->viewportWidth)
-                                        ? static_cast<uint16_t>(self->viewportWidth - horizontalInset)
-                                        : self->viewportWidth;
-    self->currentTextBlock->layoutAndExtractLines(
-        self->renderer, self->fontId, effectiveWidth,
-        [self](const std::shared_ptr<TextBlock>& textBlock, const bool lineEndsWithHyphenatedWord,
-               const bool suppressHyphenationRetry) {
-          return self->addLineToPage(textBlock, lineEndsWithHyphenatedWord, suppressHyphenationRetry);
-        },
-        false);
   }
 }
 
