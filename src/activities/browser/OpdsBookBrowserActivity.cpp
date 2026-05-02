@@ -164,19 +164,22 @@ void OpdsBookBrowserActivity::loop() {
     }
 
     if (!entries.empty()) {
-      buttonNavigator.onNextRelease([this] {
+      // Navigator is restricted to Up/Down so a Left release used to launch
+      // search (line above) cannot also be consumed here as a previous-item
+      // step on the same tick.
+      buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
         selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entries.size());
         requestUpdate();
       });
-      buttonNavigator.onPreviousRelease([this] {
+      buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
         selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entries.size());
         requestUpdate();
       });
-      buttonNavigator.onNextContinuous([this] {
+      buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
         selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
         requestUpdate();
       });
-      buttonNavigator.onPreviousContinuous([this] {
+      buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this] {
         selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
         requestUpdate();
       });

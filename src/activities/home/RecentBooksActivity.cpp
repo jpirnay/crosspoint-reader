@@ -125,22 +125,26 @@ void RecentBooksActivity::loop() {
 
   int listSize = static_cast<int>(recentBooks.size());
 
-  buttonNavigator.onNextRelease([this, listSize] {
+  // Navigator is restricted to Up/Down so it cannot race the Left/Right Short
+  // handlers above: with a double-click action configured, Short events are
+  // deferred 300ms while wasReleased() is immediate, which would otherwise let
+  // the cursor move before the custom action runs on the wrong entry.
+  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this, listSize] {
     selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this, listSize] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this, listSize] {
     selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this, listSize, pageItems] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this, listSize, pageItems] {
     selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
     requestUpdate();
   });
