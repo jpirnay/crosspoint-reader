@@ -53,6 +53,10 @@ class ButtonEventManager {
   // This is used when the configured action is BTN_DEFAULT.
   void pushEventFront(Button button, PressType type);
 
+  // Returns true while a button's first release is waiting for the
+  // double-click decision window to expire (i.e. a Short is pending).
+  bool isShortPending(Button button) const;
+
   // Returns true if a double-click action is configured for this button.
   // ButtonEventManager queries CrossPointSettings internally.
   static bool hasDoubleAction(Button button);
@@ -83,4 +87,5 @@ class ButtonEventManager {
 
   void pushEvent(Button button, PressType type);
   void processButton(int idx, Button btn);
+  static int buttonToIndex(Button button);
 };

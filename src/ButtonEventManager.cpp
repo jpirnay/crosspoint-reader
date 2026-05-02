@@ -5,6 +5,15 @@
 // Required for constexpr array out-of-class definition (C++14).
 constexpr ButtonEventManager::Button ButtonEventManager::ALL_BUTTONS[ButtonEventManager::NUM_BUTTONS];
 
+int ButtonEventManager::buttonToIndex(const Button button) {
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    if (ALL_BUTTONS[i] == button) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 bool ButtonEventManager::hasDoubleAction(const Button button) {
   using BA = CrossPointSettings::BUTTON_ACTION;
   switch (button) {
@@ -38,6 +47,12 @@ void ButtonEventManager::pushEventFront(const Button button, const PressType typ
   if (prev == eventTail) return;  // buffer full
   eventHead = prev;
   eventBuf[eventHead] = {button, type};
+}
+
+bool ButtonEventManager::isShortPending(const Button button) const {
+  const int idx = buttonToIndex(button);
+  if (idx < 0) return false;
+  return buttons[idx].state == State::ReleasedOnce;
 }
 
 bool ButtonEventManager::consumeEvent(ButtonEvent& out) {

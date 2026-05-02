@@ -1,5 +1,7 @@
 #include "ButtonNavigator.h"
 
+#include "ButtonEventManager.h"
+
 const MappedInputManager* ButtonNavigator::mappedInput = nullptr;
 
 void ButtonNavigator::onNext(const Callback& callback) {
@@ -41,7 +43,13 @@ void ButtonNavigator::onPress(const Buttons& buttons, const Callback& callback) 
 
 void ButtonNavigator::onRelease(const Buttons& buttons, const Callback& callback) {
   const bool wasReleased = std::any_of(buttons.begin(), buttons.end(), [](const MappedInputManager::Button button) {
-    return mappedInput != nullptr && mappedInput->wasReleased(button);
+    if (mappedInput == nullptr || !mappedInput->wasReleased(button)) {
+      return false;
+    }
+
+    // If a button Short is still pending while we wait for a possible double,
+    // avoid firing release-based navigation first.
+    return !globalButtonEvents().isShortPending(button);
   });
 
   if (wasReleased) {

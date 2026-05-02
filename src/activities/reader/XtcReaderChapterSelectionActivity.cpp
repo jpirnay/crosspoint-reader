@@ -5,7 +5,6 @@
 
 #include <algorithm>
 
-#include "ButtonEventManager.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -87,19 +86,11 @@ void XtcReaderChapterSelectionActivity::loop() {
   }
 
   buttonNavigator.onNextRelease([this, totalItems] {
-    if (ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Right) ||
-        ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageForward)) {
-      return;
-    }
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
     requestUpdate();
   });
 
   buttonNavigator.onPreviousRelease([this, totalItems] {
-    if (ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Left) ||
-        ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageBack)) {
-      return;
-    }
     selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
     requestUpdate();
   });
