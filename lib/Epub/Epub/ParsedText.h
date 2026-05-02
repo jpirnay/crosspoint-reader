@@ -27,7 +27,7 @@ class ParsedText {
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
   bool bionicReadingEnabled;
-  bool isContinuation_ = false;        ///< true after an intermediate flush; suppresses re-applying paragraph indent
+  bool isContinuation_ = false;       ///< true after an intermediate flush; suppresses re-applying paragraph indent
   size_t bionicTransformedUpTo_ = 0;  ///< words[0..bionicTransformedUpTo_) have already been bionic-transformed
 
   void applyParagraphIndent();
@@ -39,8 +39,7 @@ class ParsedText {
                                                   std::vector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
                                                   std::vector<bool>& lineEndsWithHyphenatedWord,
                                                   std::vector<int>& splitPrefixWordIndexes,
-                                                  std::vector<bool>& splitInsertedHyphen,
-                                                  int firstLineIndent);
+                                                  std::vector<bool>& splitInsertedHyphen, int firstLineIndent);
   // Recompute hyphenated breaks for a suffix that starts at startIndex.
   // Used after a single-line retry so later lines keep normal hyphenation.
   std::vector<size_t> computeHyphenatedLineBreaksFromIndex(const GfxRenderer& renderer, int fontId, int pageWidth,

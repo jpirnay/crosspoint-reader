@@ -325,9 +325,8 @@ void ParsedText::layoutAndExtractLines(
 
       // Keep previous lines fixed; recompute only this specific line without hyphenation.
       // Suppression is intentionally line-local.
-      const size_t retryBreak =
-          computeSingleLineBreakNoHyphen(renderer, fontId, pageWidth, wordWidths, wordContinues, lineStart,
-                                         firstLineIndent);
+      const size_t retryBreak = computeSingleLineBreakNoHyphen(renderer, fontId, pageWidth, wordWidths, wordContinues,
+                                                               lineStart, firstLineIndent);
 
       lineBreakIndices.resize(i + 1);
       lineEndsWithHyphenatedWord.resize(i + 1);
@@ -529,8 +528,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
 size_t ParsedText::computeSingleLineBreakNoHyphen(const GfxRenderer& renderer, const int fontId, const int pageWidth,
                                                   const std::vector<uint16_t>& wordWidths,
-                                                  const std::vector<bool>& continuesVec,
-                                                  const size_t lineStartIndex, const int firstLineIndent) const {
+                                                  const std::vector<bool>& continuesVec, const size_t lineStartIndex,
+                                                  const int firstLineIndent) const {
   // One-line non-hyphenating breaker used by the page-boundary retry path.
   if (lineStartIndex >= wordWidths.size()) {
     return lineStartIndex;
@@ -681,14 +680,10 @@ void ParsedText::applyBionicReadingTransform() {
 }
 
 // Builds break indices while opportunistically splitting the word that would overflow the current line.
-std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const int fontId,
-                                                            const int pageWidth, std::vector<uint16_t>& wordWidths,
-                                                            std::vector<bool>& continuesVec,
-                                                            std::vector<bool>& lineEndsWithHyphenatedWord,
-                                                            std::vector<int>& splitPrefixWordIndexes,
-                                                            std::vector<bool>& splitInsertedHyphen,
-                                                            const int firstLineIndent) {
-
+std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(
+    const GfxRenderer& renderer, const int fontId, const int pageWidth, std::vector<uint16_t>& wordWidths,
+    std::vector<bool>& continuesVec, std::vector<bool>& lineEndsWithHyphenatedWord,
+    std::vector<int>& splitPrefixWordIndexes, std::vector<bool>& splitInsertedHyphen, const int firstLineIndent) {
   // Pre-compute inter-word gaps to avoid repeated codepoint scanning and renderer
   // calls in the inner loop. When hyphenateWordAtIndex inserts a new word, we insert
   // a placeholder gap (0) at that position to keep the vector in sync; the remainder
