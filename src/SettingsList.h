@@ -91,13 +91,12 @@ inline const std::vector<SettingInfo> list = {
     // side (SettingsActivity / CrossPointWebServer enrich enumLabels before
     // iterating). The built-in StrIds are kept as a fallback for code paths that
     // don't enrich enumLabels.
-    SettingInfo::DynamicEnum(StrId::STR_FONT_FAMILY,
-                             {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC},
+    SettingInfo::DynamicEnum(StrId::STR_FONT_FAMILY, {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS},
                              fontFamilyDynamicGetter, fontFamilyDynamicSetter, "fontFamily", StrId::STR_CAT_READER)
         .withSubcategory(StrId::STR_MENU_READER_FONT),
     SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                      {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, "fontSize",
-                      StrId::STR_CAT_READER)
+                      {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE, StrId::STR_TINY},
+                      "fontSize", StrId::STR_CAT_READER)
         .withSubmenu(StrId::STR_MENU_READER_FONT_SETTINGS),
     SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                         StrId::STR_CAT_READER)

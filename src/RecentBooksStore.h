@@ -15,6 +15,8 @@ struct RecentBook {
   int8_t imageRenderingOverride = -1;
   // -1 = use global setting, otherwise CrossPointSettings::FONT_FAMILY value.
   int8_t fontFamilyOverride = -1;
+  // Empty = use global setting, otherwise explicit SD-card family name override.
+  std::string sdFontFamilyOverride;
   // -1 = use global setting, otherwise CrossPointSettings::FONT_SIZE value.
   int8_t fontSizeOverride = -1;
   // -1 = use global default, otherwise explicit per-book override (0 = off, 1 = on).
@@ -67,9 +69,14 @@ class RecentBooksStore {
   bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
                           int8_t fontFamilyOverride, int8_t fontSizeOverride);
   bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
+                          int8_t fontFamilyOverride, const std::string& sdFontFamilyOverride, int8_t fontSizeOverride);
+  bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
                           bool bionicReadingOverride);
   bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
                           int8_t fontFamilyOverride, int8_t fontSizeOverride, bool bionicReadingOverride);
+  bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
+                          int8_t fontFamilyOverride, const std::string& sdFontFamilyOverride, int8_t fontSizeOverride,
+                          bool bionicReadingOverride);
 
  private:
   bool loadFromBinaryFile();

@@ -16,3 +16,8 @@ build
 /.venv
 *.local*
 *.cpfont
+!assets/*.cpfont
+!assets/**/*.cpfont
+lib/EpdFont/scripts/downloaded_fonts/*
+lib/EpdFont/scripts/instanced_fonts/*
+lib/EpdFont/scripts/output/*

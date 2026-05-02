@@ -60,7 +60,7 @@ uint8_t fontFamilyOptionCount() {
 
 std::string fontFamilyOptionLabel(uint8_t i) {
   if (i < CrossPointSettings::BUILTIN_FONT_COUNT) {
-    static const StrId BUILTIN_LABELS[] = {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC};
+    static const StrId BUILTIN_LABELS[] = {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS};
     return I18N.get(BUILTIN_LABELS[i]);
   }
   const auto& families = sdFontSystem.registry().getFamilies();
@@ -68,8 +68,8 @@ std::string fontFamilyOptionLabel(uint8_t i) {
   return sdIdx < families.size() ? families[sdIdx].name : std::string();
 }
 
-// Map fontSize enum (SMALL=0, MEDIUM=1, LARGE=2, EXTRA_LARGE=3) to point sizes.
-static constexpr uint8_t FONT_SIZE_TO_PT[] = {12, 14, 16, 18};
+// Map fontSize enum (SMALL=0, MEDIUM=1, LARGE=2, EXTRA_LARGE=3, TINY=4) to point sizes.
+static constexpr uint8_t FONT_SIZE_TO_PT[] = {12, 14, 16, 18, 10};
 
 static uint8_t targetPtSizeFromSettings() {
   uint8_t e = SETTINGS.fontSize;

@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "FontSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "SettingActionDispatch.h"
 #include "SettingsList.h"
@@ -61,6 +62,16 @@ void SettingsActivity::onEnter() {
     vec.push_back(std::move(s));
   };
 
+  bool sawReaderFontSection = false;
+  bool insertedFontDownload = false;
+
+  auto insertFontDownloadBelowFontSection = [&]() {
+    auto fontDownload = SettingInfo::Action(StrId::STR_FONT_DOWNLOAD, SettingAction::DownloadFonts);
+    fontDownload.withSubcategory(StrId::STR_MENU_READER_FONT);
+    addToMoved(readerSettings, lastReaderSub, std::move(fontDownload));
+    insertedFontDownload = true;
+  };
+
   for (const auto& setting : getSettingsList()) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
     if (setting.category == StrId::STR_CAT_SYSTEM &&
@@ -77,6 +88,14 @@ void SettingsActivity::onEnter() {
       enriched.enumLabels.reserve(n);
       for (uint8_t i = 0; i < n; i++) enriched.enumLabels.push_back(fontFamilyOptionLabel(i));
     }
+    const bool isReaderFontEntry =
+        enriched.category == StrId::STR_CAT_READER && (enriched.subcategory == StrId::STR_MENU_READER_FONT ||
+                                                       enriched.submenu == StrId::STR_MENU_READER_FONT_SETTINGS);
+
+    if (!insertedFontDownload && sawReaderFontSection && !isReaderFontEntry) {
+      insertFontDownloadBelowFontSection();
+    }
+
     if (enriched.category == StrId::STR_CAT_DISPLAY) {
       addTo(displaySettings, lastDisplaySub, enriched);
     } else if (enriched.category == StrId::STR_CAT_READER) {
@@ -86,7 +105,13 @@ void SettingsActivity::onEnter() {
     } else if (enriched.category == StrId::STR_CAT_SYSTEM) {
       addTo(systemSettings, lastSystemSub, enriched);
     }
+    if (isReaderFontEntry) sawReaderFontSection = true;
+
     // Web-only categories (KOReader Sync, OPDS Browser) are skipped for device UI
+  }
+
+  if (!insertedFontDownload && sawReaderFontSection) {
+    insertFontDownloadBelowFontSection();
   }
 
   // Device-only ACTION items — subcategory drives separator insertion automatically.
@@ -226,6 +251,15 @@ void SettingsActivity::toggleCurrentSetting() {
 
   const auto& setting = (*currentSettings)[selectedSetting];
   if (setting.isSeparator) return;
+
+  if (setting.type == SettingType::ENUM && setting.nameId == StrId::STR_FONT_FAMILY) {
+    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) {
+                             SETTINGS.saveToFile();
+                             needsHalfRefresh = true;
+                           });
+    return;
+  }
 
   if (setting.type == SettingType::ACTION) {
     auto resultHandler = [this](const ActivityResult& result) {

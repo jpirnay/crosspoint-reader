@@ -190,6 +190,7 @@ void EpubReaderActivity::onEnter() {
   bookEmbeddedStyleOverride = currentBook.embeddedStyleOverride;
   bookImageRenderingOverride = currentBook.imageRenderingOverride;
   bookFontFamilyOverride = currentBook.fontFamilyOverride;
+  bookSdFontFamilyOverride = currentBook.sdFontFamilyOverride;
   bookFontSizeOverride = currentBook.fontSizeOverride;
   bookBionicReadingOverride = (currentBook.bionicReadingOverride >= 0)
                                   ? static_cast<bool>(currentBook.bionicReadingOverride)
@@ -1036,24 +1037,37 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
 
 void EpubReaderActivity::applyBookReaderOverrides(const int8_t embeddedStyleOverride,
                                                   const int8_t imageRenderingOverride, const int8_t fontFamilyOverride,
+                                                  const std::string& sdFontFamilyOverride,
                                                   const int8_t fontSizeOverride, const bool bionicReadingOverride) {
   if (!epub) {
     return;
   }
 
+  // Built-in and SD font overrides are mutually exclusive; explicit built-in wins.
+  int8_t normalizedFontFamilyOverride = fontFamilyOverride;
+  std::string normalizedSdFontFamilyOverride = sdFontFamilyOverride;
+  if (normalizedFontFamilyOverride >= 0) {
+    normalizedSdFontFamilyOverride.clear();
+  } else if (!normalizedSdFontFamilyOverride.empty()) {
+    normalizedFontFamilyOverride = -1;
+  }
+
   if (bookEmbeddedStyleOverride == embeddedStyleOverride && bookImageRenderingOverride == imageRenderingOverride &&
-      bookFontFamilyOverride == fontFamilyOverride && bookFontSizeOverride == fontSizeOverride &&
+      bookFontFamilyOverride == normalizedFontFamilyOverride &&
+      bookSdFontFamilyOverride == normalizedSdFontFamilyOverride && bookFontSizeOverride == fontSizeOverride &&
       bookBionicReadingOverride == bionicReadingOverride) {
     return;
   }
 
   bookEmbeddedStyleOverride = embeddedStyleOverride;
   bookImageRenderingOverride = imageRenderingOverride;
-  bookFontFamilyOverride = fontFamilyOverride;
+  bookFontFamilyOverride = normalizedFontFamilyOverride;
+  bookSdFontFamilyOverride = normalizedSdFontFamilyOverride;
   bookFontSizeOverride = fontSizeOverride;
   bookBionicReadingOverride = bionicReadingOverride;
   RECENT_BOOKS.setReaderOverrides(epub->getPath(), bookEmbeddedStyleOverride, bookImageRenderingOverride,
-                                  bookFontFamilyOverride, bookFontSizeOverride, bookBionicReadingOverride);
+                                  bookFontFamilyOverride, bookSdFontFamilyOverride, bookFontSizeOverride,
+                                  bookBionicReadingOverride);
 
   RenderLock lock(*this);
   if (section) {
@@ -1081,23 +1095,9 @@ uint8_t EpubReaderActivity::getEffectiveImageRendering() const {
 float EpubReaderActivity::getEffectiveReaderLineCompression() const {
   const uint8_t fontSize = (bookFontSizeOverride >= 0) ? static_cast<uint8_t>(bookFontSizeOverride) : SETTINGS.fontSize;
   const int effectiveFontId = getEffectiveReaderFontId();
-  const int bookerlyId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::BOOKERLY, fontSize);
   const int notosansId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::NOTOSANS, fontSize);
-  const int opendyslexicId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::OPENDYSLEXIC, fontSize);
 
   if (effectiveFontId == notosansId) {
-    switch (SETTINGS.lineSpacing) {
-      case CrossPointSettings::TIGHT:
-        return 0.90f;
-      case CrossPointSettings::NORMAL:
-      default:
-        return 0.95f;
-      case CrossPointSettings::WIDE:
-        return 1.0f;
-    }
-  }
-
-  if (effectiveFontId == opendyslexicId) {
     switch (SETTINGS.lineSpacing) {
       case CrossPointSettings::TIGHT:
         return 0.90f;
@@ -1128,6 +1128,10 @@ int EpubReaderActivity::getEffectiveReaderFontId() const {
   const uint8_t fontSize = (bookFontSizeOverride >= 0) ? static_cast<uint8_t>(bookFontSizeOverride) : SETTINGS.fontSize;
   if (bookFontFamilyOverride >= 0) {
     return CrossPointSettings::getBuiltinReaderFontId(static_cast<uint8_t>(bookFontFamilyOverride), fontSize);
+  }
+  if (!bookSdFontFamilyOverride.empty()) {
+    const int id = resolveSdCardFontId(bookSdFontFamilyOverride.c_str(), fontSize);
+    if (id != 0) return id;
   }
   // No override: defer to global resolution (which honors SD card font selection).
   // We synthesize a temporary lookup using the override fontSize if it's set; otherwise
@@ -1747,59 +1751,31 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   // Load or rebuild the section cache. Rebuilding is needed when the cache is missing or stale
   // (e.g. after a firmware update). A no-op popup callback avoids any UI during sleep preparation.
   const RecentBook currentBook = RECENT_BOOKS.getBookByPath(filePath);
+  const bool hasLocalSdOverride = !currentBook.sdFontFamilyOverride.empty();
   const uint8_t effectiveFontFamily =
       currentBook.fontFamilyOverride >= 0 ? static_cast<uint8_t>(currentBook.fontFamilyOverride) : SETTINGS.fontFamily;
   const uint8_t effectiveFontSize =
       currentBook.fontSizeOverride >= 0 ? static_cast<uint8_t>(currentBook.fontSizeOverride) : SETTINGS.fontSize;
-  auto getEffectiveFontId = [&](uint8_t family, uint8_t size) {
-    switch (family) {
-      case CrossPointSettings::NOTOSANS:
-        switch (size) {
-          case CrossPointSettings::SMALL:
-            return NOTOSANS_12_FONT_ID;
-          case CrossPointSettings::LARGE:
-            return NOTOSANS_16_FONT_ID;
-          case CrossPointSettings::EXTRA_LARGE:
-            return NOTOSANS_18_FONT_ID;
-          case CrossPointSettings::MEDIUM:
-          default:
-            return NOTOSANS_14_FONT_ID;
-        }
-      case CrossPointSettings::OPENDYSLEXIC:
-        switch (size) {
-          case CrossPointSettings::SMALL:
-            return OPENDYSLEXIC_8_FONT_ID;
-          case CrossPointSettings::LARGE:
-            return OPENDYSLEXIC_12_FONT_ID;
-          case CrossPointSettings::EXTRA_LARGE:
-            return OPENDYSLEXIC_14_FONT_ID;
-          case CrossPointSettings::MEDIUM:
-          default:
-            return OPENDYSLEXIC_10_FONT_ID;
-        }
-      case CrossPointSettings::BOOKERLY:
-      default:
-        switch (size) {
-          case CrossPointSettings::SMALL:
-            return BOOKERLY_12_FONT_ID;
-          case CrossPointSettings::LARGE:
-            return BOOKERLY_16_FONT_ID;
-          case CrossPointSettings::EXTRA_LARGE:
-            return BOOKERLY_18_FONT_ID;
-          case CrossPointSettings::MEDIUM:
-          default:
-            return BOOKERLY_14_FONT_ID;
-        }
-    }
-  };
-
-  const int effectiveFontId = getEffectiveFontId(effectiveFontFamily, effectiveFontSize);
+  int effectiveFontId = 0;
+  if (hasLocalSdOverride) {
+    effectiveFontId = resolveSdCardFontId(currentBook.sdFontFamilyOverride.c_str(), effectiveFontSize);
+  }
+  if (effectiveFontId == 0 && currentBook.fontFamilyOverride >= 0) {
+    effectiveFontId = CrossPointSettings::getBuiltinReaderFontId(effectiveFontFamily, effectiveFontSize);
+  }
+  if (effectiveFontId == 0 && currentBook.fontSizeOverride >= 0 && SETTINGS.sdFontFamilyName[0] != '\0') {
+    effectiveFontId = resolveSdCardFontId(SETTINGS.sdFontFamilyName, effectiveFontSize);
+  }
+  if (effectiveFontId == 0 && currentBook.fontSizeOverride >= 0) {
+    effectiveFontId = CrossPointSettings::getBuiltinReaderFontId(SETTINGS.fontFamily, effectiveFontSize);
+  }
+  if (effectiveFontId == 0) {
+    effectiveFontId = SETTINGS.getReaderFontId();
+  }
   const auto getEffectiveLineCompression = [&](int fontId) {
     const int notosansId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::NOTOSANS, effectiveFontSize);
-    const int opendyslexicId =
-        CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::OPENDYSLEXIC, effectiveFontSize);
 
-    if (fontId == notosansId || fontId == opendyslexicId) {
+    if (fontId == notosansId) {
       switch (SETTINGS.lineSpacing) {
         case CrossPointSettings::TIGHT:
           return 0.90f;
@@ -1824,13 +1800,12 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
 
   const float effectiveLineCompression = getEffectiveLineCompression(effectiveFontId);
   auto section = std::make_unique<Section>(epub, spineIndex, renderer);
-  if (!section->loadSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize), effectiveLineCompression,
-                                SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                static_cast<bool>(SETTINGS.bionicReading), SETTINGS.imageRendering)) {
+  if (!section->loadSectionFile(effectiveFontId, effectiveLineCompression, SETTINGS.extraParagraphSpacing,
+                                SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
+                                SETTINGS.embeddedStyle, static_cast<bool>(SETTINGS.bionicReading),
+                                SETTINGS.imageRendering)) {
     LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding", spineIndex);
-    if (!section->createSectionFile(getEffectiveFontId(effectiveFontFamily, effectiveFontSize),
-                                    effectiveLineCompression, SETTINGS.extraParagraphSpacing,
+    if (!section->createSectionFile(effectiveFontId, effectiveLineCompression, SETTINGS.extraParagraphSpacing,
                                     SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
                                     SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                     static_cast<bool>(SETTINGS.bionicReading), SETTINGS.imageRendering)) {
@@ -1849,7 +1824,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
 
   renderer.clearScreen();
-  page->render(renderer, getEffectiveFontId(effectiveFontFamily, effectiveFontSize), marginLeft, marginTop);
+  page->render(renderer, effectiveFontId, marginLeft, marginTop);
   // No displayBuffer call — caller (SleepActivity) handles that after compositing the overlay
   return true;
 }
@@ -1870,15 +1845,16 @@ void EpubReaderActivity::openReaderMenu() {
       std::make_unique<EpubReaderMenuActivity>(
           renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent, SETTINGS.orientation,
           !currentPageFootnotes.empty(), bookEmbeddedStyleOverride, bookImageRenderingOverride, bookFontFamilyOverride,
-          bookFontSizeOverride, SETTINGS.textDarkness, bookBionicReadingOverride, !bookmarkStore.isEmpty(),
-          isCurrentPageStarred),
+          bookSdFontFamilyOverride, bookFontSizeOverride, SETTINGS.textDarkness, bookBionicReadingOverride,
+          !bookmarkStore.isEmpty(), isCurrentPageStarred),
       [this](const ActivityResult& result) {
         const auto& menu = std::get<MenuResult>(result.data);
         applyOrientation(menu.orientation);
         applyTextDarkness(menu.textDarkness);
         toggleAutoPageTurn(menu.pageTurnOption);
         applyBookReaderOverrides(menu.embeddedStyleOverride, menu.imageRenderingOverride, menu.fontFamilyOverride,
-                                 menu.fontSizeOverride, static_cast<bool>(menu.bionicReadingOverride));
+                                 menu.sdFontFamilyOverride, menu.fontSizeOverride,
+                                 static_cast<bool>(menu.bionicReadingOverride));
         if (!result.isCancelled) {
           onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
         }
@@ -2010,7 +1986,7 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
     case BA::BTN_TOGGLE_BIONIC_READING:
       if (epub) {
         applyBookReaderOverrides(bookEmbeddedStyleOverride, bookImageRenderingOverride, bookFontFamilyOverride,
-                                 bookFontSizeOverride, !bookBionicReadingOverride);
+                                 bookSdFontFamilyOverride, bookFontSizeOverride, !bookBionicReadingOverride);
         requestUpdate();
       }
       break;

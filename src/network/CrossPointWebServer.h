@@ -110,6 +110,29 @@ class CrossPointWebServer {
   void handleGetSettings() const;
   void handlePostSettings();
 
+  // Font management handlers
+  void handleFontsPage() const;
+  void handleFontList();
+  void handleFontUpload();
+  void handleFontUploadData();
+  void handleFontDelete();
+
+  struct FontUploadState {
+    FsFile file;
+    std::string familyName;
+    std::string filePath;
+    bool valid = false;
+    bool magicChecked = false;
+    uint8_t header[8] = {0};
+    size_t headerBytesReceived = 0;
+    size_t bytesWritten = 0;
+    static constexpr size_t BUFFER_SIZE = 4096;
+    std::vector<uint8_t> buffer;
+    size_t bufferPos = 0;
+
+    FontUploadState() { buffer.resize(BUFFER_SIZE); }
+  } fontUpload;
+
   // OPDS server handlers
   void handleGetOpdsServers() const;
   void handlePostOpdsServer();

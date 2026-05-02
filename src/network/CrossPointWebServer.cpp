@@ -12,12 +12,16 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "FontInstaller.h"
 #include "OpdsServerStore.h"
+#include "SdCardFontGlobals.h"
+#include "SdCardFontRegistry.h"
 #include "SettingsList.h"
 #include "SystemStatus.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "html/FilesPageHtml.generated.h"
+#include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/WelcomePageHtml.generated.h"
@@ -195,6 +199,12 @@ void CrossPointWebServer::begin() {
   server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
   server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
   server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+
+  // Font management endpoints
+  server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+  server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
+  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
 
   // OPDS server endpoints
   server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
@@ -1397,6 +1407,225 @@ void CrossPointWebServer::handlePostSettings() {
 
   LOG_DBG("WEB", "Applied %d setting(s)", applied);
   server->send(200, "text/plain", String("Applied ") + String(applied) + " setting(s)");
+}
+
+// ---- Font Management API ----
+
+void CrossPointWebServer::handleFontsPage() const {
+  sendHtmlContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml));
+  LOG_DBG("WEB", "Served fonts page");
+}
+
+void CrossPointWebServer::handleFontList() {
+  FontInstaller installer(sdFontSystem.registry());
+  installer.refreshRegistry();
+  const auto& families = sdFontSystem.registry().getFamilies();
+
+  JsonDocument doc;
+  JsonArray arr = doc["families"].to<JsonArray>();
+  doc["maxFamilies"] = SdCardFontRegistry::MAX_SD_FAMILIES;
+
+  for (const auto& family : families) {
+    JsonObject fObj = arr.add<JsonObject>();
+    fObj["name"] = family.name;
+
+    JsonArray sizes = fObj["sizes"].to<JsonArray>();
+    for (uint8_t s : family.availableSizes()) {
+      sizes.add(s);
+    }
+
+    JsonArray files = fObj["files"].to<JsonArray>();
+    for (const auto& file : family.files) {
+      JsonObject fileObj = files.add<JsonObject>();
+      const char* name = strrchr(file.path.c_str(), '/');
+      fileObj["name"] = name ? name + 1 : file.path.c_str();
+
+      FsFile f;
+      if (Storage.openFileForRead("WEB", file.path.c_str(), f)) {
+        fileObj["size"] = static_cast<unsigned long>(f.size());
+        f.close();
+      } else {
+        fileObj["size"] = 0;
+      }
+    }
+  }
+
+  String json;
+  serializeJson(doc, json);
+  server->send(200, "application/json", json);
+}
+
+void CrossPointWebServer::handleFontUploadData() {
+  HTTPUpload& up = server->upload();
+
+  switch (up.status) {
+    case UPLOAD_FILE_START: {
+      esp_task_wdt_reset();
+      String family = server->arg("family");
+      fontUpload.valid = false;
+      fontUpload.magicChecked = false;
+      fontUpload.headerBytesReceived = 0;
+      fontUpload.bytesWritten = 0;
+      fontUpload.bufferPos = 0;
+
+      if (!FontInstaller::isValidFamilyName(family.c_str())) {
+        LOG_ERR("WEB", "Invalid font family name: %s", family.c_str());
+        break;
+      }
+
+      String filename = up.filename;
+      if (!filename.endsWith(".cpfont")) {
+        LOG_ERR("WEB", "Not a .cpfont file: %s", filename.c_str());
+        break;
+      }
+      if (filename.indexOf('/') >= 0 || filename.indexOf('\\') >= 0 || filename.indexOf("..") >= 0) {
+        LOG_ERR("WEB", "Invalid font filename: %s", filename.c_str());
+        break;
+      }
+
+      fontUpload.familyName = family.c_str();
+
+      FontInstaller installer(sdFontSystem.registry());
+      if (!installer.ensureFamilyDir(family.c_str())) {
+        LOG_ERR("WEB", "Failed to create font family dir");
+        break;
+      }
+
+      char path[128];
+      FontInstaller::buildFontPath(family.c_str(), filename.c_str(), path, sizeof(path));
+      fontUpload.filePath = path;
+
+      if (!Storage.openFileForWrite("WEB", path, fontUpload.file)) {
+        LOG_ERR("WEB", "Failed to open font file for write: %s", path);
+        break;
+      }
+
+      fontUpload.valid = true;
+      LOG_DBG("WEB", "Font upload started: %s -> %s", filename.c_str(), path);
+      break;
+    }
+
+    case UPLOAD_FILE_WRITE: {
+      if (!fontUpload.valid) break;
+      esp_task_wdt_reset();
+
+      if (!fontUpload.magicChecked) {
+        size_t needed = 8 - fontUpload.headerBytesReceived;
+        size_t take = (up.currentSize < needed) ? up.currentSize : needed;
+        if (take > 0) {
+          memcpy(fontUpload.header + fontUpload.headerBytesReceived, up.buf, take);
+          fontUpload.headerBytesReceived += take;
+        }
+        if (fontUpload.headerBytesReceived == 8) {
+          if (memcmp(fontUpload.header, "CPFONT\0\0", 8) != 0) {
+            LOG_ERR("WEB", "Invalid .cpfont magic bytes");
+            fontUpload.valid = false;
+            fontUpload.file.close();
+            return;
+          }
+          fontUpload.magicChecked = true;
+        }
+      }
+
+      size_t remaining = up.currentSize;
+      const uint8_t* src = up.buf;
+      while (remaining > 0) {
+        size_t space = FontUploadState::BUFFER_SIZE - fontUpload.bufferPos;
+        size_t chunk = (remaining < space) ? remaining : space;
+        memcpy(fontUpload.buffer.data() + fontUpload.bufferPos, src, chunk);
+        fontUpload.bufferPos += chunk;
+        src += chunk;
+        remaining -= chunk;
+
+        if (fontUpload.bufferPos >= FontUploadState::BUFFER_SIZE) {
+          const size_t expected = fontUpload.bufferPos;
+          const size_t written = fontUpload.file.write(fontUpload.buffer.data(), expected);
+          fontUpload.bytesWritten += written;
+          if (written != expected) {
+            LOG_ERR("WEB", "Failed writing uploaded font chunk (%u/%u bytes)", static_cast<unsigned>(written),
+                    static_cast<unsigned>(expected));
+            fontUpload.valid = false;
+            fontUpload.file.close();
+            return;
+          }
+          fontUpload.bufferPos = 0;
+          esp_task_wdt_reset();
+        }
+      }
+      break;
+    }
+
+    case UPLOAD_FILE_END: {
+      if (fontUpload.valid && !fontUpload.magicChecked) {
+        LOG_ERR("WEB", "Invalid .cpfont upload: header not fully received");
+        fontUpload.valid = false;
+      }
+      if (fontUpload.valid && fontUpload.bufferPos > 0) {
+        const size_t expected = fontUpload.bufferPos;
+        const size_t written = fontUpload.file.write(fontUpload.buffer.data(), expected);
+        fontUpload.bytesWritten += written;
+        if (written != expected) {
+          LOG_ERR("WEB", "Failed flushing uploaded font chunk (%u/%u bytes)", static_cast<unsigned>(written),
+                  static_cast<unsigned>(expected));
+          fontUpload.valid = false;
+        }
+        fontUpload.bufferPos = 0;
+      }
+      fontUpload.file.close();
+
+      if (!fontUpload.valid && !fontUpload.filePath.empty()) {
+        Storage.remove(fontUpload.filePath.c_str());
+      }
+
+      LOG_DBG("WEB", "Font upload end: valid=%d, %zu bytes", fontUpload.valid, fontUpload.bytesWritten);
+      break;
+    }
+
+    case UPLOAD_FILE_ABORTED: {
+      fontUpload.file.close();
+      if (!fontUpload.filePath.empty()) {
+        Storage.remove(fontUpload.filePath.c_str());
+      }
+      fontUpload.valid = false;
+      LOG_DBG("WEB", "Font upload aborted");
+      break;
+    }
+  }
+}
+
+void CrossPointWebServer::handleFontUpload() {
+  if (fontUpload.valid) {
+    FontInstaller installer(sdFontSystem.registry());
+    installer.refreshRegistry();
+    server->send(200, "application/json", "{\"ok\":true}");
+    LOG_DBG("WEB", "Font upload complete: %s", fontUpload.filePath.c_str());
+  } else {
+    server->send(400, "application/json", "{\"error\":\"Invalid .cpfont file\"}");
+  }
+}
+
+void CrossPointWebServer::handleFontDelete() {
+  String body = server->arg("plain");
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+
+  if (err || !doc["family"].is<const char*>()) {
+    server->send(400, "application/json", "{\"error\":\"Invalid request\"}");
+    return;
+  }
+
+  const char* familyName = doc["family"];
+  FontInstaller installer(sdFontSystem.registry());
+  auto result = installer.deleteFamily(familyName);
+
+  if (result == FontInstaller::Error::OK) {
+    installer.refreshRegistry();
+    server->send(200, "application/json", "{\"ok\":true}");
+    LOG_DBG("WEB", "Deleted font family: %s", familyName);
+  } else {
+    server->send(500, "application/json", "{\"error\":\"Delete failed\"}");
+    LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
+  }
 }
 
 // ---- Wi-Fi Credentials API ----

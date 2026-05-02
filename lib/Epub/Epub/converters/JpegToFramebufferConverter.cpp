@@ -8,6 +8,7 @@
 #include <Logging.h>
 
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <new>
 
@@ -172,6 +173,95 @@ int32_t jpegSeek(JPEGFILE* pFile, int32_t pos) {
 // Heap-allocate on demand so memory is only used during active decode.
 constexpr size_t JPEG_DECODER_APPROX_SIZE = 20 * 1024;
 constexpr size_t MIN_FREE_HEAP_FOR_JPEG = JPEG_DECODER_APPROX_SIZE + 16 * 1024;
+
+bool readJpegDimensionsFromHeader(const std::string& imagePath, ImageDimensions& out) {
+  FsFile f;
+  if (!Storage.openFileForRead("JPG", imagePath, f)) {
+    LOG_ERR("JPG", "Failed to open file for dimensions: %s", imagePath.c_str());
+    return false;
+  }
+
+  auto readByte = [&f](uint8_t& b) -> bool { return f.read(&b, 1) == 1; };
+  auto readU16BE = [&f](uint16_t& v) -> bool {
+    uint8_t b[2];
+    if (f.read(b, 2) != 2) return false;
+    v = static_cast<uint16_t>((static_cast<uint16_t>(b[0]) << 8) | b[1]);
+    return true;
+  };
+
+  uint8_t b0 = 0;
+  uint8_t b1 = 0;
+  if (!readByte(b0) || !readByte(b1) || b0 != 0xFF || b1 != 0xD8) {
+    f.close();
+    LOG_ERR("JPG", "Not a JPEG file: %s", imagePath.c_str());
+    return false;
+  }
+
+  while (f.available()) {
+    uint8_t prefix = 0;
+    if (!readByte(prefix)) break;
+    if (prefix != 0xFF) continue;
+
+    uint8_t marker = 0;
+    do {
+      if (!readByte(marker)) {
+        f.close();
+        return false;
+      }
+    } while (marker == 0xFF);
+
+    if (marker == 0x00 || marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) {
+      continue;
+    }
+
+    uint16_t segLen = 0;
+    if (!readU16BE(segLen) || segLen < 2) {
+      f.close();
+      return false;
+    }
+
+    const bool isSof = (marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7) ||
+                       (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF);
+    if (isSof) {
+      uint8_t sof[5];
+      if (segLen < 7 || f.read(sof, sizeof(sof)) != static_cast<int>(sizeof(sof))) {
+        f.close();
+        return false;
+      }
+      uint16_t height = static_cast<uint16_t>((static_cast<uint16_t>(sof[1]) << 8) | sof[2]);
+      uint16_t width = static_cast<uint16_t>((static_cast<uint16_t>(sof[3]) << 8) | sof[4]);
+      f.close();
+      if (width == 0 || height == 0) {
+        LOG_ERR("JPG", "Invalid JPEG dimensions %ux%u: %s", width, height, imagePath.c_str());
+        return false;
+      }
+
+      constexpr int MAX_SOURCE_PIXELS = 3145728;  // Keep in sync with ImageToFramebufferDecoder contract.
+      const int widthInt = static_cast<int>(width);
+      const int heightInt = static_cast<int>(height);
+      if (width > static_cast<uint16_t>(std::numeric_limits<int16_t>::max()) ||
+          height > static_cast<uint16_t>(std::numeric_limits<int16_t>::max()) ||
+          widthInt * heightInt > MAX_SOURCE_PIXELS) {
+        LOG_ERR("JPG", "JPEG dimensions out of supported range %ux%u: %s", width, height, imagePath.c_str());
+        return false;
+      }
+
+      out.width = static_cast<int16_t>(width);
+      out.height = static_cast<int16_t>(height);
+      return true;
+    }
+
+    const int32_t skip = static_cast<int32_t>(segLen) - 2;
+    if (!f.seek(f.position() + skip)) {
+      f.close();
+      return false;
+    }
+  }
+
+  f.close();
+  LOG_ERR("JPG", "No SOF marker found for dimensions: %s", imagePath.c_str());
+  return false;
+}
 
 // Choose JPEGDEC's built-in scale factor for coarse downscaling.
 // Returns the scale denominator (1, 2, 4, or 8) and sets jpegScaleOption.
@@ -401,29 +491,10 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 }  // namespace
 
 bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_JPEG) {
-    LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_JPEG);
+  if (!readJpegDimensionsFromHeader(imagePath, out)) {
     return false;
   }
-
-  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
-  if (!jpeg) {
-    LOG_ERR("JPG", "Failed to allocate JPEG decoder for dimensions");
-    return false;
-  }
-
-  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, nullptr);
-  if (rc != 1) {
-    LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
-    return false;
-  }
-
-  out.width = jpeg->getWidth();
-  out.height = jpeg->getHeight();
   LOG_DBG("JPG", "Image dimensions: %dx%d", out.width, out.height);
-
-  jpeg->close();
   return true;
 }
 

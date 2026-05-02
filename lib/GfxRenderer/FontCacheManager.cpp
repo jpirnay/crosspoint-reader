@@ -89,7 +89,6 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 
 FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manager_(&manager) {
   manager_->scanMode_ = ScanMode::Scanning;
-  manager_->clearCache();
   manager_->resetStats();
   manager_->scanText_.clear();
   manager_->scanText_.reserve(2048);  // Pre-allocate to avoid heap fragmentation from repeated concat
@@ -110,15 +109,21 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 
   manager_->prewarmCache(manager_->scanFontId_, manager_->scanText_.c_str(), styleMask);
 
-  // Free scan string memory
+  constexpr size_t BASE_SCAN_TEXT_CAP = 2048;
+  constexpr size_t MAX_SCAN_TEXT_CAP = 16384;
+
+  // Keep reserved capacity for typical pages, but trim pathological outliers.
   manager_->scanText_.clear();
-  manager_->scanText_.shrink_to_fit();
+  if (manager_->scanText_.capacity() > MAX_SCAN_TEXT_CAP) {
+    std::string trimmed;
+    trimmed.reserve(BASE_SCAN_TEXT_CAP);
+    manager_->scanText_.swap(trimmed);
+  }
 }
 
 FontCacheManager::PrewarmScope::~PrewarmScope() {
   if (active_) {
     endScanAndPrewarm();  // no-op if already called (scanText_ is empty)
-    manager_->clearCache();
   }
 }
 

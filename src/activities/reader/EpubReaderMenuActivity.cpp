@@ -17,11 +17,15 @@ namespace {
 // though the per-book override list itself is built-in only.
 std::string defaultFontFamilyLabel(const SettingInfo& item) {
   if (SETTINGS.sdFontFamilyName[0] != '\0') {
-    return std::string(SETTINGS.sdFontFamilyName);
+    const auto& families = sdFontSystem.registry().getFamilies();
+    const auto it = std::find_if(families.begin(), families.end(),
+                                 [](const auto& family) { return family.name == SETTINGS.sdFontFamilyName; });
+    if (it != families.end()) {
+      return std::string(SETTINGS.sdFontFamilyName);
+    }
   }
-  // Built-in: enumValues[0] is STR_DEFAULT_VALUE, [1..3] are the three families
-  // in the same order as CrossPointSettings::FONT_FAMILY (BOOKERLY, NOTOSANS,
-  // OPENDYSLEXIC).
+  // Built-in: enumValues[0] is STR_DEFAULT_VALUE, [1..] are built-in families
+  // in CrossPointSettings::FONT_FAMILY order.
   const auto idx = static_cast<size_t>(SETTINGS.fontFamily + 1);
   if (idx < item.enumValues.size()) {
     return I18N.get(item.enumValues[idx]);
@@ -34,14 +38,16 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
     GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
     const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
     const int8_t initialEmbeddedStyleOverride, const int8_t initialImageRenderingOverride,
-    const int8_t initialFontFamilyOverride, const int8_t initialFontSizeOverride, const uint8_t initialTextDarkness,
-    const bool initialBionicReadingOverride, const bool hasStarredPages, const bool isCurrentPageStarred)
+    const int8_t initialFontFamilyOverride, const std::string& initialSdFontFamilyOverride,
+    const int8_t initialFontSizeOverride, const uint8_t initialTextDarkness, const bool initialBionicReadingOverride,
+    const bool hasStarredPages, const bool isCurrentPageStarred)
     : MenuListActivity("EpubReaderMenu", renderer, mappedInput),
       currentPageStarred(isCurrentPageStarred),
       pendingOrientation(currentOrientation),
       pendingEmbeddedStyleOverride(initialEmbeddedStyleOverride),
       pendingImageRenderingOverride(initialImageRenderingOverride),
       pendingFontFamilyOverride(initialFontFamilyOverride),
+      pendingSdFontFamilyOverride(initialSdFontFamilyOverride),
       pendingFontSizeOverride(initialFontSizeOverride),
       pendingTextDarkness(initialTextDarkness),
       pendingBionicReading(initialBionicReadingOverride),
@@ -119,35 +125,79 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
                           })
                           .withSubmenu(StrId::STR_READER_OVERRIDES));
 
-  // Reader font family: cycles default(-1) -> Bookerly(0) -> Noto Sans(1) -> Open Dyslexic(2)
-  menuItems.push_back(
-      SettingInfo::DynamicEnumCtx(
-          StrId::STR_FONT_FAMILY,
-          {StrId::STR_DEFAULT_VALUE, StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC}, self,
-          [](const void* ctx) -> uint8_t {
-            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
-            return (s->pendingFontFamilyOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontFamilyOverride + 1);
-          },
-          [](void* ctx, uint8_t v) {
-            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
-            s->pendingFontFamilyOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
-          })
-          .withSubmenu(StrId::STR_READER_OVERRIDES));
+  // Reader font family: default + built-ins + discovered SD families.
+  {
+    std::vector<StrId> values = {StrId::STR_DEFAULT_VALUE, StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS};
+    const auto& families = sdFontSystem.registry().getFamilies();
+    values.insert(values.end(), families.size(), StrId::STR_NONE_OPT);
 
-  // Reader font size: cycles default(-1) -> Small(0) -> Medium(1) -> Large(2) -> X Large(3)
-  menuItems.push_back(
-      SettingInfo::DynamicEnumCtx(
-          StrId::STR_FONT_SIZE,
-          {StrId::STR_DEFAULT_VALUE, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, self,
-          [](const void* ctx) -> uint8_t {
-            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
-            return (s->pendingFontSizeOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
-          },
-          [](void* ctx, uint8_t v) {
-            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
-            s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
-          })
-          .withSubmenu(StrId::STR_READER_OVERRIDES));
+    auto familySetting = SettingInfo::DynamicEnumCtx(
+                             StrId::STR_FONT_FAMILY, values, self,
+                             [](const void* ctx) -> uint8_t {
+                               const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+                               if (s->pendingFontFamilyOverride >= 0) {
+                                 return static_cast<uint8_t>(s->pendingFontFamilyOverride + 1);
+                               }
+                               if (!s->pendingSdFontFamilyOverride.empty()) {
+                                 const auto& fs = sdFontSystem.registry().getFamilies();
+                                 for (size_t i = 0; i < fs.size(); i++) {
+                                   if (fs[i].name == s->pendingSdFontFamilyOverride) {
+                                     return static_cast<uint8_t>(CrossPointSettings::BUILTIN_FONT_COUNT + 1 + i);
+                                   }
+                                 }
+                               }
+                               return 0;
+                             },
+                             [](void* ctx, uint8_t v) {
+                               auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+                               if (v == 0) {
+                                 s->pendingFontFamilyOverride = -1;
+                                 s->pendingSdFontFamilyOverride.clear();
+                                 return;
+                               }
+
+                               const uint8_t builtinCount = CrossPointSettings::BUILTIN_FONT_COUNT;
+                               if (v <= builtinCount) {
+                                 s->pendingFontFamilyOverride = static_cast<int8_t>(v - 1);
+                                 s->pendingSdFontFamilyOverride.clear();
+                                 return;
+                               }
+
+                               const size_t sdIdx = static_cast<size_t>(v - (builtinCount + 1));
+                               const auto& fs = sdFontSystem.registry().getFamilies();
+                               s->pendingFontFamilyOverride = -1;
+                               if (sdIdx < fs.size()) {
+                                 s->pendingSdFontFamilyOverride = fs[sdIdx].name;
+                               } else {
+                                 s->pendingSdFontFamilyOverride.clear();
+                               }
+                             })
+                             .withSubmenu(StrId::STR_READER_OVERRIDES);
+
+    familySetting.enumLabels = {tr(STR_DEFAULT_VALUE), tr(STR_BOOKERLY), tr(STR_NOTO_SANS)};
+    for (const auto& fam : families) {
+      familySetting.enumLabels.push_back(fam.name);
+    }
+    menuItems.push_back(std::move(familySetting));
+  }
+
+  // Reader font size: cycles default(-1) -> Small(0) -> Medium(1) -> Large(2) -> X Large(3) -> Tiny(4)
+  menuItems.push_back(SettingInfo::DynamicEnumCtx(
+                          StrId::STR_FONT_SIZE,
+                          {StrId::STR_DEFAULT_VALUE, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE,
+                           StrId::STR_X_LARGE, StrId::STR_TINY},
+                          self,
+                          [](const void* ctx) -> uint8_t {
+                            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+                            return (s->pendingFontSizeOverride < 0)
+                                       ? 0
+                                       : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
+                          },
+                          [](void* ctx, uint8_t v) {
+                            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+                            s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
+                          })
+                          .withSubmenu(StrId::STR_READER_OVERRIDES));
 
   // Text darkness: straightforward 0-3 cycle
   menuItems.push_back(
@@ -248,7 +298,8 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForSettingActio
 void EpubReaderMenuActivity::finishWithAction(MenuAction action) {
   setResult(MenuResult{static_cast<int>(action), -1, pendingOrientation, selectedPageTurnOption,
                        pendingEmbeddedStyleOverride, pendingImageRenderingOverride, pendingFontFamilyOverride,
-                       pendingFontSizeOverride, pendingTextDarkness, static_cast<uint8_t>(pendingBionicReading)});
+                       pendingSdFontFamilyOverride, pendingFontSizeOverride, pendingTextDarkness,
+                       static_cast<uint8_t>(pendingBionicReading)});
   finish();
 }
 
@@ -280,6 +331,7 @@ void EpubReaderMenuActivity::onBackPressed() {
                            pendingEmbeddedStyleOverride,
                            pendingImageRenderingOverride,
                            pendingFontFamilyOverride,
+                           pendingSdFontFamilyOverride,
                            pendingFontSizeOverride,
                            pendingTextDarkness,
                            static_cast<uint8_t>(pendingBionicReading)};
@@ -319,7 +371,7 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
         return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
       }
     }
-    if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0) {
+    if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0 && pendingSdFontFamilyOverride.empty()) {
       const auto label = defaultFontFamilyLabel(item);
       if (!label.empty()) {
         return std::string(tr(STR_DEFAULT_VALUE)) + " (" + label + ")";
@@ -353,7 +405,7 @@ void EpubReaderMenuActivity::openSubmenu(const SettingInfo& submenuEntry) {
         return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[valueIndex]) + ")";
       }
     }
-    if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0) {
+    if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0 && pendingSdFontFamilyOverride.empty()) {
       const auto label = defaultFontFamilyLabel(item);
       if (!label.empty()) {
         return std::string(tr(STR_DEFAULT_VALUE)) + " (" + label + ")";

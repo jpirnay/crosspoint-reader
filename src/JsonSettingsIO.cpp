@@ -417,6 +417,9 @@ bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore& store, const char* 
     obj["embeddedStyleOverride"] = book.embeddedStyleOverride;
     obj["imageRenderingOverride"] = book.imageRenderingOverride;
     obj["fontFamilyOverride"] = book.fontFamilyOverride;
+    if (!book.sdFontFamilyOverride.empty()) {
+      obj["sdFontFamilyOverride"] = book.sdFontFamilyOverride;
+    }
     obj["fontSizeOverride"] = book.fontSizeOverride;
     obj["bionicReadingOverride"] = book.bionicReadingOverride;
   }
@@ -455,6 +458,11 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
     book.imageRenderingOverride = clampInt8(obj["imageRenderingOverride"] | -1, -1, 2, -1);
     book.fontFamilyOverride =
         clampInt8(obj["fontFamilyOverride"] | -1, -1, CrossPointSettings::FONT_FAMILY_COUNT - 1, -1);
+    book.sdFontFamilyOverride = obj["sdFontFamilyOverride"] | std::string("");
+    if (!book.sdFontFamilyOverride.empty()) {
+      // Keep built-in and SD font overrides mutually exclusive.
+      book.fontFamilyOverride = -1;
+    }
     book.fontSizeOverride = clampInt8(obj["fontSizeOverride"] | -1, -1, CrossPointSettings::FONT_SIZE_COUNT - 1, -1);
     book.bionicReadingOverride = clampInt8(obj["bionicReadingOverride"] | -1, -1, 1, -1);
     store.recentBooks.push_back(book);

@@ -26,6 +26,7 @@ struct MenuResult {
   int8_t embeddedStyleOverride = -1;
   int8_t imageRenderingOverride = -1;
   int8_t fontFamilyOverride = -1;
+  std::string sdFontFamilyOverride;
   int8_t fontSizeOverride = -1;
   uint8_t textDarkness = 1;
   uint8_t bionicReadingOverride = 0;

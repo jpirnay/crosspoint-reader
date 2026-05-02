@@ -24,6 +24,7 @@ class SdCardFontSystem {
   int resolveFontId(const char* familyName, uint8_t fontSizeEnum) const;
 
   /// Access the registry (e.g. for settings UI to enumerate available fonts).
+  SdCardFontRegistry& registry() { return registry_; }
   const SdCardFontRegistry& registry() const { return registry_; }
 
  private:
