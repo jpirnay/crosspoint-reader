@@ -118,7 +118,8 @@ class SdCardFont {
     EpdKernClassEntry* kernLeftClasses = nullptr;
     EpdKernClassEntry* kernRightClasses = nullptr;
     EpdLigaturePair* ligaturePairs = nullptr;
-    bool kernLigLoaded = false;
+    bool ligLoaded = false;        ///< ligaturePairs resident
+    bool kernClassesLoaded = false; ///< kernLeft/RightClasses resident (skipped during metadata-only prewarm)
 
     // Stub EpdFontData returned when not prewarmed
     EpdFontData stubData{};
@@ -204,7 +205,7 @@ class SdCardFont {
   void freeStyleAll(PerStyle& s);
   void freeStyleKernLigatureData(PerStyle& s);
   void freeStyleMiniKern(PerStyle& s);
-  bool loadStyleKernLigatureData(PerStyle& s);
+  bool loadStyleKernLigatureData(PerStyle& s, bool ligatureOnly = false);
   bool buildMiniKernMatrix(PerStyle& s, const uint32_t* codepoints, uint32_t cpCount);
   void applyKernLigaturePointers(const PerStyle& s, EpdFontData& data) const;
   void applyGlyphMissCallback(uint8_t styleIdx);
