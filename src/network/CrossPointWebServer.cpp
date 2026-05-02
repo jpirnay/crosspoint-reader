@@ -26,6 +26,8 @@
 #include "html/SettingsPageHtml.generated.h"
 #include "html/WelcomePageHtml.generated.h"
 #include "html/js/jszip_minJs.generated.h"
+#include "network/HttpDownloader.h"
+
 
 namespace {
 // Folders/files to hide from the web interface file browser
@@ -34,6 +36,10 @@ const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr size_t HIDDEN_ITEMS_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
 constexpr uint16_t UDP_PORTS[] = {54982, 48123, 39001, 44044, 59678};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
+
+#ifndef FONT_MANIFEST_URL
+#define FONT_MANIFEST_URL "https://github.com/jpirnay/crosspoint-reader/assets/sd-fonts/fonts.json"
+#endif
 
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
@@ -203,6 +209,8 @@ void CrossPointWebServer::begin() {
   // Font management endpoints
   server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+  server->on("/api/fonts/manifest", HTTP_GET, [this] { handleFontManifest(); });
+  server->on("/api/fonts/download", HTTP_POST, [this] { handleFontDownload(); });
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
 
@@ -1411,6 +1419,166 @@ void CrossPointWebServer::handlePostSettings() {
 
 // ---- Font Management API ----
 
+namespace {
+struct RemoteManifestFile {
+  std::string name;
+  size_t size = 0;
+};
+
+struct RemoteManifestFamily {
+  std::string name;
+  std::string description;
+  std::vector<RemoteManifestFile> files;
+  size_t totalSize = 0;
+  bool installed = false;
+  bool hasUpdate = false;
+};
+
+bool fetchRemoteFontManifest(FontInstaller& installer, std::vector<RemoteManifestFamily>& outFamilies,
+                             std::string& outBaseUrl, std::string& outError) {
+  static constexpr const char* MANIFEST_TMP = "/fonts_manifest_web.tmp";
+
+  auto result = HttpDownloader::downloadToFile(FONT_MANIFEST_URL, MANIFEST_TMP, nullptr);
+  if (result != HttpDownloader::OK) {
+    outError = "Failed to fetch font manifest";
+    Storage.remove(MANIFEST_TMP);
+    return false;
+  }
+
+  FsFile manifestFile;
+  if (!Storage.openFileForRead("WEB", MANIFEST_TMP, manifestFile)) {
+    outError = "Failed to open downloaded manifest";
+    Storage.remove(MANIFEST_TMP);
+    return false;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, manifestFile);
+  manifestFile.close();
+  Storage.remove(MANIFEST_TMP);
+  if (err) {
+    outError = "Failed to parse font manifest";
+    return false;
+  }
+
+  const int version = doc["version"] | 0;
+  if (version != 1) {
+    outError = "Unsupported manifest version";
+    return false;
+  }
+
+  outBaseUrl = doc["baseUrl"] | "";
+  outFamilies.clear();
+
+  JsonArray familiesArr = doc["families"].as<JsonArray>();
+  outFamilies.reserve(familiesArr.size());
+
+  for (JsonObject fObj : familiesArr) {
+    RemoteManifestFamily family;
+    family.name = fObj["name"] | "";
+    family.description = fObj["description"] | "";
+
+    for (JsonObject fileObj : fObj["files"].as<JsonArray>()) {
+      RemoteManifestFile file;
+      file.name = fileObj["name"] | "";
+      file.size = static_cast<size_t>(fileObj["size"] | 0);
+      family.totalSize += file.size;
+      family.files.push_back(std::move(file));
+    }
+
+    family.installed = installer.isFamilyInstalled(family.name.c_str());
+    family.hasUpdate = false;
+    if (family.installed) {
+      for (const auto& file : family.files) {
+        char path[128];
+        FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), path, sizeof(path));
+        FsFile f;
+        if (Storage.openFileForRead("WEB", path, f)) {
+          const size_t actual = static_cast<size_t>(f.size());
+          f.close();
+          if (actual != file.size) {
+            family.hasUpdate = true;
+            break;
+          }
+        } else {
+          family.hasUpdate = true;
+          break;
+        }
+      }
+    }
+
+    outFamilies.push_back(std::move(family));
+  }
+
+  return true;
+}
+
+bool installRemoteFamily(const RemoteManifestFamily& family, const std::string& baseUrl, FontInstaller& installer,
+                         std::string& outError) {
+  char liveDir[128];
+  char stagingDir[128];
+  char backupDir[128];
+  snprintf(liveDir, sizeof(liveDir), "%s/%s", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  snprintf(stagingDir, sizeof(stagingDir), "%s/%s__staging", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  snprintf(backupDir, sizeof(backupDir), "%s/%s__backup", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+
+  if (Storage.exists(stagingDir) && !Storage.removeDir(stagingDir)) {
+    outError = "Failed to prepare staging area";
+    return false;
+  }
+  if (!Storage.mkdir(stagingDir)) {
+    outError = "Failed to create staging area";
+    return false;
+  }
+
+  for (const auto& file : family.files) {
+    esp_task_wdt_reset();
+
+    char stagedPath[128];
+    snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, file.name.c_str());
+    const std::string url = baseUrl + file.name;
+
+    auto result = HttpDownloader::downloadToFile(url, stagedPath, nullptr);
+    if (result != HttpDownloader::OK) {
+      Storage.removeDir(stagingDir);
+      outError = std::string("Download failed: ") + file.name;
+      return false;
+    }
+
+    if (!installer.validateCpfontFile(stagedPath)) {
+      Storage.removeDir(stagingDir);
+      outError = std::string("Invalid font file: ") + file.name;
+      return false;
+    }
+  }
+
+  const bool hadLiveDir = Storage.exists(liveDir);
+  if (Storage.exists(backupDir) && !Storage.removeDir(backupDir)) {
+    Storage.removeDir(stagingDir);
+    outError = "Failed to prepare backup area";
+    return false;
+  }
+  if (hadLiveDir && !Storage.rename(liveDir, backupDir)) {
+    Storage.removeDir(stagingDir);
+    outError = "Failed to replace installed font";
+    return false;
+  }
+  if (!Storage.rename(stagingDir, liveDir)) {
+    if (hadLiveDir && Storage.exists(backupDir)) {
+      Storage.rename(backupDir, liveDir);
+    }
+    Storage.removeDir(stagingDir);
+    outError = "Failed to finalize font install";
+    return false;
+  }
+  if (Storage.exists(backupDir)) {
+    Storage.removeDir(backupDir);
+  }
+
+  return true;
+}
+}  // namespace
+
 void CrossPointWebServer::handleFontsPage() const {
   sendHtmlContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml));
   LOG_DBG("WEB", "Served fonts page");
@@ -1453,6 +1621,118 @@ void CrossPointWebServer::handleFontList() {
   String json;
   serializeJson(doc, json);
   server->send(200, "application/json", json);
+}
+
+void CrossPointWebServer::handleFontManifest() {
+  FontInstaller installer(sdFontSystem.registry());
+  installer.refreshRegistry();
+
+  std::vector<RemoteManifestFamily> families;
+  std::string baseUrl;
+  std::string error;
+  if (!fetchRemoteFontManifest(installer, families, baseUrl, error)) {
+    JsonDocument errDoc;
+    errDoc["ok"] = false;
+    errDoc["error"] = error;
+    String out;
+    serializeJson(errDoc, out);
+    server->send(500, "application/json", out);
+    return;
+  }
+
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["baseUrl"] = baseUrl;
+  JsonArray arr = doc["families"].to<JsonArray>();
+  for (const auto& family : families) {
+    JsonObject obj = arr.add<JsonObject>();
+    obj["name"] = family.name;
+    obj["description"] = family.description;
+    obj["installed"] = family.installed;
+    obj["hasUpdate"] = family.hasUpdate;
+    obj["totalSize"] = static_cast<unsigned long>(family.totalSize);
+    obj["fileCount"] = static_cast<unsigned>(family.files.size());
+  }
+  String out;
+  serializeJson(doc, out);
+  server->send(200, "application/json", out);
+}
+
+void CrossPointWebServer::handleFontDownload() {
+  String body = server->arg("plain");
+  JsonDocument req;
+  if (deserializeJson(req, body)) {
+    server->send(400, "application/json", "{\"ok\":false,\"error\":\"Invalid request\"}");
+    return;
+  }
+
+  const bool installAll = req["all"] | false;
+  const std::string requestedFamily = req["family"] | "";
+  if (!installAll && requestedFamily.empty()) {
+    server->send(400, "application/json", "{\"ok\":false,\"error\":\"Missing family\"}");
+    return;
+  }
+
+  FontInstaller installer(sdFontSystem.registry());
+  installer.refreshRegistry();
+
+  std::vector<RemoteManifestFamily> families;
+  std::string baseUrl;
+  std::string error;
+  if (!fetchRemoteFontManifest(installer, families, baseUrl, error)) {
+    JsonDocument errDoc;
+    errDoc["ok"] = false;
+    errDoc["error"] = error;
+    String out;
+    serializeJson(errDoc, out);
+    server->send(500, "application/json", out);
+    return;
+  }
+
+  std::vector<RemoteManifestFamily*> targets;
+  if (installAll) {
+    for (auto& family : families) {
+      if (!family.installed || family.hasUpdate) {
+        targets.push_back(&family);
+      }
+    }
+  } else {
+    for (auto& family : families) {
+      if (family.name == requestedFamily) {
+        targets.push_back(&family);
+        break;
+      }
+    }
+    if (targets.empty()) {
+      server->send(404, "application/json", "{\"ok\":false,\"error\":\"Family not found in manifest\"}");
+      return;
+    }
+  }
+
+  size_t installedCount = 0;
+  for (auto* family : targets) {
+    esp_task_wdt_reset();
+    if (!installRemoteFamily(*family, baseUrl, installer, error)) {
+      JsonDocument errDoc;
+      errDoc["ok"] = false;
+      errDoc["error"] = error;
+      errDoc["family"] = family->name;
+      errDoc["installedCount"] = static_cast<unsigned>(installedCount);
+      String out;
+      serializeJson(errDoc, out);
+      server->send(500, "application/json", out);
+      return;
+    }
+    installedCount++;
+  }
+
+  installer.refreshRegistry();
+  JsonDocument res;
+  res["ok"] = true;
+  res["installedCount"] = static_cast<unsigned>(installedCount);
+  String out;
+  serializeJson(res, out);
+  server->send(200, "application/json", out);
 }
 
 void CrossPointWebServer::handleFontUploadData() {

@@ -104,6 +104,10 @@
         color: white;
       }
       .btn-primary:hover { background: var(--accent-hover-color); }
+      .btn[disabled] {
+        opacity: 0.5;
+        cursor: default;
+      }
       .upload-form {
         display: flex;
         gap: 10px;
@@ -137,6 +141,13 @@
         font-size: 0.95em;
       }
       .notice a { color: inherit; font-weight: 600; }
+      .toolbar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 12px;
+      }
     </style>
   </head>
   <body>
@@ -152,6 +163,16 @@
     <div class="card">
       <h2>Installed Fonts</h2>
       <div id="families"><p class="empty">Loading...</p></div>
+    </div>
+
+    <div class="card">
+      <h2>Download Fonts</h2>
+      <div class="toolbar">
+        <button id="refreshManifest" class="btn btn-primary" type="button">Refresh Catalog</button>
+        <button id="downloadAllRemote" class="btn btn-primary" type="button">Download All Updates</button>
+      </div>
+      <div id="remoteFamilies"><p class="empty">Catalog not loaded</p></div>
+      <div id="remoteStatus"></div>
     </div>
 
     <div class="card">
@@ -174,6 +195,13 @@
       if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
       if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
       return bytes + ' B';
+    }
+
+    function setStatus(id, text, ok) {
+      const el = document.getElementById(id);
+      el.className = ok === undefined ? '' : (ok ? 'status-ok' : 'status-err');
+      el.style.display = 'block';
+      el.textContent = text;
     }
 
     async function loadFonts() {
@@ -230,10 +258,7 @@
 
     async function deleteFamily(name) {
       if (!confirm('Delete font family "' + name + '"?')) return;
-      const status = document.getElementById('status');
-      status.className = '';
-      status.style.display = 'block';
-      status.textContent = 'Deleting ' + name + '...';
+      setStatus('status', 'Deleting ' + name + '...');
       try {
         const res = await fetch('/api/fonts/delete', {
           method: 'POST',
@@ -241,17 +266,114 @@
           body: JSON.stringify({family: name})
         });
         if (res.ok) {
-          status.className = 'status-ok';
-          status.textContent = 'Deleted "' + name + '".';
+          setStatus('status', 'Deleted "' + name + '".', true);
         } else {
-          status.className = 'status-err';
-          status.textContent = 'Failed to delete "' + name + '".';
+          setStatus('status', 'Failed to delete "' + name + '".', false);
         }
       } catch (err) {
-        status.className = 'status-err';
-        status.textContent = 'Delete error: ' + err.message;
+        setStatus('status', 'Delete error: ' + err.message, false);
       }
       await loadFonts();
+    }
+
+    async function loadRemoteManifest() {
+      const el = document.getElementById('remoteFamilies');
+      el.innerHTML = '<p class="empty">Loading catalog...</p>';
+      try {
+        const res = await fetch('/api/fonts/manifest');
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'catalog unavailable');
+        }
+
+        el.innerHTML = '';
+        if (!Array.isArray(data.families) || data.families.length === 0) {
+          el.innerHTML = '<p class="empty">No remote fonts found</p>';
+          return;
+        }
+
+        data.families.forEach(f => {
+          const row = document.createElement('div');
+          row.className = 'family';
+
+          const info = document.createElement('div');
+          info.className = 'family-info';
+
+          const title = document.createElement('h3');
+          title.textContent = f.name;
+
+          const meta = document.createElement('span');
+          meta.className = 'family-meta';
+          const state = f.installed ? (f.hasUpdate ? 'Installed, update available' : 'Installed, up to date') : 'Not installed';
+          const details = state + ' - ' + (f.fileCount || 0) + ' file(s), ' + formatSize(f.totalSize || 0);
+          meta.textContent = f.description ? (f.description + ' - ' + details) : details;
+
+          info.appendChild(title);
+          info.appendChild(meta);
+
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-primary';
+          btn.dataset.family = f.name;
+          btn.textContent = f.installed ? (f.hasUpdate ? 'Update' : 'Reinstall') : 'Download';
+
+          row.appendChild(info);
+          row.appendChild(btn);
+          el.appendChild(row);
+        });
+
+        el.querySelectorAll('button[data-family]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            await downloadRemoteFamily(btn.dataset.family);
+            btn.disabled = false;
+          });
+        });
+      } catch (err) {
+        el.innerHTML = '<p class="empty">Failed to load catalog: ' + err.message + '</p>';
+      }
+    }
+
+    async function downloadRemoteFamily(family) {
+      setStatus('remoteStatus', 'Downloading "' + family + '"...');
+      try {
+        const res = await fetch('/api/fonts/download', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({family})
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'download failed');
+        }
+        setStatus('remoteStatus', 'Installed "' + family + '".', true);
+        await loadFonts();
+        await loadRemoteManifest();
+      } catch (err) {
+        setStatus('remoteStatus', 'Install failed for "' + family + '": ' + err.message, false);
+      }
+    }
+
+    async function downloadAllRemoteUpdates() {
+      setStatus('remoteStatus', 'Downloading all available updates...');
+      const btn = document.getElementById('downloadAllRemote');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/fonts/download', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({all: true})
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'download failed');
+        }
+        setStatus('remoteStatus', 'Installed/updated ' + (data.installedCount || 0) + ' family(s).', true);
+        await loadFonts();
+        await loadRemoteManifest();
+      } catch (err) {
+        setStatus('remoteStatus', 'Download-all failed: ' + err.message, false);
+      }
+      btn.disabled = false;
     }
 
     // Derive family name from a .cpfont filename: take everything before the
@@ -293,25 +415,20 @@
       const status = document.getElementById('status');
       const files = cpfontFilesOnly(document.getElementById('fontFiles').files);
       if (files.length === 0) {
-        status.className = 'status-err';
-        status.style.display = 'block';
-        status.textContent = 'No .cpfont files selected.';
+        setStatus('status', 'No .cpfont files selected.', false);
         return;
       }
 
       const families = files.map(f => sanitizeFamily(familyFromFilename(f.name)));
       const uniqueFamilies = new Set(families);
       if (uniqueFamilies.size !== 1) {
-        status.className = 'status-err';
-        status.style.display = 'block';
-        status.textContent = 'Selected files belong to multiple families.';
+        setStatus('status', 'Selected files belong to multiple families.', false);
         return;
       }
 
       const family = families[0];
 
-      status.className = '';
-      status.style.display = 'block';
+      setStatus('status', 'Preparing upload...');
 
       let uploaded = 0;
       for (const file of files) {
@@ -323,27 +440,29 @@
           const res = await fetch('/api/fonts/upload', { method: 'POST', body: formData });
           const data = await res.json();
           if (!data.ok) {
-            status.className = 'status-err';
-            status.textContent = 'Failed on ' + file.name + ': ' + (data.error || 'unknown error');
+            setStatus('status', 'Failed on ' + file.name + ': ' + (data.error || 'unknown error'), false);
             await loadFonts();
             return;
           }
         } catch (err) {
-          status.className = 'status-err';
-          status.textContent = 'Upload error on ' + file.name + ': ' + err.message;
+          setStatus('status', 'Upload error on ' + file.name + ': ' + err.message, false);
           await loadFonts();
           return;
         }
         uploaded++;
       }
 
-      status.className = 'status-ok';
-      status.textContent = 'Uploaded ' + uploaded + ' file' + (uploaded === 1 ? '' : 's') +
-        ' to family "' + family + '".';
+      setStatus('status', 'Uploaded ' + uploaded + ' file' + (uploaded === 1 ? '' : 's') +
+        ' to family "' + family + '".', true);
       await loadFonts();
+      await loadRemoteManifest();
     });
 
+    document.getElementById('refreshManifest').addEventListener('click', loadRemoteManifest);
+    document.getElementById('downloadAllRemote').addEventListener('click', downloadAllRemoteUpdates);
+
     loadFonts();
+    loadRemoteManifest();
   </script>
   </body>
 </html>
