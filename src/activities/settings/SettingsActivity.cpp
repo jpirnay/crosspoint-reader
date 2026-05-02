@@ -119,6 +119,12 @@ void SettingsActivity::onEnter() {
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   controlsSettings.insert(controlsSettings.begin(), SettingInfo::Separator(StrId::STR_MENU_BTN_PHYSICAL));
 
+  // Button Actions overview lives at the end of the Button Actions section (same subcategory as
+  // the per-button submenus, so no new separator is inserted).
+  addToMoved(controlsSettings, lastControlsSub,
+             std::move(SettingInfo::Action(StrId::STR_BTN_ACTIONS_OVERVIEW, SettingAction::ButtonActionsOverview)
+                           .withSubcategory(StrId::STR_MENU_BTN_ACTIONS)));
+
   addToMoved(readerSettings, lastReaderSub,
              SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
