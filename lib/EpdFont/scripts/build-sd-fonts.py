@@ -25,6 +25,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -34,7 +35,8 @@ import yaml
 SCRIPT_DIR = Path(__file__).parent
 FONTCONVERT = SCRIPT_DIR / "fontconvert_sdcard.py"
 EPDFONTS_DIR = SCRIPT_DIR.parent  # lib/EpdFont
-DEFAULT_CONFIG = SCRIPT_DIR / "sd-fonts.yaml"
+PRIMARY_CONFIG = SCRIPT_DIR / "sd-fonts.yaml"
+DEFAULT_CONFIG = PRIMARY_CONFIG
 DEFAULT_OUTPUT = SCRIPT_DIR / "output"
 DOWNLOAD_DIR = SCRIPT_DIR / "downloaded_fonts"
 INSTANCE_DIR = SCRIPT_DIR / "instanced_fonts"
@@ -99,6 +101,11 @@ def resolve_font_path(style_spec: dict, family_name: str, style_name: str) -> Pa
             raise FileNotFoundError(f"{family_name}/{style_name}: {resolved} not found")
     elif "url" in style_spec:
         url = style_spec["url"]
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"{family_name}/{style_name}: invalid URL scheme '{parsed.scheme or '<empty>'}'"
+            )
         # Derive a stable filename from the URL
         filename = url.rsplit("/", 1)[-1]
         dest = DOWNLOAD_DIR / family_name / filename
@@ -229,6 +236,9 @@ def main():
     parser.add_argument("--clean", action="store_true", help="Clean output directory before building")
     args = parser.parse_args()
 
+    # The assets copy is expected to be a link to PRIMARY_CONFIG.
+    # This script reads PRIMARY_CONFIG directly.
+
     if args.manifest and not args.base_url:
         parser.error("--base-url is required when using --manifest")
 
@@ -287,7 +297,14 @@ def main():
             for family in families
         }
         for future in as_completed(futures):
-            name, success, message = future.result()
+            name = futures[future]
+            success = False
+            message = ""
+            try:
+                name, success, message = future.result()
+            except Exception as e:
+                success = False
+                message = str(e)
             if success:
                 # Count output files
                 family_dir = output_base / name

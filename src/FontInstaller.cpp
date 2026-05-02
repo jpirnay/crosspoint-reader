@@ -13,6 +13,9 @@ FontInstaller::FontInstaller(SdCardFontRegistry& registry) : registry_(registry)
 bool FontInstaller::isValidFamilyName(const char* name) {
   if (name == nullptr || name[0] == '\0') return false;
 
+  const size_t nameLen = strlen(name);
+  if (nameLen == 0 || nameLen > MAX_FAMILY_NAME_LEN) return false;
+
   if (strstr(name, "..") != nullptr) return false;
   if (strchr(name, '/') != nullptr) return false;
   if (strchr(name, '\\') != nullptr) return false;
@@ -27,6 +30,19 @@ bool FontInstaller::isValidFamilyName(const char* name) {
 }
 
 bool FontInstaller::ensureFamilyDir(const char* familyName) {
+  if (!isValidFamilyName(familyName)) {
+    LOG_ERR("FONT", "Invalid family name: %s", familyName ? familyName : "<null>");
+    return false;
+  }
+
+  const size_t baseLen = strlen(SdCardFontRegistry::FONTS_DIR);
+  const size_t familyLen = strlen(familyName);
+  const size_t neededLen = baseLen + 1 + familyLen + 1;  // "/" + NUL
+  if (neededLen > 128) {
+    LOG_ERR("FONT", "Family dir path too long: %s", familyName);
+    return false;
+  }
+
   if (!Storage.exists(SdCardFontRegistry::FONTS_DIR)) {
     if (!Storage.mkdir(SdCardFontRegistry::FONTS_DIR)) {
       LOG_ERR("FONT", "Failed to create fonts dir: %s", SdCardFontRegistry::FONTS_DIR);
@@ -76,6 +92,13 @@ void FontInstaller::buildFontPath(const char* family, const char* filename, char
 
 FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
   if (!isValidFamilyName(familyName)) {
+    return Error::INVALID_FAMILY_NAME;
+  }
+
+  const size_t baseLen = strlen(SdCardFontRegistry::FONTS_DIR);
+  const size_t familyLen = strlen(familyName);
+  if (baseLen + 1 + familyLen + 1 > 128) {
+    LOG_ERR("FONT", "Family dir path too long: %s", familyName);
     return Error::INVALID_FAMILY_NAME;
   }
 

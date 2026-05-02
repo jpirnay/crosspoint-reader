@@ -7,6 +7,8 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <cstring>
+
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -183,10 +185,26 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   }
   requestUpdateAndWait();
 
-  if (!fontInstaller_.ensureFamilyDir(family.name.c_str())) {
+  char liveDir[128];
+  char stagingDir[128];
+  char backupDir[128];
+  snprintf(liveDir, sizeof(liveDir), "%s/%s", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  snprintf(stagingDir, sizeof(stagingDir), "%s/%s__staging", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  snprintf(backupDir, sizeof(backupDir), "%s/%s__backup", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+
+  if (Storage.exists(stagingDir) && !Storage.removeDir(stagingDir)) {
+    LOG_ERR("FONT", "Failed to clean staging dir: %s", stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
-    errorMessage_ = "Failed to create font directory";
+    errorMessage_ = "Failed to prepare staging area";
+    return;
+  }
+
+  if (!Storage.mkdir(stagingDir)) {
+    LOG_ERR("FONT", "Failed to create staging dir: %s", stagingDir);
+    RenderLock lock(*this);
+    state_ = ERROR;
+    errorMessage_ = "Failed to create staging area";
     return;
   }
 
@@ -201,12 +219,12 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     }
     requestUpdateAndWait();
 
-    char destPath[128];
-    FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), destPath, sizeof(destPath));
+    char stagedPath[128];
+    snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, file.name.c_str());
 
     std::string url = baseUrl_ + file.name;
 
-    auto result = HttpDownloader::downloadToFile(url, destPath, [this](size_t downloaded, size_t total) {
+    auto result = HttpDownloader::downloadToFile(url, stagedPath, [this](size_t downloaded, size_t total) {
       fileProgress_ = downloaded;
       fileTotal_ = total;
       requestUpdate(true);
@@ -214,20 +232,16 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     if (result != HttpDownloader::OK) {
       LOG_ERR("FONT", "Download failed: %s (%d)", file.name.c_str(), result);
-      fontInstaller_.deleteFamily(family.name.c_str());
-      family.installed = false;
-      family.hasUpdate = false;
+      Storage.removeDir(stagingDir);
       RenderLock lock(*this);
       state_ = ERROR;
       errorMessage_ = "Download failed: " + file.name;
       return;
     }
 
-    if (!fontInstaller_.validateCpfontFile(destPath)) {
-      LOG_ERR("FONT", "Invalid .cpfont: %s", destPath);
-      fontInstaller_.deleteFamily(family.name.c_str());
-      family.installed = false;
-      family.hasUpdate = false;
+    if (!fontInstaller_.validateCpfontFile(stagedPath)) {
+      LOG_ERR("FONT", "Invalid .cpfont: %s", stagedPath);
+      Storage.removeDir(stagingDir);
       RenderLock lock(*this);
       state_ = ERROR;
       errorMessage_ = "Invalid font file: " + file.name;
@@ -235,8 +249,45 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     }
   }
 
+  const bool hadLiveDir = Storage.exists(liveDir);
+
+  if (Storage.exists(backupDir) && !Storage.removeDir(backupDir)) {
+    LOG_ERR("FONT", "Failed to clean backup dir: %s", backupDir);
+    Storage.removeDir(stagingDir);
+    RenderLock lock(*this);
+    state_ = ERROR;
+    errorMessage_ = "Failed to prepare backup area";
+    return;
+  }
+
+  if (hadLiveDir && !Storage.rename(liveDir, backupDir)) {
+    LOG_ERR("FONT", "Failed to move live family to backup: %s", liveDir);
+    Storage.removeDir(stagingDir);
+    RenderLock lock(*this);
+    state_ = ERROR;
+    errorMessage_ = "Failed to replace installed font";
+    return;
+  }
+
+  if (!Storage.rename(stagingDir, liveDir)) {
+    LOG_ERR("FONT", "Failed to activate staged family: %s", stagingDir);
+    if (hadLiveDir && Storage.exists(backupDir)) {
+      Storage.rename(backupDir, liveDir);
+    }
+    Storage.removeDir(stagingDir);
+    RenderLock lock(*this);
+    state_ = ERROR;
+    errorMessage_ = "Failed to finalize font install";
+    return;
+  }
+
+  if (Storage.exists(backupDir) && !Storage.removeDir(backupDir)) {
+    LOG_INF("FONT", "Failed to remove backup dir after successful install: %s", backupDir);
+  }
+
   fontInstaller_.refreshRegistry();
   family.installed = true;
+  family.hasUpdate = false;
 
   RenderLock lock(*this);
   state_ = COMPLETE;
