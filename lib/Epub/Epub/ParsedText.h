@@ -27,6 +27,7 @@ class ParsedText {
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
   bool bionicReadingEnabled;
+  bool isContinuation_ = false;  ///< true after an intermediate flush; suppresses re-applying indent/transforms
 
   void applyParagraphIndent();
   void applyBionicReadingTransform();
@@ -74,6 +75,7 @@ class ParsedText {
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }
   bool isEmpty() const { return words.empty(); }
+  bool isContinuation() const { return isContinuation_; }
   void layoutAndExtractLines(
       const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
       const std::function<LineProcessResult(std::shared_ptr<TextBlock>, bool, bool)>& processLine,

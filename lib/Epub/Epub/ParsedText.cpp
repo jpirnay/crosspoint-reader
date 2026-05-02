@@ -215,9 +215,13 @@ void ParsedText::layoutAndExtractLines(
   }
 
   // Apply fixed transforms before any per-line layout work.
-  applyParagraphIndent();
-  if (bionicReadingEnabled) {
-    applyBionicReadingTransform();
+  // Skip on continuation flushes: the words are mid-paragraph and have
+  // already been transformed by the initial layoutAndExtractLines call.
+  if (!isContinuation_) {
+    applyParagraphIndent();
+    if (bionicReadingEnabled) {
+      applyBionicReadingTransform();
+    }
   }
 
   // Ensure SD card font glyph metrics are loaded before measuring word widths.
