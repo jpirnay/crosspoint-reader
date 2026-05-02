@@ -52,6 +52,21 @@ void SdCardFont::freeStyleMiniData(PerStyle& s) {
   s.miniIntervalCount = 0;
   s.miniGlyphCount = 0;
   s.miniMode = PerStyle::MiniMode::NONE;
+  // Clear dangling pointers in miniData and stubData (kern data points to freed mini arrays)
+  s.miniData.kernLeftClasses = nullptr;
+  s.miniData.kernRightClasses = nullptr;
+  s.miniData.kernMatrix = nullptr;
+  s.miniData.kernLeftEntryCount = 0;
+  s.miniData.kernRightEntryCount = 0;
+  s.miniData.kernLeftClassCount = 0;
+  s.miniData.kernRightClassCount = 0;
+  s.stubData.kernLeftClasses = nullptr;
+  s.stubData.kernRightClasses = nullptr;
+  s.stubData.kernMatrix = nullptr;
+  s.stubData.kernLeftEntryCount = 0;
+  s.stubData.kernRightEntryCount = 0;
+  s.stubData.kernLeftClassCount = 0;
+  s.stubData.kernRightClassCount = 0;
   // NOTE: reportedMissCount is intentionally NOT reset here. The merge path
   // calls freeStyleMiniData() to swap mini buffers, and resetting the miss
   // tracker every paragraph would re-spam the log for the same 4 missing cps.
