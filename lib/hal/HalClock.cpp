@@ -73,6 +73,7 @@ RTC_NOINIT_ATTR static time_t rtcEpoch;        // last-known unix epoch
 RTC_NOINIT_ATTR static uint64_t rtcLpTimeUs;   // esp_clk_rtc_time() at capture
 RTC_NOINIT_ATTR static uint32_t rtcSlowCal;    // esp_clk_slowclk_cal_get() at capture
 RTC_NOINIT_ATTR static float rtcTemperatureC;  // captured chip temperature at save
+RTC_NOINIT_ATTR static uint32_t rtcStateChecksum;
 
 static bool clockApproximate = true;
 
@@ -306,7 +307,58 @@ static void setSystemClock(time_t epoch) {
   settimeofday(&tv, nullptr);
 }
 
-static bool rtcValid() { return rtcClockMagic == CLOCK_RTC_MAGIC && rtcEpoch > 0; }
+static uint32_t fnv1a32Append(uint32_t hash, const void* data, size_t len) {
+  const auto* bytes = static_cast<const uint8_t*>(data);
+  for (size_t i = 0; i < len; ++i) {
+    hash ^= bytes[i];
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+static uint32_t computeRtcStateChecksum() {
+  uint32_t hash = 2166136261u;
+  hash = fnv1a32Append(hash, &rtcClockFlags, sizeof(rtcClockFlags));
+  hash = fnv1a32Append(hash, &rtcEpoch, sizeof(rtcEpoch));
+  hash = fnv1a32Append(hash, &rtcLpTimeUs, sizeof(rtcLpTimeUs));
+  hash = fnv1a32Append(hash, &rtcSlowCal, sizeof(rtcSlowCal));
+  hash = fnv1a32Append(hash, &rtcTemperatureC, sizeof(rtcTemperatureC));
+  return hash;
+}
+
+static bool rtcStateLooksSane() {
+  // Broad sanity window: reject obviously invalid RTC values only.
+  static constexpr time_t MIN_EPOCH = 1577836800;  // 2020-01-01 UTC
+  static constexpr time_t MAX_EPOCH = 7258118400;  // 2200-01-01 UTC
+
+  if (rtcEpoch < MIN_EPOCH || rtcEpoch > MAX_EPOCH) {
+    return false;
+  }
+  if (rtcLpTimeUs == 0 || rtcSlowCal == 0) {
+    return false;
+  }
+  if (!std::isfinite(rtcTemperatureC) || rtcTemperatureC < -80.0f || rtcTemperatureC > 150.0f) {
+    return false;
+  }
+  return true;
+}
+
+static bool rtcValid() {
+  if (rtcClockMagic != CLOCK_RTC_MAGIC) {
+    return false;
+  }
+
+  // Backward compatibility: older firmware snapshots had no checksum.
+  if (rtcStateChecksum == 0) {
+    return rtcStateLooksSane();
+  }
+
+  if (rtcStateChecksum != computeRtcStateChecksum()) {
+    return false;
+  }
+
+  return rtcStateLooksSane();
+}
 
 /// Compute temperature-corrected elapsed seconds from LP timer delta.
 /// Uses the trapezoidal rule (average of start + end temperature) as a
@@ -366,6 +418,7 @@ static void capture(bool lpValid) {
   rtcTemperatureC = readChipTemperatureC();
   rtcClockMagic = CLOCK_RTC_MAGIC;
   rtcClockFlags = lpValid ? CLOCK_RTC_FLAG_LP_VALID : 0;
+  rtcStateChecksum = computeRtcStateChecksum();
   nvsWrite(rtcEpoch);
 }
 
@@ -539,7 +592,16 @@ void restore() {
     if (lpNow > rtcLpTimeUs) {
       float tempNow = readChipTemperatureC();
       double correctedSec = computeCorrectedElapsedSec(lpNow, tempNow);
-      estimated += (time_t)correctedSec;
+      // Reject obviously bad values from a corrupted RTC snapshot.
+      // 157680000 s = 5 years.
+      if (std::isfinite(correctedSec) && correctedSec >= 0.0 && correctedSec <= 157680000.0) {
+        estimated += static_cast<time_t>(correctedSec);
+      } else {
+        LOG_ERR("CLK", "Discarding implausible LP elapsed time: %.3fs", correctedSec);
+      }
+    } else if (lpNow < rtcLpTimeUs) {
+      LOG_ERR("CLK", "LP timer regressed (now=%llu < saved=%llu), using baseline epoch",
+              static_cast<unsigned long long>(lpNow), static_cast<unsigned long long>(rtcLpTimeUs));
     }
 
     setSystemClock(estimated);
@@ -548,6 +610,7 @@ void restore() {
     rtcLpTimeUs = esp_clk_rtc_time();
     rtcSlowCal = esp_clk_slowclk_cal_get();
     rtcTemperatureC = readChipTemperatureC();
+    rtcStateChecksum = computeRtcStateChecksum();
     clockApproximate = true;
     LOG_INF("CLK", "Restored from RTC + LP timer, epoch %lld", (long long)estimated);
     return;
@@ -572,6 +635,7 @@ void restore() {
     }
     rtcClockMagic = CLOCK_RTC_MAGIC;
     rtcClockFlags = 0;
+    rtcStateChecksum = computeRtcStateChecksum();
     clockApproximate = true;
     LOG_INF("CLK", "Restored from NVS, epoch %lld (no elapsed correction)", (long long)epoch);
   }
