@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseUrl": "https://github.com/jpirnay/crosspoint-reader/blob/master/assets/sd-fonts/",
+  "baseUrl": "https://raw.githubusercontent.com/jpirnay/crosspoint-reader/master/assets/sd-fonts/",
   "families": [
     {
       "name": "Alegreya",
