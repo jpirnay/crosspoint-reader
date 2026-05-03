@@ -24,8 +24,8 @@ constexpr std::array<ButtonRow, 7> kButtonRows = {{
     {StrId::STR_BTN_BACK, StrId::STR_BTN_BACK},
     {StrId::STR_BTN_LEFT, StrId::STR_BTN_LEFT},
     {StrId::STR_BTN_RIGHT, StrId::STR_BTN_RIGHT},
-    {StrId::STR_BTN_PAGE_BACK, StrId::STR_BTN_PAGE_BACK},
-    {StrId::STR_BTN_PAGE_FORWARD, StrId::STR_BTN_PAGE_FORWARD},
+    {StrId::STR_BTN_UP, StrId::STR_BTN_UP},
+    {StrId::STR_BTN_DOWN, StrId::STR_BTN_DOWN},
     {StrId::STR_BTN_CONFIRM, StrId::STR_BTN_CONFIRM},
 }};
 
