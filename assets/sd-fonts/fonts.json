@@ -641,6 +641,38 @@
       ]
     },
     {
+      "name": "Readerly",
+      "description": "Similar to Bookerly (Latin, Cyrillic)",
+      "styles": [
+        "regular",
+        "bold",
+        "italic",
+        "bolditalic"
+      ],
+      "files": [
+        {
+          "name": "Readerly/Readerly_10.cpfont",
+          "size": 263347
+        },
+        {
+          "name": "Readerly/Readerly_12.cpfont",
+          "size": 310673
+        },
+        {
+          "name": "Readerly/Readerly_14.cpfont",
+          "size": 364939
+        },
+        {
+          "name": "Readerly/Readerly_16.cpfont",
+          "size": 427197
+        },
+        {
+          "name": "Readerly/Readerly_18.cpfont",
+          "size": 518089
+        }
+      ]
+    },
+    {
       "name": "SourceCodePro",
       "description": "Adobe monospace with excellent hinting (Latin)",
       "styles": [
