@@ -173,13 +173,13 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=1200,
         )
         if result.returncode != 0:
             return name, False, result.stderr.strip() or f"Exit code {result.returncode}"
         return name, True, ""
     except subprocess.TimeoutExpired:
-        return name, False, "Timed out after 600s"
+        return name, False, "Timed out after 1200s"
     except Exception as e:
         return name, False, str(e)
 

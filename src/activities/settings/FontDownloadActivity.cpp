@@ -222,6 +222,13 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     char stagedPath[128];
     snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, file.name.c_str());
 
+    // Make sure parent directories exist for the file
+    std::string stagedPathStr(stagedPath);
+    size_t lastSlash = stagedPathStr.find_last_of('/');
+    if (lastSlash != std::string::npos) {
+      Storage.mkdir(stagedPathStr.substr(0, lastSlash).c_str());
+    }
+
     std::string url = baseUrl_ + file.name;
 
     auto result = HttpDownloader::downloadToFile(url, stagedPath, [this](size_t downloaded, size_t total) {
