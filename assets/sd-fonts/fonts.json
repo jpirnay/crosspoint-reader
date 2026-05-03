@@ -27,6 +27,10 @@
         {
           "name": "Alegreya/Alegreya_16.cpfont",
           "size": 595370
+        },
+        {
+          "name": "Alegreya/Alegreya_18.cpfont",
+          "size": 717674
         }
       ]
     },
@@ -87,6 +91,10 @@
         {
           "name": "Bitter/Bitter_16.cpfont",
           "size": 517782
+        },
+        {
+          "name": "Bitter/Bitter_18.cpfont",
+          "size": 615582
         }
       ]
     },
@@ -115,6 +123,10 @@
         {
           "name": "Gelasio/Gelasio_16.cpfont",
           "size": 447480
+        },
+        {
+          "name": "Gelasio/Gelasio_18.cpfont",
+          "size": 548094
         }
       ]
     },
@@ -139,6 +151,14 @@
         {
           "name": "GentiumBookPlus/GentiumBookPlus_14.cpfont",
           "size": 645720
+        },
+        {
+          "name": "GentiumBookPlus/GentiumBookPlus_16.cpfont",
+          "size": 800427
+        },
+        {
+          "name": "GentiumBookPlus/GentiumBookPlus_18.cpfont",
+          "size": 983908
         }
       ]
     },
@@ -199,6 +219,10 @@
         {
           "name": "IBMPlexSans/IBMPlexSans_16.cpfont",
           "size": 544046
+        },
+        {
+          "name": "IBMPlexSans/IBMPlexSans_18.cpfont",
+          "size": 658695
         }
       ]
     },
@@ -227,6 +251,10 @@
         {
           "name": "IBMPlexSerif/IBMPlexSerif_16.cpfont",
           "size": 441596
+        },
+        {
+          "name": "IBMPlexSerif/IBMPlexSerif_18.cpfont",
+          "size": 542532
         }
       ]
     },
@@ -251,6 +279,14 @@
         {
           "name": "Inter/Inter_14.cpfont",
           "size": 807250
+        },
+        {
+          "name": "Inter/Inter_16.cpfont",
+          "size": 982216
+        },
+        {
+          "name": "Inter/Inter_18.cpfont",
+          "size": 1175576
         }
       ]
     },
@@ -307,6 +343,14 @@
         {
           "name": "Literata/Literata_14.cpfont",
           "size": 691897
+        },
+        {
+          "name": "Literata/Literata_16.cpfont",
+          "size": 816373
+        },
+        {
+          "name": "Literata/Literata_18.cpfont",
+          "size": 1017583
         }
       ]
     },
@@ -335,6 +379,10 @@
         {
           "name": "Lora/Lora_16.cpfont",
           "size": 453301
+        },
+        {
+          "name": "Lora/Lora_18.cpfont",
+          "size": 572188
         }
       ]
     },
@@ -359,12 +407,20 @@
         {
           "name": "Merriweather/Merriweather_14.cpfont",
           "size": 570179
+        },
+        {
+          "name": "Merriweather/Merriweather_16.cpfont",
+          "size": 688291
+        },
+        {
+          "name": "Merriweather/Merriweather_18.cpfont",
+          "size": 821310
         }
       ]
     },
     {
       "name": "NotoSansArmenian",
-      "description": "Armenian script",
+      "description": "NotoSansArmenian",
       "styles": [
         "regular"
       ],
@@ -392,8 +448,21 @@
       ]
     },
     {
+      "name": "NotoSansCJK",
+      "description": "Sans-serif (Chinese, Japanese, Korean)",
+      "styles": [
+        "regular"
+      ],
+      "files": [
+        {
+          "name": "NotoSansCJK/NotoSansCJK_10.cpfont",
+          "size": 2567898
+        }
+      ]
+    },
+    {
       "name": "NotoSansEthiopic",
-      "description": "Ethiopic/Ge'ez script",
+      "description": "NotoSansEthiopic",
       "styles": [
         "regular"
       ],
@@ -441,12 +510,20 @@
         {
           "name": "NotoSansExtended/NotoSansExtended_14.cpfont",
           "size": 802460
+        },
+        {
+          "name": "NotoSansExtended/NotoSansExtended_16.cpfont",
+          "size": 989069
+        },
+        {
+          "name": "NotoSansExtended/NotoSansExtended_18.cpfont",
+          "size": 1198735
         }
       ]
     },
     {
       "name": "NotoSansGeorgian",
-      "description": "Georgian script",
+      "description": "NotoSansGeorgian",
       "styles": [
         "regular"
       ],
@@ -483,6 +560,23 @@
         {
           "name": "NotoSansHangul/NotoSansHangul_10.cpfont",
           "size": 1180396
+        },
+        {
+          "name": "NotoSansHangul/NotoSansHangul_12.cpfont",
+          "size": 1614395
+        }
+      ]
+    },
+    {
+      "name": "NotoSerifCJK",
+      "description": "Serif (Chinese, Japanese, Korean)",
+      "styles": [
+        "regular"
+      ],
+      "files": [
+        {
+          "name": "NotoSerifCJK/NotoSerifCJK_10.cpfont",
+          "size": 2615442
         }
       ]
     },
@@ -507,6 +601,10 @@
         {
           "name": "NotoSerifExtended/NotoSerifExtended_14.cpfont",
           "size": 820713
+        },
+        {
+          "name": "NotoSerifExtended/NotoSerifExtended_16.cpfont",
+          "size": 1006302
         }
       ]
     },
@@ -531,6 +629,10 @@
         {
           "name": "OpenDyslexic/OpenDyslexic_14.cpfont",
           "size": 483820
+        },
+        {
+          "name": "OpenDyslexic/OpenDyslexic_16.cpfont",
+          "size": 602862
         },
         {
           "name": "OpenDyslexic/OpenDyslexic_8.cpfont",
@@ -595,6 +697,10 @@
         {
           "name": "SourceSans3/SourceSans3_16.cpfont",
           "size": 669252
+        },
+        {
+          "name": "SourceSans3/SourceSans3_18.cpfont",
+          "size": 792752
         }
       ]
     },

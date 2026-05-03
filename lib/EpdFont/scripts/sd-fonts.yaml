@@ -123,6 +123,16 @@ families:
       italic:     {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/bitter/Bitter-Italic%5Bwght%5D.ttf", variable: {wght: 400}}
       bolditalic: {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/bitter/Bitter-Italic%5Bwght%5D.ttf", variable: {wght: 700}}
 
+  - name: Readerly
+    description: "Similar to Bookerly (Latin, Cyrillic)"
+    intervals: latin-ext,cyrillic
+    sizes: [10, 12, 14, 16, 18]
+    styles:
+      regular:    {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-Regular.ttf"}
+      bold:       {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-Bold.ttf"}
+      italic:     {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-Italic.ttf"}
+      bolditalic: {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-BoldItalic.ttf"}
+
   # ── Sans-serif ─────────────────────────────────────────────────────────
 
   - name: NotoSansExtended
