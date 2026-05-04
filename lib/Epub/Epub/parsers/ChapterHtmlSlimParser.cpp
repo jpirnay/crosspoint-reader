@@ -1,5 +1,6 @@
 #include "ChapterHtmlSlimParser.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -30,6 +31,9 @@ constexpr size_t MIN_SIZE_FOR_POPUP = 15 * 1024;
 constexpr size_t SIZE_FOR_PROGRESS_HEARTBEAT = 30 * 1024;
 constexpr size_t SIZE_FOR_PROGRESS_FINE = 80 * 1024;
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
+constexpr size_t IMAGE_EXTRACT_CHUNK_SIZE = 1024;
+constexpr size_t MIN_FREE_HEAP_FOR_IMAGE_EXTRACT = 48 * 1024;
+constexpr size_t MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT = 36 * 1024;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "pre"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
@@ -466,9 +470,47 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       if (!src.empty() && self->imageRendering != 1) {
         LOG_DBG("EHP", "Found image: src=%s", src.c_str());
 
+        if (self->lowMemoryImageFallback) {
+          if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
+            BlockStyle resetStyle;
+            resetStyle.textAlignDefined = true;
+            const auto align = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                                   ? CssTextAlign::Justify
+                                   : static_cast<CssTextAlign>(self->paragraphAlignment);
+            resetStyle.alignment = align;
+            self->currentTextBlock->setBlockStyle(resetStyle);
+          }
+          self->skipUntilDepth = self->depth;
+          self->depth += 1;
+          return;
+        }
+
         {
           // Resolve the image path relative to the HTML file
           std::string resolvedPath = FsHelpers::normalisePath(self->contentBase + src);
+
+          const uint32_t freeHeap = ESP.getFreeHeap();
+          const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+          if (!self->lowMemoryImageFallback &&
+              (freeHeap < MIN_FREE_HEAP_FOR_IMAGE_EXTRACT || maxAllocHeap < MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT)) {
+            self->lowMemoryImageFallback = true;
+            LOG_ERR("EHP", "Low heap before image extraction (%u free, %u max alloc); suppressing inline images",
+                    freeHeap, maxAllocHeap);
+          }
+          if (self->lowMemoryImageFallback) {
+            if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
+              BlockStyle resetStyle;
+              resetStyle.textAlignDefined = true;
+              const auto align = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                                     ? CssTextAlign::Justify
+                                     : static_cast<CssTextAlign>(self->paragraphAlignment);
+              resetStyle.alignment = align;
+              self->currentTextBlock->setBlockStyle(resetStyle);
+            }
+            self->skipUntilDepth = self->depth;
+            self->depth += 1;
+            return;
+          }
 
           if (ImageDecoderFactory::isFormatSupported(resolvedPath)) {
             // Create a unique filename for the cached image
@@ -483,13 +525,37 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             FsFile cachedImageFile;
             bool extractSuccess = false;
             if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
+              extractSuccess =
+                  self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, IMAGE_EXTRACT_CHUNK_SIZE);
               cachedImageFile.flush();
               cachedImageFile.close();
               delay(50);  // Give SD card time to sync
             }
 
             if (extractSuccess) {
+              const uint32_t postExtractFreeHeap = ESP.getFreeHeap();
+              const uint32_t postExtractMaxAllocHeap = ESP.getMaxAllocHeap();
+              if (postExtractFreeHeap < MIN_FREE_HEAP_FOR_IMAGE_EXTRACT ||
+                  postExtractMaxAllocHeap < MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT) {
+                self->lowMemoryImageFallback = true;
+                LOG_ERR("EHP",
+                        "Low heap after image extraction (%u free, %u max alloc); suppressing remaining inline images",
+                        postExtractFreeHeap, postExtractMaxAllocHeap);
+                Storage.remove(cachedImagePath.c_str());
+                if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
+                  BlockStyle resetStyle;
+                  resetStyle.textAlignDefined = true;
+                  const auto align = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                                         ? CssTextAlign::Justify
+                                         : static_cast<CssTextAlign>(self->paragraphAlignment);
+                  resetStyle.alignment = align;
+                  self->currentTextBlock->setBlockStyle(resetStyle);
+                }
+                self->skipUntilDepth = self->depth;
+                self->depth += 1;
+                return;
+              }
+              // Get image dimensions
               // Get image dimensions
               ImageDimensions dims = {0, 0};
               ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(cachedImagePath);
