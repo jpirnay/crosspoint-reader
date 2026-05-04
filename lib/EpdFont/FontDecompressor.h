@@ -41,6 +41,10 @@ class FontDecompressor {
     uint32_t peakTempBytes = 0;    // largest temp buffer in prewarm or getBitmap miss
     uint32_t getBitmapTimeUs = 0;  // cumulative getBitmap time (micros)
     uint32_t getBitmapCalls = 0;   // number of getBitmap calls
+
+    // LRU specific stats
+    uint32_t fallbackCacheHits = 0;
+    uint32_t fallbackCacheMisses = 0;
   };
   void logStats(const char* label = "FDC");
   void resetStats();
@@ -68,10 +72,18 @@ class FontDecompressor {
   uint8_t pageSlotCount = 0;
 
   static constexpr uint16_t HOT_GLYPH_BUF_SIZE = 512;  // largest packed single glyph
+  static constexpr uint8_t FALLBACK_CACHE_SLOTS = 1;
 
-  // Scratch buffer for compacting a single glyph after a getBitmap() miss.
-  // Valid until the next getBitmap() call.
-  uint8_t _hotGlyphBuf[HOT_GLYPH_BUF_SIZE] = {};
+  struct FallbackSlot {
+    const EpdFontData* fontData;
+    uint32_t glyphIndex;
+    uint32_t lastUsedTick;
+    uint8_t buffer[HOT_GLYPH_BUF_SIZE];
+  };
+
+  // LRU cache for fallback glyph decompresion
+  FallbackSlot _fallbackCache[FALLBACK_CACHE_SLOTS] = {};
+  uint32_t _fallbackTick = 0;
 
   void freePageBuffer();
   uint16_t getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex);
