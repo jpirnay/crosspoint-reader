@@ -10,6 +10,7 @@ namespace FsHelpers {
 // both normalisePath overloads so the parsing rules stay in one place.
 static void appendOrPopComponent(std::string& out, const char* compData, size_t compLen) {
   if (compLen == 0) return;
+  if (compLen == 1 && compData[0] == '.') return;
   if (compLen == 2 && compData[0] == '.' && compData[1] == '.') {
     if (out.empty()) return;
     const auto lastSlash = out.find_last_of('/');
