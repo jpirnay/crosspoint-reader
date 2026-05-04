@@ -76,6 +76,7 @@ bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
 }
 
 bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCacheMode cacheMode) {
+  const unsigned long opfParseStart = millis();
   std::string contentOpfFilePath;
   if (!findContentOpfFile(&contentOpfFilePath)) {
     LOG_ERR("EBP", "Could not find content.opf in zip");
@@ -91,6 +92,7 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCac
     LOG_ERR("EBP", "Could not get size of content.opf");
     return false;
   }
+  LOG_DBG("EBP", "content.opf size=%zu bytes", contentOpfSize);
 
   ContentOpfParser opfParser(getCachePath(), getBasePath(), contentOpfSize,
                              cacheMode == OpfCacheMode::Enabled ? bookMetadataCache.get() : nullptr);
@@ -99,10 +101,18 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCac
     return false;
   }
 
+  const unsigned long streamStart = millis();
   if (!readItemContentsToStream(contentOpfFilePath, opfParser, 1024)) {
     LOG_ERR("EBP", "Could not read content.opf");
     return false;
   }
+  const unsigned long streamMs = millis() - streamStart;
+  LOG_DBG("EBP",
+          "content.opf stream=%lu ms, parser.write_calls=%zu, bytes=%zu, parse_buffer=%lu ms, manifest_open=%lu ms, "
+          "spine_open=%lu ms, guide_open=%lu ms, itemrefs=%zu, itemref_lookup=%lu ms, create_spine=%lu ms",
+          streamMs, opfParser.stats.writeCalls, opfParser.stats.bytesParsed, opfParser.stats.parseBufferMs,
+          opfParser.stats.manifestOpenMs, opfParser.stats.spineOpenMs, opfParser.stats.guideOpenMs,
+          opfParser.stats.itemRefCount, opfParser.stats.itemRefLookupMs, opfParser.stats.createSpineEntryMs);
 
   // Grab data from opfParser into epub
   bookMetadata.title = opfParser.title;
@@ -241,33 +251,61 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCac
       return value;
     };
 
-    for (const auto& baseDir : baseDirs) {
-      for (const char* subDir : kCoverSubdirs) {
-        for (const char* baseName : kCoverBaseNames) {
-          const std::string lowerBase = baseName;
-          const std::string upperBase = toUpper(lowerBase);
-          for (const std::string* baseVariant : {&lowerBase, &upperBase}) {
-            for (const char* ext : kCoverExtensions) {
-              const std::string lowerExt = ext;
-              const std::string upperExt = toUpper(lowerExt);
-              for (const std::string* extVariant : {&lowerExt, &upperExt}) {
-                const std::string candidate =
-                    FsHelpers::normalisePath(baseDir + subDir + *baseVariant + "." + *extVariant);
-                if (hasReadableSupportedCover(candidate)) {
-                  bookMetadata.coverItemHref = candidate;
-                  LOG_DBG("EBP", "Found cover image via common candidate fallback: %s",
-                          bookMetadata.coverItemHref.c_str());
-                  goto cover_fallback_done;
-                }
-              }
-            }
-          }
+    const unsigned long coverBatchStart = millis();
+    ZipFile zip(filepath);
+    const bool zipIndexLoaded = zip.loadAllFileStatSlims();
+    LOG_DBG("EBP", "Common cover fallback indexed ZIP in %lu ms (ok=%d)", millis() - coverBatchStart,
+            zipIndexLoaded ? 1 : 0);
+
+    if (zipIndexLoaded) {
+      int checkedCandidates = 0;
+      const auto tryCandidate = [&](const std::string& candidate) {
+        checkedCandidates++;
+        size_t coverSize = 0;
+        if (zip.getInflatedFileSize(candidate.c_str(), &coverSize) && coverSize > 0) {
+          bookMetadata.coverItemHref = candidate;
+          LOG_DBG("EBP", "Found cover image via common candidate fallback after %d checks in %lu ms: %s",
+                  checkedCandidates, millis() - coverBatchStart, bookMetadata.coverItemHref.c_str());
+          return true;
         }
+        return false;
+      };
+
+      bool foundCoverCandidate = false;
+      for (const auto& baseDir : baseDirs) {
+        for (const char* subDir : kCoverSubdirs) {
+          for (const char* baseName : kCoverBaseNames) {
+            const std::string lowerBase = baseName;
+            const std::string upperBase = toUpper(lowerBase);
+            for (const std::string* baseVariant : {&lowerBase, &upperBase}) {
+              for (const char* ext : kCoverExtensions) {
+                const std::string lowerExt = ext;
+                const std::string upperExt = toUpper(lowerExt);
+                for (const std::string* extVariant : {&lowerExt, &upperExt}) {
+                  const std::string candidate =
+                      FsHelpers::normalisePath(baseDir + subDir + *baseVariant + "." + *extVariant);
+                  if (tryCandidate(candidate)) {
+                    foundCoverCandidate = true;
+                    break;
+                  }
+                }
+                if (foundCoverCandidate) break;
+              }
+              if (foundCoverCandidate) break;
+            }
+            if (foundCoverCandidate) break;
+          }
+          if (foundCoverCandidate) break;
+        }
+        if (foundCoverCandidate) break;
+      }
+
+      if (!foundCoverCandidate) {
+        LOG_DBG("EBP", "Common cover fallback checked %d cached candidates in %lu ms with no match", checkedCandidates,
+                millis() - coverBatchStart);
       }
     }
   }
-
-cover_fallback_done:
 
   bookMetadata.textReferenceHref = opfParser.textReferenceHref;
 
@@ -283,6 +321,7 @@ cover_fallback_done:
     cssFiles = opfParser.cssFiles;
   }
 
+  LOG_DBG("EBP", "parseContentOpf total=%lu ms", millis() - opfParseStart);
   LOG_DBG("EBP", "Successfully parsed content.opf");
   return true;
 }
