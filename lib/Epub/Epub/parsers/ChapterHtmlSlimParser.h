@@ -57,6 +57,7 @@ class ChapterHtmlSlimParser final : public Print {
   std::string contentBase;
   std::string imageBasePath;
   int imageCounter = 0;
+  bool lowMemoryImageFallback = false;
 
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
