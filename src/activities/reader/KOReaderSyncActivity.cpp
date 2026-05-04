@@ -95,8 +95,7 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   logSyncMemSnapshot("after_performSync");
 }
 
-void KOReaderSyncActivity::performSync() {
-  // Calculate document hash based on user's preferred method
+bool KOReaderSyncActivity::calculateDocumentHash() {
   if (KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME) {
     documentHash = KOReaderDocumentId::calculateFromFilename(epubPath);
   } else {
@@ -109,81 +108,48 @@ void KOReaderSyncActivity::performSync() {
       statusMessage = tr(STR_HASH_FAILED);
     }
     requestUpdate(true);
-    return;
+    return false;
   }
 
   LOG_DBG("KOSync", "Document hash: %s", documentHash.c_str());
+  return true;
+}
 
-  // Local mapping is only needed for compare/upload paths.
-  // Pull-only modes can skip this expensive step and go straight to remote fetch.
-  if (syncIntent != KOReaderSyncIntentState::PULL_REMOTE && syncIntent != KOReaderSyncIntentState::AUTO_PULL) {
-    // Precompute local mapping before first network request so the expensive
-    // inflate/index work happens before TLS. This avoids a second local mapping
-    // pass later and keeps the upload path lightweight.
+bool KOReaderSyncActivity::handleAutoPushPreflight() {
+  KOReaderSyncClient::beginPersistentSession();
+  KOReaderProgress warmupProgress;
+  const auto warmupResult = KOReaderSyncClient::getProgress(documentHash, warmupProgress);
+  if (warmupResult != KOReaderSyncClient::OK && warmupResult != KOReaderSyncClient::NOT_FOUND) {
+    KOReaderSyncClient::endPersistentSession();
     {
       RenderLock lock(*this);
-      statusMessage = tr(STR_MAPPING_LOCAL);
-    }
-    requestUpdateAndWait();
-    if (!computeLocalProgressAndChapter()) {
-      {
-        RenderLock lock(*this);
-        state = SYNC_FAILED;
-        statusMessage = tr(STR_SYNC_FAILED_MSG);
+      state = SYNC_FAILED;
+      statusMessage = KOReaderSyncClient::errorString(warmupResult);
+      const char* detail = KOReaderSyncClient::lastFailureDetail();
+      if (detail && detail[0]) {
+        statusMessage += " — ";
+        statusMessage += detail;
       }
-      requestUpdate(true);
-      return;
     }
+    requestUpdate(true);
+    return false;
   }
-
-  // Drop EPUB state before HTTPS to maximize contiguous heap for TLS.
-  releaseEpubForMapping();
-
-  // Push intent skips comparison UI but still warms an HTTP/TLS session first
-  // so PUT can reuse the connection instead of forcing a fresh handshake.
-  if (syncIntent == KOReaderSyncIntentState::PUSH_LOCAL || syncIntent == KOReaderSyncIntentState::AUTO_PUSH) {
-    // Direct push previously started with no reusable HTTP/TLS session, forcing
-    // a fresh handshake in updateProgress. Compare flow often succeeds because
-    // upload reuses the GET session. Warm the session here so push can take the
-    // same reuse path without showing comparison UI.
-    KOReaderSyncClient::beginPersistentSession();
-    KOReaderProgress warmupProgress;
-    const auto warmupResult = KOReaderSyncClient::getProgress(documentHash, warmupProgress);
-    if (warmupResult != KOReaderSyncClient::OK && warmupResult != KOReaderSyncClient::NOT_FOUND) {
-      KOReaderSyncClient::endPersistentSession();
-      {
-        RenderLock lock(*this);
-        state = SYNC_FAILED;
-        statusMessage = KOReaderSyncClient::errorString(warmupResult);
-        const char* detail = KOReaderSyncClient::lastFailureDetail();
-        if (detail && detail[0]) {
-          statusMessage += " — ";
-          statusMessage += detail;
-        }
-      }
-      requestUpdate(true);
-      return;
-    }
-    // Auto-push must not overwrite progress that is already further along on the server.
-    // Compare percentages from the warmup GET; users opted into automatic sync, so a
-    // remote-ahead state is treated as "nothing to do" and falls straight back to home.
-    if (syncIntent == KOReaderSyncIntentState::AUTO_PUSH && warmupResult == KOReaderSyncClient::OK &&
-        warmupProgress.percentage > localProgress.percentage) {
-      LOG_DBG("KOSync", "AUTO_PUSH skipped: remote %.4f >= local %.4f", warmupProgress.percentage,
-              localProgress.percentage);
-      KOReaderSyncClient::endPersistentSession();
-      HalClock::wifiOff(true);
-      // Reuse UPLOAD_COMPLETE outcome so the resume path is identical to a successful push;
-      // there is nothing to apply to the reader and progress.bin already reflects local state.
-      APP_STATE.koReaderSyncSession.outcome = KOReaderSyncOutcomeState::UPLOAD_COMPLETE;
-      APP_STATE.saveToFile();
-      resumeReader(KOReaderSyncOutcomeState::UPLOAD_COMPLETE);
-      return;
-    }
-    performUpload();
-    return;
+  // Auto-push must not overwrite progress that is already further along on the server.
+  if (syncIntent == KOReaderSyncIntentState::AUTO_PUSH && warmupResult == KOReaderSyncClient::OK &&
+      warmupProgress.percentage > localProgress.percentage) {
+    LOG_DBG("KOSync", "AUTO_PUSH skipped: remote %.4f >= local %.4f", warmupProgress.percentage,
+            localProgress.percentage);
+    KOReaderSyncClient::endPersistentSession();
+    HalClock::wifiOff(true);
+    APP_STATE.koReaderSyncSession.outcome = KOReaderSyncOutcomeState::UPLOAD_COMPLETE;
+    APP_STATE.saveToFile();
+    resumeReader(KOReaderSyncOutcomeState::UPLOAD_COMPLETE);
+    return false;
   }
+  return true;
+}
 
+void KOReaderSyncActivity::performFetchAndCompare() {
   {
     RenderLock lock(*this);
     statusMessage = tr(STR_FETCH_PROGRESS);
@@ -213,7 +179,6 @@ void KOReaderSyncActivity::performSync() {
 
     if (syncIntent == KOReaderSyncIntentState::AUTO_PULL) {
       // Auto-pull at book open: nothing to apply, just open the book with local progress.
-      // No user-visible failure since the user opted into "open with sync, if available".
       KOReaderSyncClient::endPersistentSession();
       HalClock::wifiOff(true);
       resumeReader(KOReaderSyncOutcomeState::CANCELLED);
@@ -236,8 +201,6 @@ void KOReaderSyncActivity::performSync() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
-      // Combine the short category label with the rich diagnostic so users (and bug
-      // reports) can tell network/TLS/server/heap failures apart at a glance.
       statusMessage = KOReaderSyncClient::errorString(result);
       const char* detail = KOReaderSyncClient::lastFailureDetail();
       if (detail && detail[0]) {
@@ -326,10 +289,6 @@ void KOReaderSyncActivity::performSync() {
     state = SHOWING_RESULT;
 
     // Default to the option that corresponds to the furthest progress.
-    // Compare in the shared CrossPoint coordinate system (spine → page → paragraph)
-    // rather than percentage, since percentages are derived differently on each
-    // side and lose resolution. Remote has already been mapped via
-    // ensureRemotePositionMapped() at this point.
     auto isLocalAhead = [&]() {
       if (remotePosition.spineIndex < 0) {
         return localProgress.percentage > remoteProgress.percentage;  // mapping unavailable; fall back
@@ -348,6 +307,49 @@ void KOReaderSyncActivity::performSync() {
     selectedOption = isLocalAhead() ? 1 /* Upload local */ : 0 /* Apply remote */;
   }
   requestUpdate(true);
+}
+
+void KOReaderSyncActivity::performSync() {
+  if (!calculateDocumentHash()) {
+    return;
+  }
+
+  // Local mapping is only needed for compare/upload paths.
+  // Pull-only modes can skip this expensive step and go straight to remote fetch.
+  if (syncIntent != KOReaderSyncIntentState::PULL_REMOTE && syncIntent != KOReaderSyncIntentState::AUTO_PULL) {
+    // Precompute local mapping before first network request so the expensive
+    // inflate/index work happens before TLS. This avoids a second local mapping
+    // pass later and keeps the upload path lightweight.
+    {
+      RenderLock lock(*this);
+      statusMessage = tr(STR_MAPPING_LOCAL);
+    }
+    requestUpdateAndWait();
+    if (!computeLocalProgressAndChapter()) {
+      {
+        RenderLock lock(*this);
+        state = SYNC_FAILED;
+        statusMessage = tr(STR_SYNC_FAILED_MSG);
+      }
+      requestUpdate(true);
+      return;
+    }
+  }
+
+  // Drop EPUB state before HTTPS to maximize contiguous heap for TLS.
+  releaseEpubForMapping();
+
+  // Push intent skips comparison UI but still warms an HTTP/TLS session first
+  // so PUT can reuse the connection instead of forcing a fresh handshake.
+  if (syncIntent == KOReaderSyncIntentState::PUSH_LOCAL || syncIntent == KOReaderSyncIntentState::AUTO_PUSH) {
+    if (!handleAutoPushPreflight()) {
+      return;
+    }
+    performUpload();
+    return;
+  }
+
+  performFetchAndCompare();
 }
 
 void KOReaderSyncActivity::performUpload() {
