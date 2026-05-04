@@ -2016,6 +2016,14 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
         requestUpdate();
       }
       break;
+    case BA::BTN_CYCLE_ORIENTATION:
+      if (epub) {
+        const uint8_t nextOrientation =
+            static_cast<uint8_t>((SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT);
+        applyOrientation(nextOrientation);
+        requestUpdate();
+      }
+      break;
     case BA::BTN_KOREADER_SYNC:
       launchKOReaderSync(SyncLaunchMode::COMPARE);
       break;
