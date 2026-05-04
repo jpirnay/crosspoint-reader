@@ -82,9 +82,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
   if (httpCode != HTTP_CODE_OK) {
     LOG_ERR("HTTP", "Fetch failed: %d", httpCode);
     http.end();
-    if (client) {
-      client->stop();
-    }
+    client->stop();
     return false;
   }
 
@@ -142,9 +140,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (httpCode != HTTP_CODE_OK) {
     LOG_ERR("HTTP", "Download failed: %d", httpCode);
     http.end();
-    if (client) {
-      client->stop();
-    }
+    client->stop();
     return HTTP_ERROR;
   }
 
@@ -221,9 +217,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   file.flush();
   file.close();
   http.end();
-  if (client) {
-    client->stop();
-  }
+  client->stop();
 
   if (writeResult < 0) {
     LOG_ERR("HTTP", "writeToStream error: %d", writeResult);

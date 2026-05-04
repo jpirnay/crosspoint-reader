@@ -1001,6 +1001,8 @@ void MdReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION ac
       SETTINGS.orientation = nextOrientation;
       SETTINGS.saveToFile();
       ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+      initialized = false;
+      initializeReader();
       requestUpdate();
       break;
     }

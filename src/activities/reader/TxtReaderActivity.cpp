@@ -839,6 +839,8 @@ void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       SETTINGS.orientation = nextOrientation;
       SETTINGS.saveToFile();
       ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+      initialized = false;
+      initializeReader();
       requestUpdate();
       break;
     }
