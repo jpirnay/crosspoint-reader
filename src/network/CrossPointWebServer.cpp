@@ -1589,6 +1589,8 @@ bool installRemoteFamily(const RemoteManifestFamily& family, const std::string& 
 
   for (const auto& file : family.files) {
     esp_task_wdt_reset();
+    yield();
+    delay(500);  // allow network stack to clean up sockets
 
     std::string localFilename = file.name;
     std::string familyPrefix = family.name + "/";
@@ -1740,6 +1742,7 @@ void CrossPointWebServer::handleFontDownload() {
     server->send(400, "application/json", "{\"ok\":false,\"error\":\"Invalid request\"}");
     return;
   }
+  body.clear();  // Free memory early!
 
   const bool installAll = req["all"] | false;
   const std::string requestedFamily = req["family"] | "";
@@ -1784,14 +1787,26 @@ void CrossPointWebServer::handleFontDownload() {
     }
   }
 
+  std::vector<RemoteManifestFamily> targetCopies;
+  for (auto* f : targets) {
+    targetCopies.push_back(*f);
+  }
+  families.clear();
+  families.shrink_to_fit();
+
   size_t installedCount = 0;
-  for (auto* family : targets) {
+  for (auto& family : targetCopies) {
     esp_task_wdt_reset();
-    if (!installRemoteFamily(*family, baseUrl, installer, error)) {
+    yield();
+    delay(500);  // allow network stack to clean up sockets
+
+    LOG_DBG("WEB", "Installing font family: %s", family.name.c_str());
+
+    if (!installRemoteFamily(family, baseUrl, installer, error)) {
       JsonDocument errDoc;
       errDoc["ok"] = false;
       errDoc["error"] = error;
-      errDoc["family"] = family->name;
+      errDoc["family"] = family.name;
       errDoc["installedCount"] = static_cast<unsigned>(installedCount);
       String out;
       serializeJson(errDoc, out);

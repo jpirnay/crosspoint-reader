@@ -148,6 +148,46 @@
         align-items: center;
         margin-bottom: 12px;
       }
+      .download-layout {
+        display: grid;
+        grid-template-columns: minmax(240px, 1fr) 280px;
+        gap: 16px;
+        align-items: start;
+      }
+      .status-panel {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+      .status-panel h3 {
+        margin: 0 0 10px 0;
+        font-size: 1rem;
+      }
+      .status-panel p {
+        margin: 0;
+      }
+      #remoteStatus {
+        margin-top: 8px;
+        min-height: 80px;
+        display: block;
+        border-radius: 6px;
+        padding: 12px;
+        background: var(--notice-bg);
+        border: 1px solid var(--notice-border);
+        color: var(--notice-color);
+      }
+      .status-ok {
+        background: #d4edda;
+        color: #155724;
+        border-color: #c3e6cb;
+      }
+      .status-err {
+        background: #f8d7da;
+        color: #721c24;
+        border-color: #f5c6cb;
+      }
     </style>
   </head>
   <body>
@@ -171,8 +211,13 @@
         <button id="refreshManifest" class="btn btn-primary" type="button">Refresh Catalog</button>
         <button id="downloadAllRemote" class="btn btn-primary" type="button">Download All Updates</button>
       </div>
-      <div id="remoteFamilies"><p class="empty">Catalog not loaded</p></div>
-      <div id="remoteStatus"></div>
+      <div class="download-layout">
+        <div id="remoteFamilies"><p class="empty">Catalog not loaded</p></div>
+        <div class="status-panel">
+          <h3>Download Status</h3>
+          <div id="remoteStatus" class="status-message"><p>Waiting for action...</p></div>
+        </div>
+      </div>
     </div>
 
     <div class="card">

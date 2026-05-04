@@ -66,9 +66,11 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
   LOG_DBG("HTTP", "Fetching: %s", url.c_str());
 
   http.begin(*client, url.c_str());
+  http.setReuse(false);
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   http.setTimeout(30000);
   http.addHeader("User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  http.addHeader("Connection", "close");
 
   if (!username.empty() || !password.empty()) {
     std::string credentials = username + ":" + password;
@@ -80,12 +82,18 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
   if (httpCode != HTTP_CODE_OK) {
     LOG_ERR("HTTP", "Fetch failed: %d", httpCode);
     http.end();
+    if (client) {
+      client->stop();
+    }
     return false;
   }
 
   http.writeToStream(&outContent);
 
   http.end();
+  if (client) {
+    client->stop();
+  }
 
   LOG_DBG("HTTP", "Fetch success");
   return true;
@@ -118,9 +126,11 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   LOG_DBG("HTTP", "Destination: %s", destPath.c_str());
 
   http.begin(*client, url.c_str());
+  http.setReuse(false);
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   http.setTimeout(65535);  // max uint16_t (~65s) — HTTPClient::setTimeout takes uint16_t ms
   http.addHeader("User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  http.addHeader("Connection", "close");
 
   if (!username.empty() || !password.empty()) {
     std::string credentials = username + ":" + password;
@@ -132,6 +142,9 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (httpCode != HTTP_CODE_OK) {
     LOG_ERR("HTTP", "Download failed: %d", httpCode);
     http.end();
+    if (client) {
+      client->stop();
+    }
     return HTTP_ERROR;
   }
 
@@ -156,9 +169,51 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     return FILE_ERROR;
   }
 
+  int writeResult = -1;
+  size_t downloaded = 0;
+  bool writeOk = true;
+
   // Let HTTPClient handle chunked decoding and stream body bytes into the file.
-  FileWriteStream fileStream(file, contentLength, progress);
-  const int writeResult = http.writeToStream(&fileStream);
+  // For known sizes (Content-Length), we can stream it manually to save RAM!
+  // HTTPClient::writeToStream allocates a 4096-byte chunk on the heap which can
+  // fail (-8 / HTTPC_ERROR_TOO_LESS_RAM) if the heap is fragmented or depleted.
+  if (contentLength > 0) {
+    NetworkClient& stream = http.getStream();
+    uint8_t buffer[1024];
+    writeResult = 1;
+    while (http.connected() && downloaded < contentLength) {
+      size_t available = stream.available();
+      if (available > 0) {
+        size_t toRead = available > sizeof(buffer) ? sizeof(buffer) : available;
+        if (downloaded + toRead > contentLength) {
+          toRead = contentLength - downloaded;
+        }
+        int readSize = stream.readBytes(buffer, toRead);
+        if (readSize > 0) {
+          if (file.write(buffer, readSize) != static_cast<size_t>(readSize)) {
+            writeOk = false;
+            writeResult = -1;
+            break;
+          }
+          downloaded += readSize;
+          if (progress) progress(downloaded, contentLength);
+        } else {
+          break;
+        }
+      } else {
+        delay(1);
+      }
+    }
+    if (downloaded != contentLength) {
+      writeResult = -1;
+    }
+  } else {
+    // Chunked or unknown length fallback
+    FileWriteStream fileStream(file, contentLength, progress);
+    writeResult = http.writeToStream(&fileStream);
+    downloaded = fileStream.downloaded();
+    writeOk = fileStream.ok();
+  }
 
   // Flush before closing to ensure data is written to the SD card.
   // Without this, Storage.exists() might return false immediately after
@@ -166,6 +221,9 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   file.flush();
   file.close();
   http.end();
+  if (client) {
+    client->stop();
+  }
 
   if (writeResult < 0) {
     LOG_ERR("HTTP", "writeToStream error: %d", writeResult);
@@ -173,11 +231,10 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     return HTTP_ERROR;
   }
 
-  const size_t downloaded = fileStream.downloaded();
   LOG_DBG("HTTP", "Downloaded %zu bytes", downloaded);
 
   // Guard against partial writes even if HTTPClient completes.
-  if (!fileStream.ok()) {
+  if (!writeOk) {
     LOG_ERR("HTTP", "Write failed during download");
     Storage.remove(destPath.c_str());
     return FILE_ERROR;
