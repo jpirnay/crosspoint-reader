@@ -35,6 +35,38 @@
       ]
     },
     {
+      "name": "Arimo",
+      "description": "Metric-compatible with Arial (Latin, Greek, Cyrillic)",
+      "styles": [
+        "regular",
+        "bold",
+        "italic",
+        "bolditalic"
+      ],
+      "files": [
+        {
+          "name": "Arimo/Arimo_10.cpfont",
+          "size": 348294
+        },
+        {
+          "name": "Arimo/Arimo_12.cpfont",
+          "size": 445610
+        },
+        {
+          "name": "Arimo/Arimo_14.cpfont",
+          "size": 566018
+        },
+        {
+          "name": "Arimo/Arimo_16.cpfont",
+          "size": 690286
+        },
+        {
+          "name": "Arimo/Arimo_18.cpfont",
+          "size": 840448
+        }
+      ]
+    },
+    {
       "name": "AtkinsonHyperlegibleNext",
       "description": "Accessibility font for low vision (Latin)",
       "styles": [
@@ -765,6 +797,70 @@
         {
           "name": "SourceSerif4/SourceSerif4_18.cpfont",
           "size": 599286
+        }
+      ]
+    },
+    {
+      "name": "Spectral",
+      "description": "A new and versatile serif face (Latin, Cyrillic)",
+      "styles": [
+        "regular",
+        "bold",
+        "italic",
+        "bolditalic"
+      ],
+      "files": [
+        {
+          "name": "Spectral/Spectral_10.cpfont",
+          "size": 254374
+        },
+        {
+          "name": "Spectral/Spectral_12.cpfont",
+          "size": 309829
+        },
+        {
+          "name": "Spectral/Spectral_14.cpfont",
+          "size": 368198
+        },
+        {
+          "name": "Spectral/Spectral_16.cpfont",
+          "size": 440277
+        },
+        {
+          "name": "Spectral/Spectral_18.cpfont",
+          "size": 544960
+        }
+      ]
+    },
+    {
+      "name": "Vollkorn",
+      "description": "The free and healthy typeface for bread and butter use (Latin, Cyrillic)",
+      "styles": [
+        "regular",
+        "bold",
+        "italic",
+        "bolditalic"
+      ],
+      "files": [
+        {
+          "name": "Vollkorn/Vollkorn_10.cpfont",
+          "size": 338666
+        },
+        {
+          "name": "Vollkorn/Vollkorn_12.cpfont",
+          "size": 404708
+        },
+        {
+          "name": "Vollkorn/Vollkorn_14.cpfont",
+          "size": 486026
+        },
+        {
+          "name": "Vollkorn/Vollkorn_16.cpfont",
+          "size": 579106
+        },
+        {
+          "name": "Vollkorn/Vollkorn_18.cpfont",
+          "size": 682774
         }
       ]
     }

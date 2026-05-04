@@ -133,6 +133,26 @@ families:
       italic:     {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-BoldItalic.ttf"}
 
+  - name: Spectral
+    description: "A new and versatile serif face (Latin, Cyrillic)"
+    intervals: latin-ext,cyrillic
+    sizes: [10, 12, 14, 16, 18]
+    styles:
+      regular:    {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/spectral/Spectral-Regular.ttf"}
+      bold:       {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/spectral/Spectral-Bold.ttf"}
+      italic:     {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/spectral/Spectral-Italic.ttf"}
+      bolditalic: {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/spectral/Spectral-BoldItalic.ttf"}
+
+  - name: Vollkorn
+    description: "The free and healthy typeface for bread and butter use (Latin, Cyrillic)"
+    intervals: latin-ext,cyrillic
+    sizes: [10, 12, 14, 16, 18]
+    styles:
+      regular:    {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/vollkorn/Vollkorn%5Bwght%5D.ttf", variable: {wght: 400}}
+      bold:       {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/vollkorn/Vollkorn%5Bwght%5D.ttf", variable: {wght: 700}}
+      italic:     {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/vollkorn/Vollkorn-Italic%5Bwght%5D.ttf", variable: {wght: 400}}
+      bolditalic: {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/vollkorn/Vollkorn-Italic%5Bwght%5D.ttf", variable: {wght: 700}}
+
   # ── Sans-serif ─────────────────────────────────────────────────────────
 
   - name: NotoSansExtended
@@ -144,6 +164,16 @@ families:
       bold:       {path: "builtinFonts/source/NotoSans/NotoSans-Bold.ttf"}
       italic:     {path: "builtinFonts/source/NotoSans/NotoSans-Italic.ttf"}
       bolditalic: {path: "builtinFonts/source/NotoSans/NotoSans-BoldItalic.ttf"}
+
+  - name: Arimo
+    description: "Metric-compatible with Arial (Latin, Greek, Cyrillic)"
+    intervals: latin-ext,cyrillic
+    sizes: [10, 12, 14, 16, 18]
+    styles:
+      regular:    {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/arimo/Arimo%5Bwght%5D.ttf", variable: {wght: 400}}
+      bold:       {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/arimo/Arimo%5Bwght%5D.ttf", variable: {wght: 700}}
+      italic:     {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/arimo/Arimo-Italic%5Bwght%5D.ttf", variable: {wght: 400}}
+      bolditalic: {url: "https://raw.githubusercontent.com/google/fonts/main/ofl/arimo/Arimo-Italic%5Bwght%5D.ttf", variable: {wght: 700}}
 
   - name: Inter
     description: "Modern sans-serif (Latin, Greek, Cyrillic)"
