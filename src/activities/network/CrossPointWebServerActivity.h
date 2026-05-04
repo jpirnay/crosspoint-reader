@@ -34,6 +34,9 @@ class CrossPointWebServerActivity final : public Activity {
   NetworkMode networkMode = NetworkMode::JOIN_NETWORK;
   bool isApMode = false;
 
+  // Track whether the web server was started during this activity.
+  bool webServerStarted = false;
+
   // Web server - owned by this activity
   std::unique_ptr<CrossPointWebServer> webServer;
 
