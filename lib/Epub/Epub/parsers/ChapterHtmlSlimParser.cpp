@@ -467,21 +467,29 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         }
       }
 
+      const auto handleImageFallback = [&]() {
+        // Fallback to alt text if image processing fails.
+        if (!alt.empty()) {
+          alt = "[Image: " + alt + "]";
+          self->startNewTextBlock(centeredBlockStyle);
+          self->italicUntilDepth = std::min(self->italicUntilDepth, self->depth);
+          self->depth += 1;
+          self->characterData(userData, alt.c_str(), alt.length());
+          // Skip any child content (skip until parent as we pre-advanced depth above)
+          self->skipUntilDepth = self->depth - 1;
+          return;
+        }
+
+        // No alt text, skip.
+        self->skipUntilDepth = self->depth;
+        self->depth += 1;
+      };
+
       if (!src.empty() && self->imageRendering != 1) {
         LOG_DBG("EHP", "Found image: src=%s", src.c_str());
 
         if (self->lowMemoryImageFallback) {
-          if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
-            BlockStyle resetStyle;
-            resetStyle.textAlignDefined = true;
-            const auto align = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                                   ? CssTextAlign::Justify
-                                   : static_cast<CssTextAlign>(self->paragraphAlignment);
-            resetStyle.alignment = align;
-            self->currentTextBlock->setBlockStyle(resetStyle);
-          }
-          self->skipUntilDepth = self->depth;
-          self->depth += 1;
+          handleImageFallback();
           return;
         }
 
@@ -498,17 +506,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     freeHeap, maxAllocHeap);
           }
           if (self->lowMemoryImageFallback) {
-            if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
-              BlockStyle resetStyle;
-              resetStyle.textAlignDefined = true;
-              const auto align = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                                     ? CssTextAlign::Justify
-                                     : static_cast<CssTextAlign>(self->paragraphAlignment);
-              resetStyle.alignment = align;
-              self->currentTextBlock->setBlockStyle(resetStyle);
-            }
-            self->skipUntilDepth = self->depth;
-            self->depth += 1;
+            handleImageFallback();
             return;
           }
 
@@ -529,6 +527,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, IMAGE_EXTRACT_CHUNK_SIZE);
               cachedImageFile.flush();
               cachedImageFile.close();
+              if (!extractSuccess) {
+                Storage.remove(cachedImagePath.c_str());
+              }
               delay(50);  // Give SD card time to sync
             }
 
@@ -761,21 +762,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         }
       }
 
-      // Fallback to alt text if image processing fails
-      if (!alt.empty()) {
-        alt = "[Image: " + alt + "]";
-        self->startNewTextBlock(centeredBlockStyle);
-        self->italicUntilDepth = std::min(self->italicUntilDepth, self->depth);
-        self->depth += 1;
-        self->characterData(userData, alt.c_str(), alt.length());
-        // Skip any child content (skip until parent as we pre-advanced depth above)
-        self->skipUntilDepth = self->depth - 1;
-        return;
-      }
-
-      // No alt text, skip
-      self->skipUntilDepth = self->depth;
-      self->depth += 1;
+      handleImageFallback();
       return;
     }
   }
