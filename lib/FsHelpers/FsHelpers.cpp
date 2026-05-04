@@ -2,43 +2,46 @@
 
 #include <cctype>
 #include <cstring>
-#include <vector>
 
 namespace FsHelpers {
 
-std::string normalisePath(const std::string& path) {
-  std::vector<std::string> components;
-  std::string component;
-
-  for (const auto c : path) {
-    if (c == '/') {
-      if (!component.empty()) {
-        if (component == "..") {
-          if (!components.empty()) {
-            components.pop_back();
-          }
-        } else {
-          components.push_back(component);
-        }
-        component.clear();
-      }
+// Process a finalised component in-place, appending it to `out` (preceded by
+// '/' if `out` is non-empty) or popping the last component for "..". Used by
+// both normalisePath overloads so the parsing rules stay in one place.
+static void appendOrPopComponent(std::string& out, const char* compData, size_t compLen) {
+  if (compLen == 0) return;
+  if (compLen == 1 && compData[0] == '.') return;
+  if (compLen == 2 && compData[0] == '.' && compData[1] == '.') {
+    if (out.empty()) return;
+    const auto lastSlash = out.find_last_of('/');
+    if (lastSlash == std::string::npos) {
+      out.clear();
     } else {
-      component += c;
+      out.resize(lastSlash);
+    }
+    return;
+  }
+  if (!out.empty()) {
+    out.push_back('/');
+  }
+  out.append(compData, compLen);
+}
+
+void normalisePath(const std::string& path, std::string& out) {
+  out.clear();
+  size_t componentStart = 0;
+  for (size_t i = 0; i < path.size(); i++) {
+    if (path[i] == '/') {
+      appendOrPopComponent(out, path.data() + componentStart, i - componentStart);
+      componentStart = i + 1;
     }
   }
+  appendOrPopComponent(out, path.data() + componentStart, path.size() - componentStart);
+}
 
-  if (!component.empty()) {
-    components.push_back(component);
-  }
-
+std::string normalisePath(const std::string& path) {
   std::string result;
-  for (const auto& c : components) {
-    if (!result.empty()) {
-      result += "/";
-    }
-    result += c;
-  }
-
+  normalisePath(path, result);
   return result;
 }
 
