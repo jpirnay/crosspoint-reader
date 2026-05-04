@@ -20,6 +20,11 @@ size_t visibleBytesBeforeCodepoint(const XML_Char* text, int len, size_t targetC
 
 std::string normalizeXPath(const std::string& input);
 std::string removeIndices(const std::string& xpath);
+// Out-parameter forms reuse the caller's string capacity instead of returning
+// a new allocation per call. Use these in hot per-element loops where the same
+// scratch string is repopulated thousands of times.
+void normalizeXPath(const std::string& input, std::string& out);
+void removeIndices(const std::string& xpath, std::string& out);
 int pathDepth(const std::string& xpath);
 bool isAncestorPath(const std::string& prefix, const std::string& path);
 

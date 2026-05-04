@@ -169,49 +169,55 @@ size_t visibleBytesBeforeCodepoint(const XML_Char* text, const int len, const si
   return visibleBytes;
 }
 
-std::string normalizeXPath(const std::string& input) {
+// Thread-local-free scratch reused across normalizeXPath() invocations so the
+// two-phase rewrite (lowercase/strip pass → bare-element-predicate pass) costs
+// at most one growing std::string per process lifetime instead of two per call.
+// Single-threaded on ESP32, so a function-local static is safe.
+void normalizeXPath(const std::string& input, std::string& out) {
+  out.clear();
   if (input.empty()) {
-    return "";
+    return;
   }
 
-  std::string out;
-  out.reserve(input.size());
+  static std::string firstPass;
+  firstPass.clear();
+  firstPass.reserve(input.size());
   for (const char c : input) {
     const unsigned char uc = static_cast<unsigned char>(c);
     if (std::isspace(uc)) {
       continue;
     }
-    out.push_back(static_cast<char>(std::tolower(uc)));
+    firstPass.push_back(static_cast<char>(std::tolower(uc)));
   }
 
   const std::string textTag = "/text()";
-  const size_t textPos = out.rfind(textTag);
+  const size_t textPos = firstPass.rfind(textTag);
   if (textPos != std::string::npos) {
     const size_t afterText = textPos + textTag.size();
-    if (afterText == out.size() || out[afterText] == '.' || out[afterText] == '[') {
-      out.erase(textPos);
+    if (afterText == firstPass.size() || firstPass[afterText] == '.' || firstPass[afterText] == '[') {
+      firstPass.erase(textPos);
     }
   }
 
-  const size_t lastSlash = out.rfind('/');
+  const size_t lastSlash = firstPass.rfind('/');
   if (lastSlash != std::string::npos) {
-    const size_t dotPos = out.find('.', lastSlash + 1);
-    if (dotPos != std::string::npos && dotPos + 1 < out.size()) {
+    const size_t dotPos = firstPass.find('.', lastSlash + 1);
+    if (dotPos != std::string::npos && dotPos + 1 < firstPass.size()) {
       bool allDigits = true;
-      for (size_t i = dotPos + 1; i < out.size(); i++) {
-        if (!std::isdigit(static_cast<unsigned char>(out[i]))) {
+      for (size_t i = dotPos + 1; i < firstPass.size(); i++) {
+        if (!std::isdigit(static_cast<unsigned char>(firstPass[i]))) {
           allDigits = false;
           break;
         }
       }
       if (allDigits) {
-        out.erase(dotPos);
+        firstPass.erase(dotPos);
       }
     }
   }
 
-  while (!out.empty() && out.back() == '/') {
-    out.pop_back();
+  while (!firstPass.empty() && firstPass.back() == '/') {
+    firstPass.pop_back();
   }
 
   // KOReader sometimes omits the [1] predicate for elements that are the sole
@@ -219,41 +225,44 @@ std::string normalizeXPath(const std::string& input) {
   // In XPath, an unqualified name is equivalent to name[1] when there is only
   // one sibling of that type, but our parser always generates explicit indices.
   // Insert [1] for any bare element path segment so comparisons match.
-  std::string normalized;
-  normalized.reserve(out.size() + 16);
+  out.reserve(firstPass.size() + 16);
   size_t i = 0;
-  while (i < out.size()) {
-    if (out[i] == '/') {
-      normalized.push_back('/');
+  while (i < firstPass.size()) {
+    if (firstPass[i] == '/') {
+      out.push_back('/');
       i++;
       // Copy element name (letters, digits, hyphens, underscores, dots)
       const size_t nameStart = i;
-      while (i < out.size() && out[i] != '/' && out[i] != '[') {
+      while (i < firstPass.size() && firstPass[i] != '/' && firstPass[i] != '[') {
         i++;
       }
-      normalized.append(out, nameStart, i - nameStart);
-      if (i < out.size() && out[i] == '[') {
+      out.append(firstPass, nameStart, i - nameStart);
+      if (i < firstPass.size() && firstPass[i] == '[') {
         // Already has a predicate – copy it verbatim
-        while (i < out.size() && out[i] != ']') {
-          normalized.push_back(out[i++]);
+        while (i < firstPass.size() && firstPass[i] != ']') {
+          out.push_back(firstPass[i++]);
         }
-        if (i < out.size()) {
-          normalized.push_back(out[i++]);  // ']'
+        if (i < firstPass.size()) {
+          out.push_back(firstPass[i++]);  // ']'
         }
       } else if (i - nameStart > 0) {
         // Bare element name – insert implicit [1]
-        normalized.append("[1]");
+        out.append("[1]");
       }
     } else {
-      normalized.push_back(out[i++]);
+      out.push_back(firstPass[i++]);
     }
   }
-
-  return normalized;
 }
 
-std::string removeIndices(const std::string& xpath) {
+std::string normalizeXPath(const std::string& input) {
   std::string out;
+  normalizeXPath(input, out);
+  return out;
+}
+
+void removeIndices(const std::string& xpath, std::string& out) {
+  out.clear();
   out.reserve(xpath.size());
   bool inBracket = false;
   for (const char c : xpath) {
@@ -269,6 +278,11 @@ std::string removeIndices(const std::string& xpath) {
       out.push_back(c);
     }
   }
+}
+
+std::string removeIndices(const std::string& xpath) {
+  std::string out;
+  removeIndices(xpath, out);
   return out;
 }
 
