@@ -24,6 +24,8 @@ void FontCacheManager::clearCache() {
 }
 
 void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask) {
+  clearCache();
+
   // SD card font prewarm path: prewarm all requested styles in one call
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end()) {

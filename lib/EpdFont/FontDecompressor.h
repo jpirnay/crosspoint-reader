@@ -7,7 +7,7 @@
 class FontDecompressor {
  public:
   static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
-  static constexpr uint8_t MAX_PAGE_SLOTS = 4;  // One per font style (R/B/I/BI)
+  static constexpr uint8_t MAX_PAGE_SLOTS = 8;  // Provide enough slots for heavily stylized HTML pages
 
   FontDecompressor() = default;
   ~FontDecompressor();
