@@ -545,6 +545,9 @@ void loop() {
         case BA::BTN_CYCLE_FONT_SIZE:
           activityManager.dispatchButtonAction(BA::BTN_CYCLE_FONT_SIZE);
           break;
+        case BA::BTN_CYCLE_ORIENTATION:
+          activityManager.dispatchButtonAction(BA::BTN_CYCLE_ORIENTATION);
+          break;
         default:
           break;
       }

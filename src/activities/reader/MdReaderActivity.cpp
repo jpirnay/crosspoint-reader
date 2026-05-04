@@ -995,6 +995,15 @@ void MdReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION ac
       ReaderUtils::enforceExitFullRefresh(renderer);
       finish();
       break;
+    case BA::BTN_CYCLE_ORIENTATION: {
+      const uint8_t nextOrientation =
+          static_cast<uint8_t>((SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT);
+      SETTINGS.orientation = nextOrientation;
+      SETTINGS.saveToFile();
+      ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+      requestUpdate();
+      break;
+    }
     default:
       break;
   }
