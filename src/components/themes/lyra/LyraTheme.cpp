@@ -611,27 +611,32 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
         progressPercent);
 
     auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
+    auto authorLines = renderer.wrappedText(UI_10_FONT_ID, book.author.c_str(), textWidth, 2);
+    auto seriesLines = renderer.wrappedText(UI_10_FONT_ID, book.series.c_str(), textWidth, 2);
 
-    auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
-    auto series = renderer.truncatedText(UI_10_FONT_ID, book.series.c_str(), textWidth);
     const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+    const int smallLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
     const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
-    const int authorHeight = book.author.empty() ? 0 : (renderer.getLineHeight(UI_10_FONT_ID) * 3 / 2);
-    const int seriesHeight = book.series.empty() ? 0 : renderer.getLineHeight(UI_10_FONT_ID);
-    const int totalBlockHeight = titleBlockHeight + authorHeight + seriesHeight;
+    const int titleAuthorSpacing = (!authorLines.empty() || !seriesLines.empty()) ? (smallLineHeight / 2) : 0;
+    const int authorHeight = static_cast<int>(authorLines.size()) * smallLineHeight;
+    const int seriesHeight = static_cast<int>(seriesLines.size()) * smallLineHeight;
+    const int totalBlockHeight = titleBlockHeight + titleAuthorSpacing + authorHeight + seriesHeight;
     int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;
     const int textX = tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing;
     for (const auto& line : titleLines) {
       renderer.drawText(UI_12_FONT_ID, textX, titleY, line.c_str(), true, EpdFontFamily::BOLD);
       titleY += titleLineHeight;
     }
-    if (!book.author.empty()) {
-      titleY += renderer.getLineHeight(UI_10_FONT_ID) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, titleY, author.c_str(), true);
-      titleY += renderer.getLineHeight(UI_10_FONT_ID);
+    if (!authorLines.empty() || !seriesLines.empty()) {
+      titleY += titleAuthorSpacing;
     }
-    if (!book.series.empty()) {
-      renderer.drawText(UI_10_FONT_ID, textX, titleY, series.c_str(), true);
+    for (const auto& line : authorLines) {
+      renderer.drawText(UI_10_FONT_ID, textX, titleY, line.c_str(), true);
+      titleY += smallLineHeight;
+    }
+    for (const auto& line : seriesLines) {
+      renderer.drawText(UI_10_FONT_ID, textX, titleY, line.c_str(), true);
+      titleY += smallLineHeight;
     }
   } else {
     drawEmptyRecents(renderer, rect);
