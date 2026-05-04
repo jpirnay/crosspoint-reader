@@ -103,6 +103,9 @@ class KOReaderSyncActivity final : public Activity {
 
   void onWifiSelectionComplete(bool success);
   void performSync();
+  bool calculateDocumentHash();
+  bool handleAutoPushPreflight();
+  void performFetchAndCompare();
   void performUpload();
   void closeCancelled();
   void resumeReader(KOReaderSyncOutcomeState outcome, const SyncResult* appliedResult = nullptr);
