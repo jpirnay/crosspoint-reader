@@ -100,6 +100,7 @@ void CrossPointWebServerActivity::onExit() {
   requestUpdate();
 
   if (webServerStarted) {
+    GUI.drawPopup(renderer, tr(STR_RESTART_DEVICE));
     LOG_DBG("WEBACT", "Restarting device after webserver exit to regain heap...");
     ESP.restart();
   }
