@@ -24,8 +24,6 @@ void FontCacheManager::clearCache() {
 }
 
 void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask) {
-  clearCache();
-
   // SD card font prewarm path: prewarm all requested styles in one call
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end()) {
@@ -52,6 +50,11 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
     const EpdFontData* data = fontMap_.at(fontId).getData(style);
     if (!data || !data->groups) continue;
     int missed = fontDecompressor_->prewarmCache(data, utf8Text);
+    if (missed < 0) {
+      LOG_DBG("FCM", "prewarmCache: Cache slots full! Clearing and retrying slot allocation.");
+      clearCache();
+      missed = fontDecompressor_->prewarmCache(data, utf8Text);
+    }
     if (missed > 0) {
       LOG_DBG("FCM", "prewarmCache: %d glyph(s) not cached for style %d", missed, i);
     }
