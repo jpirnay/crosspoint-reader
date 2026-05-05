@@ -82,7 +82,13 @@ def extract_static_instance(source_path: Path, axes: dict, family_name: str, sty
 
     print(f"  Extracting static instance: {family_name}/{style_name} ({axis_key})")
     font = TTFont(str(source_path))
-    instantiateVariableFont(font, axes)
+    font = instantiateVariableFont(
+        font,
+        axes,
+        static=True,
+        updateFontNames=True,
+        optimize=False,
+    )
     font.save(str(cached))
     font.close()
 
