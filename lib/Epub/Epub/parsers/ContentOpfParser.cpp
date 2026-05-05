@@ -128,6 +128,9 @@ size_t ContentOpfParser::write(const uint8_t data) { return write(&data, 1); }
 size_t ContentOpfParser::write(const uint8_t* buffer, const size_t size) {
   if (!parser) return 0;
 
+  stats.writeCalls++;
+  stats.bytesParsed += size;
+
   const uint8_t* currentBufferPos = buffer;
   auto remainingInBuffer = size;
 

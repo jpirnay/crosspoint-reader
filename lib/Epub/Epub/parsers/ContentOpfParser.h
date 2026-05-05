@@ -61,6 +61,18 @@ class ContentOpfParser final : public Print {
   static void endElement(void* userData, const XML_Char* name);
 
  public:
+  struct Stats {
+    uint32_t writeCalls = 0;
+    uint32_t bytesParsed = 0;
+    uint32_t parseBufferMs = 0;
+    uint32_t manifestOpenMs = 0;
+    uint32_t spineOpenMs = 0;
+    uint32_t guideOpenMs = 0;
+    uint32_t itemRefCount = 0;
+    uint32_t itemRefLookupMs = 0;
+    uint32_t createSpineEntryMs = 0;
+  } stats;
+
   std::string title;
   std::string author;
   std::string language;
