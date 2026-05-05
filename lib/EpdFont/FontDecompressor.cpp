@@ -25,6 +25,25 @@ void FontDecompressor::freePageBuffer() {
     pageSlots[s] = {};
   }
   pageSlotCount = 0;
+
+  free(tempGroupBuffer_);
+  tempGroupBuffer_ = nullptr;
+  tempGroupBufferSize_ = 0;
+}
+
+bool FontDecompressor::ensureTempGroupBuffer(uint32_t minSize) {
+  if (tempGroupBufferSize_ >= minSize && tempGroupBuffer_ != nullptr) {
+    return true;
+  }
+
+  uint8_t* newBuf = static_cast<uint8_t*>(realloc(tempGroupBuffer_, minSize));
+  if (!newBuf) {
+    return false;
+  }
+
+  tempGroupBuffer_ = newBuf;
+  tempGroupBufferSize_ = minSize;
+  return true;
 }
 
 uint16_t FontDecompressor::getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex) {
@@ -180,15 +199,13 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
 
   if (group.uncompressedSize > stats.peakTempBytes) stats.peakTempBytes = group.uncompressedSize;
 
-  uint8_t* groupBuf = static_cast<uint8_t*>(malloc(group.uncompressedSize));
-  if (!groupBuf) {
+  if (!ensureTempGroupBuffer(group.uncompressedSize)) {
     LOG_ERR("FDC", "OOM: cannot allocate %lu bytes for group %u fallback", group.uncompressedSize, groupIndex);
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
   }
 
-  if (!decompressGroup(fontData, groupIndex, groupBuf, group.uncompressedSize)) {
-    free(groupBuf);
+  if (!decompressGroup(fontData, groupIndex, tempGroupBuffer_, group.uncompressedSize)) {
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
   }
@@ -204,8 +221,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     }
   }
 
-  compactSingleGlyph(&groupBuf[alignedOff], _fallbackCache[lruIndex].buffer, glyph->width, glyph->height);
-  free(groupBuf);
+  compactSingleGlyph(&tempGroupBuffer_[alignedOff], _fallbackCache[lruIndex].buffer, glyph->width, glyph->height);
 
   _fallbackCache[lruIndex].fontData = fontData;
   _fallbackCache[lruIndex].glyphIndex = glyphIndex;
@@ -515,15 +531,13 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
     if (group.uncompressedSize > stats.peakTempBytes) stats.peakTempBytes = group.uncompressedSize;
 
-    uint8_t* groupBuf = static_cast<uint8_t*>(malloc(group.uncompressedSize));
-    if (!groupBuf) {
+    if (!ensureTempGroupBuffer(group.uncompressedSize)) {
       LOG_ERR("FDC", "OOM: cannot allocate %lu bytes for group %u during prewarm", group.uncompressedSize, groupIdx);
       missed++;
       continue;
     }
 
-    if (!decompressGroup(fontData, groupIdx, groupBuf, group.uncompressedSize)) {
-      free(groupBuf);
+    if (!decompressGroup(fontData, groupIdx, tempGroupBuffer_, group.uncompressedSize)) {
       missed++;
       continue;
     }
@@ -535,12 +549,11 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       if (slot.glyphs[i].groupIndex != groupIdx) continue;
 
       const EpdGlyph& glyph = fontData->glyph[slot.glyphs[i].glyphIndex];
-      compactSingleGlyph(&groupBuf[slot.glyphs[i].alignedOffset], &slot.buffer[writeOffset], glyph.width, glyph.height);
+      compactSingleGlyph(&tempGroupBuffer_[slot.glyphs[i].alignedOffset], &slot.buffer[writeOffset], glyph.width,
+                         glyph.height);
       slot.glyphs[i].bufferOffset = writeOffset;
       writeOffset += glyph.dataLength;
     }
-
-    free(groupBuf);
   }
 
   LOG_DBG("FDC", "Prewarm: %u glyphs in %u bytes from %u groups (%d missed)", glyphCount, writeOffset, groupCount,

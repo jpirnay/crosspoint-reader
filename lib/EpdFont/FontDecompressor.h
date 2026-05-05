@@ -85,7 +85,13 @@ class FontDecompressor {
   FallbackSlot _fallbackCache[FALLBACK_CACHE_SLOTS] = {};
   uint32_t _fallbackTick = 0;
 
+  // Reusable scratch buffer for transient group decompression. This avoids
+  // repeated malloc/free cycles during page prewarm and fallback glyph loads.
+  uint8_t* tempGroupBuffer_ = nullptr;
+  uint32_t tempGroupBufferSize_ = 0;
+
   void freePageBuffer();
+  bool ensureTempGroupBuffer(uint32_t minSize);
   uint16_t getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex);
   uint32_t getAlignedOffset(const EpdFontData* fontData, uint16_t groupIndex, uint32_t glyphIndex);
   bool decompressGroup(const EpdFontData* fontData, uint16_t groupIndex, uint8_t* outBuf, uint32_t outSize);

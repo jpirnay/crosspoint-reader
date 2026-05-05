@@ -112,6 +112,11 @@ class EpubReaderActivity final : public Activity {
     uint32_t totalFontGetBitmapCalls = 0;
     uint32_t minFreeHeapAfter = 0;
     uint32_t maxFreeHeapAfter = 0;
+    uint32_t minLargestFreeBlockAfter = 0;
+    uint32_t maxLargestFreeBlockAfter = 0;
+    uint32_t minContigRatioPermilleAfter = 0;  // largestFreeBlockAfter / freeHeapAfter * 1000
+    uint32_t maxContigRatioPermilleAfter = 0;
+    uint64_t totalContigRatioPermilleAfter = 0;
   };
   LastRenderStats lastRenderStats;
   // Signals that the next render should reposition within the newly loaded section

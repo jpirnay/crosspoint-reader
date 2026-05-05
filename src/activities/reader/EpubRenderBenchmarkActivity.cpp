@@ -34,6 +34,7 @@ void EpubRenderBenchmarkActivity::render(RenderLock&&) {
       break;
     }
     renderer.drawText(UI_10_FONT_ID, contentRect.x + 10, y, line.c_str(), true);
+    LOG_DBG("ERB", "%s", line.c_str());
     y += lineHeight;
   }
 

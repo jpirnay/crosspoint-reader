@@ -24,11 +24,14 @@ void FontCacheManager::clearCache() {
 }
 
 void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask) {
-  clearCache();
-
   // SD card font prewarm path: prewarm all requested styles in one call
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end()) {
+    // Keep SdCardFont mini buffers warm across page turns so prewarm() can hit
+    // its coverage fast-path instead of free/realloc each render.
+    // Still clear compressed-font page buffers since this pass is SD-font only.
+    if (fontDecompressor_) fontDecompressor_->clearCache();
+
     SdCardFont* sdFont = sdIt->second;
     if (!sdFont) {
       LOG_ERR("FCM", "prewarmCache(SD): null SdCardFont pointer for fontId=%d", fontId);
@@ -42,6 +45,8 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
     }
     return;
   }
+
+  clearCache();
 
   // Standard compressed font prewarm path: loop over all requested styles
   if (!fontDecompressor_ || fontMap_.count(fontId) == 0) return;

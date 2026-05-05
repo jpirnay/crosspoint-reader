@@ -648,6 +648,21 @@ void EpubReaderActivity::runRenderBenchmark() {
     if (snapshot.freeHeapAfter > aggregate.maxFreeHeapAfter) {
       aggregate.maxFreeHeapAfter = snapshot.freeHeapAfter;
     }
+    if (aggregate.renderCount == 1 || snapshot.largestFreeBlockAfter < aggregate.minLargestFreeBlockAfter) {
+      aggregate.minLargestFreeBlockAfter = snapshot.largestFreeBlockAfter;
+    }
+    if (snapshot.largestFreeBlockAfter > aggregate.maxLargestFreeBlockAfter) {
+      aggregate.maxLargestFreeBlockAfter = snapshot.largestFreeBlockAfter;
+    }
+    const uint32_t contigRatioPermille =
+        snapshot.freeHeapAfter > 0 ? (snapshot.largestFreeBlockAfter * 1000u) / snapshot.freeHeapAfter : 0u;
+    if (aggregate.renderCount == 1 || contigRatioPermille < aggregate.minContigRatioPermilleAfter) {
+      aggregate.minContigRatioPermilleAfter = contigRatioPermille;
+    }
+    if (contigRatioPermille > aggregate.maxContigRatioPermilleAfter) {
+      aggregate.maxContigRatioPermilleAfter = contigRatioPermille;
+    }
+    aggregate.totalContigRatioPermilleAfter += contigRatioPermille;
   };
   const unsigned long startTime = millis();
   int forwardTurns = 0;
@@ -750,6 +765,15 @@ std::string EpubReaderActivity::buildRenderBenchmarkReport(const LastRenderStats
                std::to_string(aggregate.totalFontGetBitmapTimeUs) + " us total");
     appendLine("Heap after render min/max: " + std::to_string(aggregate.minFreeHeapAfter) + "/" +
                std::to_string(aggregate.maxFreeHeapAfter));
+    appendLine("Contig block after render min/max: " + std::to_string(aggregate.minLargestFreeBlockAfter) + "/" +
+               std::to_string(aggregate.maxLargestFreeBlockAfter));
+    const uint32_t avgContigRatioPermille =
+        static_cast<uint32_t>(aggregate.totalContigRatioPermilleAfter / aggregate.renderCount);
+    appendLine("Contig ratio after render min/avg/max: " + std::to_string(aggregate.minContigRatioPermilleAfter / 10) +
+               "." + std::to_string(aggregate.minContigRatioPermilleAfter % 10) + "%/" +
+               std::to_string(avgContigRatioPermille / 10) + "." + std::to_string(avgContigRatioPermille % 10) + "%/" +
+               std::to_string(aggregate.maxContigRatioPermilleAfter / 10) + "." +
+               std::to_string(aggregate.maxContigRatioPermilleAfter % 10) + "%");
   }
   appendLine("Last render: request " + std::to_string(endSnapshot.requestRenderMs) + " ms, section load " +
              std::to_string(endSnapshot.sectionLoadMs) + " ms, page load " + std::to_string(endSnapshot.pageLoadMs) +
