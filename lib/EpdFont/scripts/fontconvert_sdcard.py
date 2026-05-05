@@ -23,14 +23,21 @@ Usage:
 """
 
 import freetype
+import zlib
 import struct
 import sys
 import os
 import math
 import argparse
+import binascii
 from collections import namedtuple
 
 from fontTools.ttLib import TTFont
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 # --- Unicode interval presets ---
 
@@ -135,6 +142,124 @@ def fp4_from_design_units(du, scale):
     """
     raw = round(du * scale * 16)
     return max(-128, min(127, raw))
+
+
+def write_png_gray(path, width, height, pixels):
+    def png_chunk(chunk_type, data):
+        chunk = chunk_type + data
+        return struct.pack("!I", len(data)) + chunk + struct.pack("!I", binascii.crc32(chunk) & 0xffffffff)
+
+    ihdr = struct.pack("!IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    raw_scanlines = bytearray()
+    for y in range(height):
+        raw_scanlines.append(0)
+        raw_scanlines.extend(pixels[y * width:(y + 1) * width])
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(png_chunk(b"IHDR", ihdr))
+        f.write(png_chunk(b"IDAT", zlib.compress(bytes(raw_scanlines), level=9)))
+        f.write(png_chunk(b"IEND", b""))
+
+
+STYLE_LABELS = {0: "regular", 1: "bold", 2: "italic", 3: "bolditalic"}
+
+
+def expand_processed_bitmap(width, height, packed, bits):
+    raw = bytearray(width * height)
+    pixels_per_byte = 8 // bits
+    mask = (1 << bits) - 1
+    for idx in range(width * height):
+        byte = packed[idx // pixels_per_byte]
+        shift = (pixels_per_byte - 1 - (idx % pixels_per_byte)) * bits
+        raw[idx] = (byte >> shift) & mask
+    return raw
+
+
+def pack_2bit_bitmap(width, height, pixels):
+    packed = bytearray(((width * height) + 3) // 4)
+    for idx, value in enumerate(pixels):
+        shift = (3 - (idx % 4)) * 2
+        packed[idx // 4] |= (value & 3) << shift
+    return bytes(packed)
+
+
+def dilate_2bit_bitmap(width, height, pixels):
+    out = bytearray(len(pixels))
+    for y in range(height):
+        for x in range(width):
+            maxv = 0
+            for dy in (-1, 0, 1):
+                ny = y + dy
+                if ny < 0 or ny >= height:
+                    continue
+                for dx in (-1, 0, 1):
+                    nx = x + dx
+                    if nx < 0 or nx >= width:
+                        continue
+                    maxv = max(maxv, pixels[ny * width + nx])
+            out[y * width + x] = maxv
+    return out
+
+
+def glyph_pixels_2bit(entry):
+    glyph, packed = entry
+    return expand_processed_bitmap(glyph.width, glyph.height, packed, 2)
+
+
+def glyph_entries_by_codepoint(sd, code_point):
+    return (entry for entry in sd.all_glyphs if entry[0].code_point == code_point)
+
+
+def style_uses_synthetic_bold(base_sd, target_sd):
+    base_entry = next(glyph_entries_by_codepoint(base_sd, ord('A')), None)
+    target_entry = next(glyph_entries_by_codepoint(target_sd, ord('A')), None)
+    if base_entry is None or target_entry is None:
+        return False
+    base_glyph, base_packed = base_entry
+    target_glyph, target_packed = target_entry
+    if base_glyph.width != target_glyph.width or base_glyph.height != target_glyph.height:
+        return False
+    base_pixels = expand_processed_bitmap(base_glyph.width, base_glyph.height, base_packed, 2)
+    target_pixels = expand_processed_bitmap(target_glyph.width, target_glyph.height, target_packed, 2)
+    return base_pixels == target_pixels
+
+
+def apply_synthetic_bold(sd, style_label):
+    print(f"  Debug: synthetic bold applied for style {style_label}", file=sys.stderr)
+    for idx, (glyph, packed) in enumerate(sd.all_glyphs):
+        if glyph.width == 0 or glyph.height == 0:
+            continue
+        pixels = expand_processed_bitmap(glyph.width, glyph.height, packed, 2)
+        bold_pixels = dilate_2bit_bitmap(glyph.width, glyph.height, pixels)
+        sd.all_glyphs[idx] = (glyph, pack_2bit_bitmap(glyph.width, glyph.height, bold_pixels))
+
+
+def save_debug_glyph_image(output_path, raster_data):
+    base = os.path.splitext(output_path)[0]
+    found = False
+    for style_id, sd in raster_data.items():
+        style_label = STYLE_LABELS.get(style_id, str(style_id))
+        png_path = f"{base}_A_{style_label}.png"
+        glyph_entry = next(((g, p) for g, p in sd.all_glyphs if g.code_point == ord('A')), None)
+        if glyph_entry is None:
+            print(f"  Debug: letter 'A' not found for style {style_label}", file=sys.stderr)
+            continue
+        glyph, packed = glyph_entry
+        if glyph.width == 0 or glyph.height == 0:
+            print(f"  Debug: letter 'A' has empty bitmap for style {style_label}", file=sys.stderr)
+            continue
+        unpacked = expand_processed_bitmap(glyph.width, glyph.height, packed, 2)
+        img_pixels = bytes(255 - p * 85 for p in unpacked)
+        if Image:
+            img = Image.frombytes("L", (glyph.width, glyph.height), img_pixels)
+            img.save(png_path)
+        else:
+            write_png_gray(png_path, glyph.width, glyph.height, img_pixels)
+        print(f"  Debug: saved letter 'A' bitmap to {png_path}", file=sys.stderr)
+        found = True
+    if not found:
+        print(f"  Debug: no letter 'A' glyphs were saved for {output_path}", file=sys.stderr)
 
 
 # Standard Unicode ligature codepoints for known input sequences.
@@ -665,7 +790,8 @@ def style_sections_total_size(sections):
 # --- File writers ---
 
 def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
-                               force_autohint=False):
+                               force_autohint=False, synthetic_bold=False,
+                               debug_images=False):
     """Generate a multi-style v4 .cpfont file.
 
     style_fonts: dict of {style_id: fontfile_path} e.g. {0: "Regular.ttf", 2: "Italic.ttf"}
@@ -685,6 +811,24 @@ def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
         raster_data[style_id] = rasterize_font_style(
             fontfile, size, intervals, style_id=style_id,
             force_autohint=force_autohint)
+
+    if synthetic_bold:
+        # If a bold-style output is identical to its base style, apply a synthetic
+        # bold bitmap transformation so the style still appears heavier.
+        regular_sd = raster_data.get(0)
+        italic_sd = raster_data.get(2)
+        if regular_sd is not None and 1 in raster_data:
+            style_label = STYLE_LABELS.get(1, "1")
+            if style_uses_synthetic_bold(regular_sd, raster_data[1]):
+                apply_synthetic_bold(raster_data[1], style_label)
+        if italic_sd is not None and 3 in raster_data:
+            style_label = STYLE_LABELS.get(3, "3")
+            if style_uses_synthetic_bold(italic_sd, raster_data[3]):
+                apply_synthetic_bold(raster_data[3], style_label)
+        elif regular_sd is not None and 3 in raster_data:
+            style_label = STYLE_LABELS.get(3, "3")
+            if style_uses_synthetic_bold(regular_sd, raster_data[3]):
+                apply_synthetic_bold(raster_data[3], style_label)
 
     # Pack binary sections for each style
     packed_sections = {}  # style_id -> tuple of section bytearrays
@@ -753,6 +897,8 @@ def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
         print(f"    {sname}: {len(sd.all_glyphs)} glyphs, {len(sd.intervals)} intervals, "
               f"{ssize} bytes", file=sys.stderr)
     print(f"    Total: {total_file_size} bytes ({total_file_size / 1024 / 1024:.2f} MB)", file=sys.stderr)
+    if debug_images:
+        save_debug_glyph_image(output_path, raster_data)
     return total_file_size
 
 
@@ -779,6 +925,10 @@ def main():
                         help="Font family name for output filenames (default: derived from font filename).")
     parser.add_argument("--force-autohint", dest="force_autohint", action="store_true",
                         help="Force FreeType auto-hinter instead of native font hinting.")
+    parser.add_argument("--synthetic-bold", dest="synthetic_bold", action="store_true",
+                        help="Apply synthetic boldening when bold style equals its source style.")
+    parser.add_argument("--debug-images", dest="debug_images", action="store_true",
+                        help="Save debug A glyph PNGs for each generated style.")
     parser.add_argument("-o", "--output", dest="output",
                         help="Output file path (for single-size mode).")
     parser.add_argument("--output-dir", dest="output_dir",
@@ -883,7 +1033,9 @@ def main():
         print(f"Generating {output_path} (size {sz}, {len(style_fonts)} style(s), v4)...", file=sys.stderr)
         total_size += generate_cpfont_multistyle(
             style_fonts, sz, intervals, output_path,
-            force_autohint=args.force_autohint)
+            force_autohint=args.force_autohint,
+            synthetic_bold=args.synthetic_bold,
+            debug_images=args.debug_images)
     print(f"\nTotal: {len(sizes)} files, {total_size / 1024 / 1024:.2f} MB", file=sys.stderr)
 
 
