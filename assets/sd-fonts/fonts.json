@@ -131,6 +131,38 @@
       ]
     },
     {
+      "name": "Charis",
+      "description": "Great universal pick",
+      "styles": [
+        "regular",
+        "bold",
+        "italic",
+        "bolditalic"
+      ],
+      "files": [
+        {
+          "name": "Charis/Charis_10.cpfont",
+          "size": 337367
+        },
+        {
+          "name": "Charis/Charis_12.cpfont",
+          "size": 417485
+        },
+        {
+          "name": "Charis/Charis_14.cpfont",
+          "size": 532708
+        },
+        {
+          "name": "Charis/Charis_16.cpfont",
+          "size": 656012
+        },
+        {
+          "name": "Charis/Charis_18.cpfont",
+          "size": 843707
+        }
+      ]
+    },
+    {
       "name": "Gelasio",
       "description": "Readable old-style serif (Latin, Cyrillic)",
       "styles": [
@@ -736,6 +768,38 @@
         }
       ]
     },
+    {
+      "name": "Sourcerer",
+      "description": "Thicker versionj of Source Serif",
+      "styles": [
+        "regular",
+        "bold",
+        "italic",
+        "bolditalic"
+      ],
+      "files": [
+        {
+          "name": "Sourcerer/Sourcerer_10.cpfont",
+          "size": 253272
+        },
+        {
+          "name": "Sourcerer/Sourcerer_12.cpfont",
+          "size": 303974
+        },
+        {
+          "name": "Sourcerer/Sourcerer_14.cpfont",
+          "size": 366935
+        },
+        {
+          "name": "Sourcerer/Sourcerer_16.cpfont",
+          "size": 435715
+        },
+        {
+          "name": "Sourcerer/Sourcerer_18.cpfont",
+          "size": 536040
+        }
+      ]
+    },    
     {
       "name": "SourceSans3",
       "description": "Adobe humanist sans-serif (Latin, Greek, Cyrillic)",

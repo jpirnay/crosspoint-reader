@@ -133,6 +133,26 @@ families:
       italic:     {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Readerly-BoldItalic.ttf"}
 
+  - name: Charis
+    description: "Great universal pick"
+    intervals: latin-ext,cyrillic
+    sizes: [10, 12, 14, 16, 18]
+    styles:
+      regular:    {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/NV_Charis-Regular.ttf"}
+      bold:       {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/NV_Charis-Bold.ttf"}
+      italic:     {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/NV_Charis-Italic.ttf"}
+      bolditalic: {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/NV_Charis-BoldItalic.ttf"}
+
+  - name: Sourcerer
+    description: "Thicker versionj of Source Serif"
+    intervals: latin-ext,cyrillic
+    sizes: [10, 12, 14, 16, 18]
+    styles:
+      regular:    {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Sourcerer-Regular.ttf"}
+      bold:       {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Sourcerer-Bold.ttf"}
+      italic:     {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Sourcerer-Italic.ttf"}
+      bolditalic: {url: "https://raw.githubusercontent.com/nicoverbruggen/ebook-fonts/main/fonts/core/Sourcerer-BoldItalic.ttf"}
+
   - name: Spectral
     description: "A new and versatile serif face (Latin, Cyrillic)"
     intervals: latin-ext,cyrillic

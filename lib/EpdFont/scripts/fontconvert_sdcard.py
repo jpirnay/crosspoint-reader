@@ -382,7 +382,11 @@ def extract_kerning_fonttools(font_path, codepoints, ppem):
                 if lookup.LookupType == 9 and hasattr(st, 'ExtSubTable'):
                     actual = st.ExtSubTable
                 if hasattr(actual, 'Format'):
-                    _extract_pairpos_subtable(actual, glyph_to_cp, raw_kern)
+                    if actual.LookupType == 2:
+                        _extract_pairpos_subtable(actual, glyph_to_cp, raw_kern)
+                    else:
+                        print(f"  Debug: skipping unsupported GPOS kern lookupType={actual.LookupType} (Format={actual.Format})",
+                              file=sys.stderr)
 
     font.close()
 
