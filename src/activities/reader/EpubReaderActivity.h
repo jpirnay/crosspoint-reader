@@ -177,6 +177,7 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void applyTextDarkness(uint8_t textDarkness);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
+  void stopAutomaticPageTurn();
   void applyBookReaderOverrides(int8_t embeddedStyleOverride, int8_t imageRenderingOverride, int8_t fontFamilyOverride,
                                 const std::string& sdFontFamilyOverride, int8_t fontSizeOverride,
                                 bool bionicReadingOverride);

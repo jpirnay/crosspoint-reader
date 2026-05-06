@@ -52,6 +52,21 @@ void drawBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, i
     BaseTheme::drawBatteryLightningBolt(renderer, x + 4, y + 2);
   }
 }
+
+int progressBarPixelHeight(const uint8_t progressBar, const uint8_t thickness, const ThemeMetrics& metrics) {
+  const int reservedHeight = UITheme::getProgressBarHeight(progressBar, thickness);
+  return std::max(0, reservedHeight - metrics.progressBarMarginTop);
+}
+
+int statusBarProgressPercent(const uint8_t progressBar, const float bookProgress, const int currentPage,
+                             const int pageCount) {
+  if (progressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
+    return std::clamp(static_cast<int>(bookProgress), 0, 100);
+  }
+  const int chapterProgress =
+      (pageCount > 0) ? static_cast<int>((static_cast<float>(currentPage) / pageCount) * 100) : 0;
+  return std::clamp(chapterProgress, 0, 100);
+}
 }  // namespace
 
 void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight) {
@@ -748,19 +763,56 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 }
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
-                              const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
+                              const int pageCount, std::string title, const int paddingBottom,
                               const bool isStarred) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
 
-  // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
-  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
+  const auto screenWidth = renderer.getScreenWidth();
+  const int progressBarMaxWidth = screenWidth - orientedMarginLeft - orientedMarginRight;
+
+  auto drawEdgeProgressBar = [&](const uint8_t progressBar, const uint8_t thickness, const bool topEdge) {
+    const int barHeight = progressBarPixelHeight(progressBar, thickness, metrics);
+    if (barHeight <= 0) {
+      return;
+    }
+    const int progress = statusBarProgressPercent(progressBar, bookProgress, currentPage, pageCount);
+    const int barWidth = progressBarMaxWidth * progress / 100;
+    const int y =
+        topEdge ? orientedMarginTop + paddingBottom : screenHeight - orientedMarginBottom - paddingBottom - barHeight;
+    renderer.fillRect(orientedMarginLeft, y, barWidth, barHeight, true);
+  };
+
+  // Draw progress bars first; status items are then placed inside the reserved band for their selected edge.
+  drawEdgeProgressBar(SETTINGS.statusBarUpperProgressBar, SETTINGS.statusBarUpperProgressBarThickness, true);
+  drawEdgeProgressBar(SETTINGS.statusBarLowerProgressBar, SETTINGS.statusBarLowerProgressBarThickness, false);
+
+  const bool hasProgressText = SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount;
+  const bool hasStatusItems = hasProgressText || SETTINGS.statusBarBattery || !title.empty() ||
+                              SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
+                              (SETTINGS.useClock && SETTINGS.statusBarClock);
+  if (!hasStatusItems) {
+    return;
+  }
+
+  const bool statusItemsAtTop =
+      SETTINGS.statusBarItemsPosition == CrossPointSettings::STATUS_BAR_ITEMS_POSITION::STATUS_BAR_ITEMS_TOP;
+  const int adjacentProgressHeight = statusItemsAtTop
+                                         ? UITheme::getProgressBarHeight(SETTINGS.statusBarUpperProgressBar,
+                                                                         SETTINGS.statusBarUpperProgressBarThickness)
+                                         : UITheme::getProgressBarHeight(SETTINGS.statusBarLowerProgressBar,
+                                                                         SETTINGS.statusBarLowerProgressBarThickness);
+  const int statusItemsHeight = UITheme::getStatusBarItemsHeight();
+
+  const int textY = statusItemsAtTop ? orientedMarginTop + paddingBottom + adjacentProgressHeight + 4
+                                     : screenHeight - orientedMarginBottom - paddingBottom - adjacentProgressHeight -
+                                           statusItemsHeight + 4;
   int progressTextWidth = 0;
 
-  if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount) {
+  if (hasProgressText) {
     // Right aligned text for progress counter
     char progressStr[32];
 
@@ -773,27 +825,9 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     }
 
     progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);
-    renderer.drawText(
-        SMALL_FONT_ID,
-        renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - orientedMarginRight - progressTextWidth, textY,
-        progressStr);
-  }
-
-  // Draw Progress Bar
-  if (SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS) {
-    const int progressBarMaxWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
-    const int progressBarY = renderer.getScreenHeight() - orientedMarginBottom -
-                             ((SETTINGS.statusBarProgressBarThickness + 1) * 2) - paddingBottom;
-    size_t progress;
-    if (SETTINGS.statusBarProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
-      progress = static_cast<size_t>(bookProgress);
-    } else {
-      // Chapter progress
-      progress = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) * 100 : 0;
-    }
-    const int barWidth = progressBarMaxWidth * progress / 100;
-    renderer.fillRect(orientedMarginLeft, progressBarY, barWidth, ((SETTINGS.statusBarProgressBarThickness + 1) * 2),
-                      true);
+    renderer.drawText(SMALL_FONT_ID,
+                      screenWidth - metrics.statusBarHorizontalMargin - orientedMarginRight - progressTextWidth, textY,
+                      progressStr);
   }
 
   // Draw Battery
@@ -819,11 +853,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Title
   if (!title.empty()) {
-    textY -= textYOffset;
-    // Centered chapter title text
-    // Page width minus existing content with 30px padding on each side
     const int rendererableScreenWidth =
-        renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
+        screenWidth - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
     const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
     const int starReserve = isStarred ? (renderer.getTextWidth(SMALL_FONT_ID, "*") + 6) : 0;
@@ -836,8 +867,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     int titleMarginLeftAdjusted = std::max(titleMarginLeft, titleMarginRight);
     int availableTitleSpace = rendererableScreenWidth - 2 * titleMarginLeftAdjusted;
 
-    int titleWidth;
-    titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
+    int titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
     if (titleWidth > availableTitleSpace) {
       // Not enough space to center on the screen, center it within the remaining space instead
       availableTitleSpace = rendererableScreenWidth - titleMarginLeft - titleMarginRight;
@@ -860,14 +890,12 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     int starX;
     if (progressTextWidth > 0) {
       // Place star just left of the progress text with a small gap
-      starX = renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - orientedMarginRight - progressTextWidth -
-              starWidth - 6;
+      starX = screenWidth - metrics.statusBarHorizontalMargin - orientedMarginRight - progressTextWidth - starWidth - 6;
     } else {
       // No progress text, place star at right edge
-      starX = renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - orientedMarginRight - starWidth;
+      starX = screenWidth - metrics.statusBarHorizontalMargin - orientedMarginRight - starWidth;
     }
-    const int starY = title.empty() ? textY : (textY + textYOffset);
-    renderer.drawText(SMALL_FONT_ID, starX, starY, "*");
+    renderer.drawText(SMALL_FONT_ID, starX, textY, "*");
   }
 }
 

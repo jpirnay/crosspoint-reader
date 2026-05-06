@@ -6,6 +6,7 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "MappedInputManager.h"
@@ -16,6 +17,24 @@
 
 namespace {
 constexpr int SKIP_PAGE_MS = 700;
+constexpr int STATUS_BAR_ITEM_PADDING = 4;
+constexpr int STATUS_BAR_DESCENDER_CLEARANCE = 4;
+
+uint8_t normalizeProgressBar(const uint8_t progressBar) {
+  return progressBar < CrossPointSettings::STATUS_BAR_PROGRESS_BAR_COUNT ? progressBar
+                                                                         : CrossPointSettings::HIDE_PROGRESS;
+}
+
+uint8_t normalizeProgressBarThickness(const uint8_t thickness) {
+  return thickness < CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT
+             ? thickness
+             : CrossPointSettings::PROGRESS_BAR_NORMAL;
+}
+
+uint8_t normalizeStatusBarItemsPosition(const uint8_t position) {
+  return position < CrossPointSettings::STATUS_BAR_ITEMS_POSITION_COUNT ? position
+                                                                        : CrossPointSettings::STATUS_BAR_ITEMS_BOTTOM;
+}
 }  // namespace
 
 UITheme UITheme::instance;
@@ -159,22 +178,48 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   return File;
 }
 
-int UITheme::getStatusBarHeight() {
+int UITheme::getProgressBarHeight(const uint8_t progressBar, const uint8_t thickness) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-
-  // Add status bar margin
-  const bool showStatusBar = SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
-                             SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
-                             SETTINGS.statusBarBattery || (SETTINGS.useClock && SETTINGS.statusBarClock);
-  const bool showProgressBar =
-      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
-  return (showStatusBar ? (metrics.statusBarVerticalMargin) : 0) +
-         (showProgressBar ? (((SETTINGS.statusBarProgressBarThickness + 1) * 2) + metrics.progressBarMarginTop) : 0);
+  const uint8_t normalizedProgressBar = normalizeProgressBar(progressBar);
+  if (normalizedProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS) {
+    return 0;
+  }
+  const uint8_t normalizedThickness = normalizeProgressBarThickness(thickness);
+  return ((normalizedThickness + 1) * 2) + metrics.progressBarMarginTop;
 }
 
-int UITheme::getProgressBarHeight() {
+int UITheme::getStatusBarItemsHeight() {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const bool showProgressBar =
-      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
-  return (showProgressBar ? (((SETTINGS.statusBarProgressBarThickness + 1) * 2) + metrics.progressBarMarginTop) : 0);
+  return std::max(metrics.statusBarVerticalMargin + (STATUS_BAR_ITEM_PADDING * 2) + STATUS_BAR_DESCENDER_CLEARANCE,
+                  metrics.batteryHeight + (STATUS_BAR_ITEM_PADDING * 2) + STATUS_BAR_DESCENDER_CLEARANCE);
+}
+
+int UITheme::getStatusBarTopHeight(const bool forceStatusItems) {
+  const bool showStatusItems = forceStatusItems || SETTINGS.statusBarChapterPageCount ||
+                               SETTINGS.statusBarBookProgressPercentage ||
+                               SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
+                               SETTINGS.statusBarBattery || (SETTINGS.useClock && SETTINGS.statusBarClock);
+  const uint8_t statusBarItemsPosition = normalizeStatusBarItemsPosition(SETTINGS.statusBarItemsPosition);
+  const bool statusItemsAtTop =
+      statusBarItemsPosition == CrossPointSettings::STATUS_BAR_ITEMS_POSITION::STATUS_BAR_ITEMS_TOP;
+  const int statusItemsHeight = showStatusItems && statusItemsAtTop ? getStatusBarItemsHeight() : 0;
+  return getProgressBarHeight(SETTINGS.statusBarUpperProgressBar, SETTINGS.statusBarUpperProgressBarThickness) +
+         statusItemsHeight;
+}
+
+int UITheme::getStatusBarBottomHeight(const bool forceStatusItems) {
+  const bool showStatusItems = forceStatusItems || SETTINGS.statusBarChapterPageCount ||
+                               SETTINGS.statusBarBookProgressPercentage ||
+                               SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
+                               SETTINGS.statusBarBattery || (SETTINGS.useClock && SETTINGS.statusBarClock);
+  const uint8_t statusBarItemsPosition = normalizeStatusBarItemsPosition(SETTINGS.statusBarItemsPosition);
+  const bool statusItemsAtBottom =
+      statusBarItemsPosition == CrossPointSettings::STATUS_BAR_ITEMS_POSITION::STATUS_BAR_ITEMS_BOTTOM;
+  const int statusItemsHeight = showStatusItems && statusItemsAtBottom ? getStatusBarItemsHeight() : 0;
+  return getProgressBarHeight(SETTINGS.statusBarLowerProgressBar, SETTINGS.statusBarLowerProgressBarThickness) +
+         statusItemsHeight;
+}
+
+int UITheme::getStatusBarHeight(const bool forceStatusItems) {
+  return getStatusBarTopHeight(forceStatusItems) + getStatusBarBottomHeight(forceStatusItems);
 }

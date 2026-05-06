@@ -292,11 +292,10 @@ void MdReaderActivity::initializeReader() {
 
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
                                    &cachedOrientedMarginLeft);
-  cachedOrientedMarginTop += cachedScreenMargin;
+  cachedOrientedMarginTop += std::max(static_cast<int>(cachedScreenMargin), UITheme::getStatusBarTopHeight());
   cachedOrientedMarginLeft += cachedScreenMargin;
   cachedOrientedMarginRight += cachedScreenMargin;
-  cachedOrientedMarginBottom +=
-      std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+  cachedOrientedMarginBottom += std::max(static_cast<int>(cachedScreenMargin), UITheme::getStatusBarBottomHeight());
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;

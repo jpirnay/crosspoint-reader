@@ -7,6 +7,8 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalBookmarkIndex.h"
@@ -207,11 +209,10 @@ void TxtReaderActivity::initializeReader() {
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
                                    &cachedOrientedMarginLeft);
-  cachedOrientedMarginTop += cachedScreenMargin;
+  cachedOrientedMarginTop += std::max(static_cast<int>(cachedScreenMargin), UITheme::getStatusBarTopHeight());
   cachedOrientedMarginLeft += cachedScreenMargin;
   cachedOrientedMarginRight += cachedScreenMargin;
-  cachedOrientedMarginBottom +=
-      std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+  cachedOrientedMarginBottom += std::max(static_cast<int>(cachedScreenMargin), UITheme::getStatusBarBottomHeight());
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -407,7 +408,7 @@ void TxtReaderActivity::renderStatusBar() const {
     title = txt->getTitle();
   }
   const bool isStarred = bookmarkStore.has(0, static_cast<uint16_t>(currentPage));
-  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title, 0, 0, isStarred);
+  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title, 0, isStarred);
 }
 
 void TxtReaderActivity::saveProgress() const {
@@ -644,10 +645,10 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  marginTop += screenMargin;
+  marginTop += std::max(static_cast<int>(screenMargin), UITheme::getStatusBarTopHeight());
   marginLeft += screenMargin;
   marginRight += screenMargin;
-  marginBottom += std::max(screenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+  marginBottom += std::max(static_cast<int>(screenMargin), UITheme::getStatusBarBottomHeight());
 
   const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
   const int vh = renderer.getScreenHeight() - marginTop - marginBottom;
