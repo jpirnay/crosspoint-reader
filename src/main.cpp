@@ -195,6 +195,15 @@ void setup() {
   powerManager.begin();
   gpio_deep_sleep_hold_dis();  // Release deep sleep GPIO hold state from previous sleep cycle
 
+  const auto wakeupReason = gpio.getWakeupReason();
+
+  if (wakeupReason == HalGPIO::WakeupReason::AfterUSBPower) {
+    // If USB power caused a cold boot, go back to sleep immediately without initializing subsystems
+    LOG_DBG("MAIN", "Wakeup reason: After USB Power => Deep sleep");
+    powerManager.startDeepSleep(gpio);
+    return;
+  }
+
 #ifdef ENABLE_SERIAL_LOG
   if (gpio.isUsbConnected()) {
     Serial.begin(115200);
@@ -206,6 +215,25 @@ void setup() {
 #endif
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
+  LOG_DBG("MAIN", "Wakeup reason: %d, millis=%lu, rawPowerPin=%d", static_cast<int>(wakeupReason), millis(),
+          digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
+
+  // Load just the settings we need *before* initializing the SD card to speed up and reduce power on unverified wakes
+  SETTINGS.loadStartupFromNvs();
+
+  if (wakeupReason == HalGPIO::WakeupReason::PowerButton) {
+    LOG_DBG("MAIN", "Verifying power button press duration (required=%u ms)",
+            CrossPointSettings::getPowerButtonDuration());
+
+    // We only want to skip the hold verification (allowing a short press to wake) if the short
+    // press or double press actually have an action assigned, or if the clock screensaver is active.
+    // Otherwise, short presses from sleep should be ignored entirely and return to sleep.
+    bool allowShortPress = (SETTINGS.useClock != 0) || (SETTINGS.btnShortPower != CrossPointSettings::BTN_DEFAULT) ||
+                           (SETTINGS.btnDoublePower != CrossPointSettings::BTN_DEFAULT);
+
+    gpio.verifyPowerButtonWakeup(CrossPointSettings::getPowerButtonDuration(), allowShortPress);
+    LOG_DBG("MAIN", "Power button verification passed, millis=%lu", millis());
+  }
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
@@ -216,8 +244,9 @@ void setup() {
     return;
   }
 
-  HalSystem::checkPanic();
   SETTINGS.loadFromFile();
+
+  HalSystem::checkPanic();
   HalSystem::clearPanic();  // TODO: move this to an activity when we have one to display the panic info
   HalClock::applyTimezone(SETTINGS.timeZone);
   I18N.loadSettings();
@@ -226,31 +255,6 @@ void setup() {
   WEATHER_SETTINGS.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
-
-  const auto wakeupReason = gpio.getWakeupReason();
-  LOG_DBG("MAIN", "Wakeup reason: %d, millis=%lu, rawPowerPin=%d", static_cast<int>(wakeupReason), millis(),
-          digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
-
-  switch (wakeupReason) {
-    case HalGPIO::WakeupReason::PowerButton: {
-      constexpr uint16_t defaultPowerButtonDurationMs = 400;
-      LOG_DBG("MAIN", "Verifying power button press duration (required=%u ms, default only)",
-              defaultPowerButtonDurationMs);
-      gpio.verifyPowerButtonWakeup(defaultPowerButtonDurationMs, false);
-      LOG_DBG("MAIN", "Power button verification passed, millis=%lu", millis());
-      break;
-    }
-    case HalGPIO::WakeupReason::AfterUSBPower:
-      // If USB power caused a cold boot, go back to sleep
-      LOG_DBG("MAIN", "Wakeup reason: After USB Power");
-      powerManager.startDeepSleep(gpio);
-      break;
-    case HalGPIO::WakeupReason::AfterFlash:
-      // After flashing, just proceed to boot
-    case HalGPIO::WakeupReason::Other:
-    default:
-      break;
-  }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
@@ -277,6 +281,13 @@ void setup() {
     APP_STATE.saveToFile();
     activityManager.goToReader(path);
   }
+
+  // Ensure we're not still holding the power button before leaving setup
+  // waitForStablePowerRelease protects against switch bounce that might register as a false double-press.
+  gpio.waitForStablePowerRelease();
+  // Flush any pin state transitions that occurred during boot before entering the main loop
+  mappedInputManager.update();
+  buttonEventManager.drain();
 }
 
 void loop() {
@@ -500,8 +511,8 @@ void loop() {
           activityManager.goHome();
           break;
         case BA::BTN_SLEEP:
-          activityManager.goToSleep();
-          break;
+          enterDeepSleep();
+          return;  // enterDeepSleep() never returns, but return here to stop processing
         case BA::BTN_FORCE_REFRESH: {
           RenderLock lock;
           renderer.displayBuffer(HalDisplay::HALF_REFRESH);
