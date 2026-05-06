@@ -254,19 +254,26 @@ void HalGPIO::startDeepSleep() {
 }
 
 void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed) {
+  // The wakeup reason was already confirmed as a power button press before this is called,
+  // so we know a real press occurred. When short presses are allowed, nothing more to verify.
   if (shortPressAllowed) {
-    LOG_DBG("GPIO", "verifyPowerButtonWakeup: shortPressAllowed, skipping verification");
+    LOG_DBG("GPIO", "verifyPowerButtonWakeup: shortPressAllowed, skipping hold verification");
     return;
   }
-  // Calibrate: subtract boot time already elapsed, assuming button held since boot
+
+  // Calibrate: subtract boot time already elapsed, assuming button held since boot.
+  // Never collapse to less than BOUNCE_TOLERANCE_MS so the hold loop always has time to
+  // sample the button and detect a release (early release = unintentional tap).
+  constexpr unsigned long BOUNCE_TOLERANCE_MS = 100;
   const uint16_t calibration = millis();
-  const uint16_t calibratedDuration = (calibration < requiredDurationMs) ? (requiredDurationMs - calibration) : 1;
+  const uint16_t calibratedDuration =
+      (calibration < requiredDurationMs) ? (requiredDurationMs - calibration) : BOUNCE_TOLERANCE_MS;
   LOG_DBG("GPIO", "verifyPowerButtonWakeup: requiredMs=%u, calibration=%u, calibratedMs=%u", requiredDurationMs,
           calibration, calibratedDuration);
 
   const auto start = millis();
   inputMgr.update();
-  // inputMgr.isPressed() may take up to ~500ms to return correct state
+  // inputMgr.isPressed() may take up to ~500ms to return correct state after boot
   while (!inputMgr.isPressed(BTN_POWER) && millis() - start < 1000) {
     delay(10);
     inputMgr.update();
@@ -275,9 +282,8 @@ void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
           inputMgr.isPressed(BTN_POWER), digitalRead(InputManager::POWER_BUTTON_PIN) == LOW);
 
   if (inputMgr.isPressed(BTN_POWER)) {
-    // Use wall-clock elapsed time instead of getHeldTime() which resets on bounce.
-    // Tolerate brief release gaps (bouncing switch) up to BOUNCE_TOLERANCE_MS.
-    constexpr unsigned long BOUNCE_TOLERANCE_MS = 100;
+    // Monitor the hold for calibratedDuration, tolerating brief bounces up to BOUNCE_TOLERANCE_MS.
+    // Early release beyond the bounce window means an unintentional tap — go back to sleep.
     unsigned long lastSeenPressed = millis();
     const auto holdStart = millis();
     unsigned long bounceCount = 0;
@@ -291,16 +297,13 @@ void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
         }
         lastSeenPressed = millis();
       } else if (millis() - lastSeenPressed >= BOUNCE_TOLERANCE_MS) {
-        // Button released for longer than bounce tolerance — truly released
-        LOG_DBG("GPIO",
-                "verifyPowerButtonWakeup: released during hold check after %lu ms (bounces=%lu), going to sleep",
+        LOG_DBG("GPIO", "verifyPowerButtonWakeup: released early after %lu ms (bounces=%lu), going to sleep",
                 millis() - holdStart, bounceCount);
         startDeepSleep();
       }
     }
     LOG_DBG("GPIO", "verifyPowerButtonWakeup: hold verified after %lu ms (bounces=%lu), proceeding with boot",
             millis() - holdStart, bounceCount);
-    // Held long enough (tolerating brief bounces) — proceed with boot
   } else {
     LOG_DBG("GPIO", "verifyPowerButtonWakeup: button not pressed after 1s wait, going to sleep");
     startDeepSleep();

@@ -511,8 +511,8 @@ void loop() {
           activityManager.goHome();
           break;
         case BA::BTN_SLEEP:
-          activityManager.goToSleep();
-          break;
+          enterDeepSleep();
+          return;  // enterDeepSleep() never returns, but return here to stop processing
         case BA::BTN_FORCE_REFRESH: {
           RenderLock lock;
           renderer.displayBuffer(HalDisplay::HALF_REFRESH);
