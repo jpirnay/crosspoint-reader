@@ -99,8 +99,29 @@ void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings
   }
 }
 
+#include <Preferences.h>
+
+void CrossPointSettings::loadStartupFromNvs() {
+  Preferences nvs;
+  nvs.begin("Crosspoint", true);  // read-only
+  btnShortPower = nvs.getUChar("bSPwr", BTN_DEFAULT);
+  btnDoublePower = nvs.getUChar("bDPwr", BTN_DEFAULT);
+  useClock = nvs.getUChar("useClk", 0);
+  nvs.end();
+}
+
+void CrossPointSettings::saveStartupToNvs() const {
+  Preferences nvs;
+  nvs.begin("Crosspoint", false);  // read-write
+  nvs.putUChar("bSPwr", btnShortPower);
+  nvs.putUChar("bDPwr", btnDoublePower);
+  nvs.putUChar("useClk", useClock);
+  nvs.end();
+}
+
 bool CrossPointSettings::saveToFile() const {
   Storage.mkdir("/.crosspoint");
+  saveStartupToNvs();
   return JsonSettingsIO::saveSettings(*this, SETTINGS_FILE_JSON);
 }
 
@@ -113,6 +134,7 @@ bool CrossPointSettings::loadFromFile() {
       bool result = JsonSettingsIO::loadSettings(*this, json.c_str(), &resave);
       if (result) {
         enforceFixedShortActions(*this);
+        saveStartupToNvs();  // Ensure NVS is in sync on boot
         if (resave) {
           if (saveToFile()) {
             LOG_DBG("CPS", "Resaved settings to update format");

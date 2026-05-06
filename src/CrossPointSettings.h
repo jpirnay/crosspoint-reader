@@ -339,6 +339,8 @@ class CrossPointSettings {
 
   bool saveToFile() const;
   bool loadFromFile();
+  void loadStartupFromNvs();
+  void saveStartupToNvs() const;
 
   static void validateFrontButtonMapping(CrossPointSettings& settings);
 
