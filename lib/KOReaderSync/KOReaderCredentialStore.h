@@ -27,6 +27,7 @@ class KOReaderCredentialStore {
   std::string password;
   std::string serverUrl;                                            // Custom sync server URL (empty = default)
   DocumentMatchMethod matchMethod = DocumentMatchMethod::FILENAME;  // Default to filename for compatibility
+  bool sendMetadata = false;
 
   // Private constructor for singleton
   KOReaderCredentialStore() = default;
@@ -72,6 +73,10 @@ class KOReaderCredentialStore {
   // Document matching method
   void setMatchMethod(DocumentMatchMethod method);
   DocumentMatchMethod getMatchMethod() const { return matchMethod; }
+
+  // Send document metadata (filename, title, authors) with progress uploads
+  void setSendMetadata(bool value);
+  bool getSendMetadata() const { return sendMetadata; }
 };
 
 // Helper macro to access credential store

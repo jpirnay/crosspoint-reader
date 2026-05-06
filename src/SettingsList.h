@@ -276,6 +276,19 @@ inline const std::vector<SettingInfo> list = {
         "koMatchMethod", StrId::STR_KOREADER_SYNC),
     SettingInfo::Toggle(StrId::STR_KO_SYNC_ON_BOOK_CLOSE, &CrossPointSettings::koSyncOnBookClose, "koSyncOnBookClose",
                         StrId::STR_KOREADER_SYNC),
+    []() {
+      SettingInfo s;
+      s.nameId = StrId::STR_SEND_METADATA;
+      s.type = SettingType::TOGGLE;
+      s.key = "koSendMetadata";
+      s.category = StrId::STR_KOREADER_SYNC;
+      s.valueGetter = [](const void*) -> uint8_t { return KOREADER_STORE.getSendMetadata() ? 1u : 0u; };
+      s.valueSetter = [](void*, uint8_t v) {
+        KOREADER_STORE.setSendMetadata(v != 0);
+        KOREADER_STORE.saveToFile();
+      };
+      return s;
+    }(),
 
     // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
     SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,

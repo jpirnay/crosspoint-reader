@@ -175,3 +175,8 @@ void KOReaderCredentialStore::setMatchMethod(DocumentMatchMethod method) {
   matchMethod = method;
   LOG_DBG("KRS", "Set match method: %s", method == DocumentMatchMethod::FILENAME ? "Filename" : "Binary");
 }
+
+void KOReaderCredentialStore::setSendMetadata(bool value) {
+  sendMetadata = value;
+  LOG_DBG("KRS", "Send metadata: %s", value ? "enabled" : "disabled");
+}

@@ -1,16 +1,29 @@
 #pragma once
+#include <optional>
 #include <string>
+
+/**
+ * Optional document metadata sent alongside progress uploads.
+ * Only populated when KOReaderCredentialStore::getSendMetadata() is true.
+ * The official sync server ignores this field; custom servers may use it.
+ */
+struct KOReaderMetadata {
+  std::string filename;
+  std::string title;
+  std::string authors;
+};
 
 /**
  * Progress data from KOReader sync server.
  */
 struct KOReaderProgress {
-  std::string document;  // Document hash
-  std::string progress;  // XPath-like progress string
-  float percentage;      // Progress percentage (0.0 to 1.0)
-  std::string device;    // Device name
-  std::string deviceId;  // Device ID
-  int64_t timestamp;     // Unix timestamp of last update
+  std::string document;                      // Document hash
+  std::string progress;                      // XPath-like progress string
+  float percentage;                          // Progress percentage (0.0 to 1.0)
+  std::string device;                        // Device name
+  std::string deviceId;                      // Device ID
+  int64_t timestamp;                         // Unix timestamp of last update
+  std::optional<KOReaderMetadata> metadata;  // Optional document metadata
 };
 
 /**
