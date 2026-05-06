@@ -93,6 +93,7 @@ class KOReaderSyncActivity final : public Activity {
   KOReaderPosition localProgress;
   std::string remoteChapterLabel;
   std::string localChapterLabel;
+  std::optional<KOReaderMetadata> localDocumentMetadata;
 
   // Selection in result screen (0=Apply, 1=Upload)
   int selectedOption = 0;

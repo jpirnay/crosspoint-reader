@@ -405,6 +405,7 @@ void KOReaderSyncActivity::performUpload() {
   progress.document = documentHash;
   progress.progress = localProgress.xpath;
   progress.percentage = localProgress.percentage;
+  progress.metadata = localDocumentMetadata;
 
   const auto result = KOReaderSyncClient::updateProgress(progress);
   KOReaderSyncClient::endPersistentSession();
@@ -717,6 +718,18 @@ bool KOReaderSyncActivity::computeLocalProgressAndChapter() {
   localChapterLabel = (localTocIndex >= 0)
                           ? epub->getTocItem(localTocIndex).title
                           : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
+
+  if (KOREADER_STORE.getSendMetadata()) {
+    const size_t slash = epubPath.rfind('/');
+    KOReaderMetadata meta;
+    meta.filename = (slash != std::string::npos) ? epubPath.substr(slash + 1) : epubPath;
+    meta.title = epub->getTitle();
+    meta.authors = epub->getAuthor();
+    localDocumentMetadata = std::move(meta);
+  } else {
+    localDocumentMetadata.reset();
+  }
+
   return true;
 }
 

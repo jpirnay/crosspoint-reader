@@ -17,7 +17,7 @@ KOReaderSettingsActivity::KOReaderSettingsActivity(GfxRenderer& renderer, Mapped
 }
 
 void KOReaderSettingsActivity::buildMenuItems() {
-  menuItems.reserve(7);
+  menuItems.reserve(8);
   // Username, Password, Server URL: ACTION items with custom value display
   menuItems.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER_URL, SettingAction::None)
                           .withSubcategory(StrId::STR_MENU_KOSYNC_SERVER));
@@ -35,6 +35,17 @@ void KOReaderSettingsActivity::buildMenuItems() {
                           .withSubcategory(StrId::STR_MENU_KOSYNC_BEHAVIOR));
   menuItems.push_back(SettingInfo::Toggle(StrId::STR_KO_SYNC_ON_BOOK_CLOSE, &CrossPointSettings::koSyncOnBookClose,
                                           "koSyncOnBookClose"));
+  {
+    SettingInfo s;
+    s.nameId = StrId::STR_SEND_METADATA;
+    s.type = SettingType::TOGGLE;
+    s.valueGetter = [](const void*) -> uint8_t { return KOREADER_STORE.getSendMetadata() ? 1u : 0u; };
+    s.valueSetter = [](void*, uint8_t v) {
+      KOREADER_STORE.setSendMetadata(v != 0);
+      KOREADER_STORE.saveToFile();
+    };
+    menuItems.push_back(std::move(s));
+  }
 
   // Authenticate and Register: ACTION items
   menuItems.push_back(
