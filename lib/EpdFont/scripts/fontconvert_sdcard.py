@@ -44,11 +44,18 @@ except ImportError:
 INTERVAL_PRESETS = {
     "ascii":       [(0x0020, 0x007E)],
     "latin1":      [(0x0080, 0x00FF)],
-    "latin-ext":   [(0x0020, 0x007E), (0x0080, 0x00FF), (0x0100, 0x024F),
-                    (0x1E00, 0x1EFF), (0x2000, 0x206F)],
-    "greek":       [(0x0370, 0x03FF), (0x1F00, 0x1FFF)],
-    "cyrillic":    [(0x0400, 0x04FF), (0x0500, 0x052F)],
-    "georgian":    [(0x10A0, 0x10FF), (0x2D00, 0x2D2F)],
+    "latin-ext":      [(0x0020, 0x007E), (0x0080, 0x00FF), (0x0100, 0x024F),
+                        (0x1E00, 0x1EFF), (0x2000, 0x206F)],
+    "latin-cyrillic": [(0x0020, 0x007E), (0x0080, 0x00FF), (0x0100, 0x024F),
+                        (0x1E00, 0x1EFF), (0x2000, 0x206F),
+                        (0x0400, 0x04FF), (0x0500, 0x052F),
+                        (0x1C80, 0x1C8F), (0x2DE0, 0x2DFF), (0xA640, 0xA69F)],
+    "greek":          [(0x0370, 0x03FF), (0x1F00, 0x1FFF)],
+    "greek-letters":  [(0x0370, 0x03FF)],
+    "musical-symbols": [(0x2660, 0x266F), (0x1D100, 0x1D1FF)],
+    "cyrillic":       [(0x0400, 0x04FF), (0x0500, 0x052F),
+                        (0x1C80, 0x1C8F), (0x2DE0, 0x2DFF), (0xA640, 0xA69F)],
+    "georgian":       [(0x10A0, 0x10FF), (0x2D00, 0x2D2F)],
     "armenian":    [(0x0530, 0x058F)],
     "ethiopic":    [(0x1200, 0x137F), (0x1380, 0x139F), (0x2D80, 0x2DDF)],
     "vietnamese":  [(0x01A0, 0x01B0), (0x1EA0, 0x1EF9)],
@@ -706,6 +713,9 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
     all_cps = set(g.code_point for g, _ in all_glyphs)
 
     kern_map = extract_kerning_fonttools(fontfile, all_cps, ppem)
+    # SMP codepoints (> U+FFFF) cannot be stored in the uint16 kern codepoint
+    # field; drop them before class derivation to avoid struct.error.
+    kern_map = {(lcp, rcp): v for (lcp, rcp), v in kern_map.items() if lcp <= 0xFFFF and rcp <= 0xFFFF}
     print(f"  [{style_label}] Kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
 
     (kern_left_classes, kern_right_classes, kern_matrix,
@@ -718,6 +728,8 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
               f"{matrix_size + entries_size} bytes", file=sys.stderr)
 
     ligature_pairs = extract_ligatures_fonttools(fontfile, all_cps)
+    # SMP codepoints overflow the uint32 packed-pair encoding; drop them.
+    ligature_pairs = [(pk, lc) for pk, lc in ligature_pairs if (pk >> 16) <= 0xFFFF and (pk & 0xFFFF) <= 0xFFFF]
     if len(ligature_pairs) > 255:
         print(f"  [{style_label}] WARNING: {len(ligature_pairs)} ligature pairs exceeds uint8_t max (255), truncating",
               file=sys.stderr)
