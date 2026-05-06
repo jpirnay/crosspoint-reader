@@ -713,6 +713,9 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
     all_cps = set(g.code_point for g, _ in all_glyphs)
 
     kern_map = extract_kerning_fonttools(fontfile, all_cps, ppem)
+    # SMP codepoints (> U+FFFF) cannot be stored in the uint16 kern codepoint
+    # field; drop them before class derivation to avoid struct.error.
+    kern_map = {(lcp, rcp): v for (lcp, rcp), v in kern_map.items() if lcp <= 0xFFFF and rcp <= 0xFFFF}
     print(f"  [{style_label}] Kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
 
     (kern_left_classes, kern_right_classes, kern_matrix,
@@ -725,6 +728,8 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
               f"{matrix_size + entries_size} bytes", file=sys.stderr)
 
     ligature_pairs = extract_ligatures_fonttools(fontfile, all_cps)
+    # SMP codepoints overflow the uint32 packed-pair encoding; drop them.
+    ligature_pairs = [(pk, lc) for pk, lc in ligature_pairs if (pk >> 16) <= 0xFFFF and (pk & 0xFFFF) <= 0xFFFF]
     if len(ligature_pairs) > 255:
         print(f"  [{style_label}] WARNING: {len(ligature_pairs)} ligature pairs exceeds uint8_t max (255), truncating",
               file=sys.stderr)
