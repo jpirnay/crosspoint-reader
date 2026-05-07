@@ -327,7 +327,8 @@ def main():
                         sys.exit(1)
 
         # Build phase (parallel)
-        max_workers = 4 if args.jobs is None else max(1, args.jobs)
+        requested_workers = 4 if args.jobs is None else max(1, args.jobs)
+        max_workers = min(requested_workers, len(families))
         print(f"\n=== Building {len(families)} families ({max_workers} parallel jobs) ===\n")
 
         failed = []
