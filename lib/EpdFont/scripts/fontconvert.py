@@ -71,9 +71,10 @@ intervals = [
     ### Combining Diacritical Marks (minimal subset) ###
     # Needed for proper rendering of many extended Latin languages
     (0x0300, 0x036F),
-    ### Greek & Coptic ###
-    # Used in science, maths, philosophy, some academic texts
-    (0x0370, 0x03FF),
+    ### Greek (essential monotonic subset) ###
+    # Covers uppercase (Α–Ω) and lowercase (α–ω) letters including
+    # accented monotonic vowels; excludes polytonic, archaic, and Coptic
+    (0x0391, 0x03C9),
     ### Cyrillic ###
     # Russian, Ukrainian, Bulgarian, etc.
     (0x0400, 0x04FF),
@@ -742,6 +743,7 @@ if compress:
         (0x0100, 0x017F),   # Latin Extended-A
         (0x0180, 0x024F),   # Latin Extended-B
         (0x0300, 0x036F),   # Combining Diacritical Marks
+        (0x0391, 0x03C9),   # Greek (essential monotonic)
         (0x0400, 0x04FF),   # Cyrillic
         (0x1EA0, 0x1EF9),   # Vietnamese Extended
         (0x2000, 0x206F),   # General Punctuation
