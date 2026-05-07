@@ -151,6 +151,9 @@ void SettingsActivity::onEnter() {
              std::move(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates)
                            .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
   addToMoved(systemSettings, lastSystemSub,
+             std::move(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate)
+                           .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
+  addToMoved(systemSettings, lastSystemSub,
              std::move(SettingInfo::Action(StrId::STR_SYSTEM_INFO, SettingAction::SystemInfo)
                            .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
 

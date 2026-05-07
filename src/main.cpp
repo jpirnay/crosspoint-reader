@@ -30,6 +30,7 @@
 #include "WeatherSettingsStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
@@ -235,6 +236,25 @@ void setup() {
     LOG_DBG("MAIN", "Power button verification passed, millis=%lu", millis());
   }
 
+  // Recovery firmware mode: hold left side button (BTN_UP) together with the power button at
+  // boot to skip directly to the SD-card firmware update screen. Useful on devices where USB
+  // flashing has been locked down (e.g. recent X3 firmware).
+  bool recoveryFirmwareMode = false;
+  if (wakeupReason == HalGPIO::WakeupReason::PowerButton) {
+    // Refresh the cached button state a few times — isPressed() needs ~half a second to settle
+    // after boot per the HalGPIO contract. Use a millis-based deadline so we always wait the full
+    // settle window even if the loop body takes longer than expected on slow boots.
+    const unsigned long settleStart = millis();
+    while (millis() - settleStart < 500) {
+      gpio.update();
+      delay(10);
+    }
+    if (gpio.isPressed(HalGPIO::BTN_UP)) {
+      recoveryFirmwareMode = true;
+      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+    }
+  }
+
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
@@ -268,10 +288,12 @@ void setup() {
   RECENT_BOOKS.loadFromFile();
   GLOBAL_BOOKMARKS.load();
 
-  // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
-  // crashed (indicated by readerActivityLoadCount > 0)
-  if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
-      mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
+  if (recoveryFirmwareMode) {
+    // Skip normal home/reader routing: jump straight into the SD firmware picker.
+    activityManager.replaceActivity(
+        std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
+  } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
+             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     activityManager.goHome();
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
