@@ -128,17 +128,36 @@ def resolve_font_path(style_spec: dict, family_name: str, style_name: str) -> Pa
     return resolved
 
 
-def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
+def build_family(family: dict, output_base: Path, incremental: bool = False, timeout: int = 1200) -> tuple[str, bool, str]:
     """Build a single font family. Returns (name, success, message)."""
     name = family["name"]
     output_dir = output_base / name
     if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+        if incremental:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            shutil.rmtree(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     styles = family.get("styles", {})
     intervals = family["intervals"]
-    sizes = ",".join(str(s) for s in family["sizes"])
+    if incremental and output_dir.exists():
+        existing_sizes = set()
+        for file_path in output_dir.glob("*.cpfont"):
+            stem = file_path.stem
+            if stem.startswith(f"{name}_"):
+                try:
+                    existing_sizes.add(int(stem.split("_")[-1]))
+                except ValueError:
+                    pass
+        sizes_list = [s for s in family["sizes"] if s not in existing_sizes]
+        if not sizes_list:
+            return name, True, ""
+        sizes = ",".join(str(s) for s in sizes_list)
+    else:
+        sizes = ",".join(str(s) for s in family["sizes"])
 
     # Resolve all font file paths (downloads as needed)
     try:
@@ -179,7 +198,7 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=1200,
+            timeout=timeout,
         )
         if result.returncode != 0:
             return name, False, result.stderr.strip() or f"Exit code {result.returncode}"
@@ -240,9 +259,17 @@ def main():
     )
     parser.add_argument(
         "--jobs", "-j", type=int, default=None,
-        help="Max parallel jobs (default: number of families)"
+        help="Max parallel jobs (default: 4)"
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=1200,
+        help="Timeout in seconds for each fontconvert process (default: 1200)"
     )
     parser.add_argument("--clean", action="store_true", help="Clean output directory before building")
+    parser.add_argument(
+        "--incremental", action="store_true",
+        help="Create only missing files and preserve already generated outputs"
+    )
     args = parser.parse_args()
 
     # The assets copy is expected to be a link to PRIMARY_CONFIG.
@@ -270,14 +297,17 @@ def main():
     if not args.skip:
         # Filter if --only specified
         if args.only:
-            only_names = {token.strip() for token in args.only.split(",") if token.strip()}
-            families = [f for f in families if f["name"] in only_names]
-            missing = only_names - {f["name"] for f in families}
+            only_names = {token.strip().lower() for token in args.only.split(",") if token.strip()}
+            families = [f for f in families if f["name"].lower() in only_names]
+            missing = only_names - {f["name"].lower() for f in families}
             if missing:
-                print(f"WARNING: families not found in config: {', '.join(missing)}", file=sys.stderr)
+                print(f"WARNING: families not found in config: {', '.join(sorted(missing))}", file=sys.stderr)
             if not families:
                 print("ERROR: no matching families after --only filter", file=sys.stderr)
                 sys.exit(1)
+
+        if args.clean and args.incremental:
+            parser.error("--clean cannot be used with --incremental")
 
         if args.clean and output_base.exists():
             print(f"Cleaning {output_base}...")
@@ -297,13 +327,13 @@ def main():
                         sys.exit(1)
 
         # Build phase (parallel)
-        max_workers = args.jobs or len(families)
+        max_workers = 4 if args.jobs is None else max(1, args.jobs)
         print(f"\n=== Building {len(families)} families ({max_workers} parallel jobs) ===\n")
 
         failed = []
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(build_family, family, output_base): family["name"]
+                executor.submit(build_family, family, output_base, args.incremental, args.timeout): family["name"]
                 for family in families
             }
             for future in as_completed(futures):
