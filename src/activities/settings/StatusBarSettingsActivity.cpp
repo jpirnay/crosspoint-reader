@@ -81,10 +81,17 @@ void drawPreviewStatusItems(const GfxRenderer& renderer, const Rect& rect, const
   const bool showBatteryPercentage =
       SETTINGS.statusBarBattery &&
       SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
+  const bool showClock = SETTINGS.useClock && SETTINGS.statusBarClock;
+  const int previewClockWidth = showClock ? renderer.getTextWidth(SMALL_FONT_ID, "00:00") : 0;
+
   if (SETTINGS.statusBarBattery) {
     GUI.drawBatteryLeft(renderer,
                         Rect{rect.x + previewInnerMargin + 2, textY, metrics.batteryWidth, metrics.batteryHeight},
                         showBatteryPercentage);
+  }
+  if (showClock) {
+    const int clockX = rect.x + previewInnerMargin + (SETTINGS.statusBarBattery ? metrics.batteryWidth + 8 : 0);
+    renderer.drawText(SMALL_FONT_ID, clockX, textY, "00:00");
   }
 
   int progressTextWidth = 0;
@@ -118,6 +125,11 @@ void drawPreviewStatusItems(const GfxRenderer& renderer, const Rect& rect, const
                                  renderer.getTextWidth(SMALL_FONT_ID, "100%") + 8;
       leftReserve = std::max(leftReserve, percentReserve);
     }
+    if (showClock) {
+      leftReserve += previewClockWidth + 8;
+    }
+  } else if (showClock) {
+    leftReserve = std::max(leftReserve, previewClockWidth + 8);
   }
   const int rightReserve = progressTextWidth > 0 ? progressTextWidth + 18 : 6;
   const int titleAreaWidth = rect.width - previewInnerMargin * 2 - leftReserve - rightReserve;
