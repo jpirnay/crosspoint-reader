@@ -1867,8 +1867,10 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
     return false;
   }
 
+  const int imageOnlyOffset = getImageOnlyPageYOffset(*page, viewportHeight);
+  const int renderMarginTop = marginTop + imageOnlyOffset;
   renderer.clearScreen();
-  page->render(renderer, effectiveFontId, marginLeft, marginTop);
+  page->render(renderer, effectiveFontId, marginLeft, renderMarginTop);
   // No displayBuffer call — caller (SleepActivity) handles that after compositing the overlay
   return true;
 }

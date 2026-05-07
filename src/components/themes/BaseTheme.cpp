@@ -7,6 +7,7 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -61,7 +62,7 @@ int progressBarPixelHeight(const uint8_t progressBar, const uint8_t thickness, c
 int statusBarProgressPercent(const uint8_t progressBar, const float bookProgress, const int currentPage,
                              const int pageCount) {
   if (progressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
-    return std::clamp(static_cast<int>(bookProgress), 0, 100);
+    return std::clamp(static_cast<int>(std::lround(bookProgress)), 0, 100);
   }
   const int chapterProgress =
       (pageCount > 0) ? static_cast<int>((static_cast<float>(currentPage) / pageCount) * 100) : 0;

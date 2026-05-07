@@ -51,7 +51,7 @@ void drawPreviewProgressBar(const GfxRenderer& renderer, const Rect& rect, const
   }
 
   const int percent = progressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS ? 75 : 25;
-  const int barHeight = (thickness + 1) * 2;
+  const int barHeight = UITheme::getProgressBarHeight(progressBar, thickness);
   const int y = topEdge ? rect.y + previewInnerMargin : rect.y + rect.height - previewInnerMargin - barHeight;
   const int barWidth = (rect.width - previewInnerMargin * 2) * percent / 100;
   renderer.fillRect(rect.x + previewInnerMargin, y, barWidth, barHeight);
