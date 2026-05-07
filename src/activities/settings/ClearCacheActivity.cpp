@@ -28,11 +28,23 @@ void ClearCacheActivity::render(RenderLock&&) {
                  tr(STR_CLEAR_READING_CACHE));
 
   const int midY = contentRect.y + contentRect.height / 2;
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int warnWidth = contentRect.width - 2 * metrics.contentSidePadding;
   if (state == WARNING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, midY - 60, tr(STR_CLEAR_CACHE_WARNING_1), true);
+    const auto warn1Lines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_CLEAR_CACHE_WARNING_1), warnWidth, 3);
+    int y = midY - 60;
+    for (const auto& line : warn1Lines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += lineHeight;
+    }
     renderer.drawCenteredText(UI_10_FONT_ID, midY - 30, tr(STR_CLEAR_CACHE_WARNING_2), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CLEAR_CACHE_WARNING_3), true);
-    renderer.drawCenteredText(UI_10_FONT_ID, midY + 30, tr(STR_CLEAR_CACHE_WARNING_4), true);
+    const std::string warn34 = std::string(tr(STR_CLEAR_CACHE_WARNING_3)) + " " + tr(STR_CLEAR_CACHE_WARNING_4);
+    const auto warn34Lines = renderer.wrappedText(UI_10_FONT_ID, warn34.c_str(), warnWidth, 3);
+    y = midY + 10;
+    for (const auto& line : warn34Lines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += lineHeight;
+    }
 
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_CLEAR_BUTTON), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
