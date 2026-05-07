@@ -230,7 +230,13 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   } else {
     // PICKING / CONFIRMING: a sub-activity is on top, nothing to draw.
     if (recoveryMode) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_RECOVERY_MODE_HINT));
+      const int hintWidth = pageWidth - 2 * metrics.contentSidePadding;
+      const auto hintLines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_RECOVERY_MODE_HINT), hintWidth, 4);
+      int hintY = top;
+      for (const auto& line : hintLines) {
+        renderer.drawCenteredText(UI_10_FONT_ID, hintY, line.c_str());
+        hintY += lineHeight;
+      }
     }
   }
 

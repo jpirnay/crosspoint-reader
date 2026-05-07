@@ -862,7 +862,14 @@ void WifiSelectionActivity::renderForgetPrompt() const {
   }
   renderer.drawCenteredText(UI_10_FONT_ID, top, ssidInfo.c_str());
 
-  renderer.drawCenteredText(UI_10_FONT_ID, top + 40, tr(STR_FORGET_AND_REMOVE));
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int hintWidth = pageWidth - 2 * metrics.contentSidePadding;
+  const auto forgetLines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_FORGET_AND_REMOVE), hintWidth, 3);
+  int forgetY = top + 40;
+  for (const auto& line : forgetLines) {
+    renderer.drawCenteredText(UI_10_FONT_ID, forgetY, line.c_str());
+    forgetY += height;
+  }
 
   // Draw Cancel/Forget network buttons
   const int buttonY = top + 80;
@@ -904,34 +911,15 @@ void WifiSelectionActivity::renderCaptivePortal() const {
   const int sp = metrics.verticalSpacing;
   constexpr int QR_SIZE = 320;
 
-  // Pre-compute URL line count so we can vertically centre everything
-  const char* url = captivePortalUrl.c_str();
-  int urlLineCount = 0;
-  {
-    int rem = static_cast<int>(captivePortalUrl.size());
-    int off = 0;
-    while (rem > 0) {
-      int lo = 1, hi = rem;
-      while (lo < hi) {
-        const int mid = (lo + hi + 1) / 2;
-        char tmp[512];
-        snprintf(tmp, sizeof(tmp), "%.*s", mid, url + off);
-        if (renderer.getTextWidth(SMALL_FONT_ID, tmp) <= maxWidth)
-          lo = mid;
-        else
-          hi = mid - 1;
-      }
-      urlLineCount++;
-      off += lo;
-      rem -= lo;
-    }
-  }
+  // Pre-compute wrapped hint and URL lines so we can vertically centre everything
+  const std::string hintText = std::string(tr(STR_CAPTIVE_PORTAL_HINT_1)) + " " + tr(STR_CAPTIVE_PORTAL_HINT_2);
+  const auto hintLines = renderer.wrappedText(UI_10_FONT_ID, hintText.c_str(), maxWidth, 4);
+  const auto urlLines = renderer.wrappedText(SMALL_FONT_ID, captivePortalUrl.c_str(), maxWidth, 10);
 
-  const int totalHeight = lh12 + sp       // title
-                          + lh10          // hint line 1
-                          + lh10 + sp     // hint line 2
-                          + QR_SIZE + sp  // QR code
-                          + urlLineCount * lhSmall;
+  const int totalHeight = lh12 + sp                                         // title
+                          + static_cast<int>(hintLines.size()) * lh10 + sp  // hint
+                          + QR_SIZE + sp                                    // QR code
+                          + static_cast<int>(urlLines.size()) * lhSmall;
 
   // contentRect covers the full screen minus button hints; subtract the header
   // and sub-header that render() always draws above us.
@@ -941,35 +929,19 @@ void WifiSelectionActivity::renderCaptivePortal() const {
 
   renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_CAPTIVE_PORTAL_DETECTED), true, EpdFontFamily::BOLD);
   y += lh12 + sp;
-  renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_CAPTIVE_PORTAL_HINT_1));
-  y += lh10;
-  renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_CAPTIVE_PORTAL_HINT_2));
-  y += lh10 + sp;
+  for (const auto& line : hintLines) {
+    renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+    y += lh10;
+  }
+  y += sp;
 
   const int qrX = contentRect.x + (contentRect.width - QR_SIZE) / 2;
   QrUtils::drawQrCode(renderer, Rect{qrX, y, QR_SIZE, QR_SIZE}, captivePortalUrl);
   y += QR_SIZE + sp;
 
-  // Split URL into as many lines as needed
-  int remaining = static_cast<int>(captivePortalUrl.size());
-  int offset = 0;
-  while (remaining > 0) {
-    int lo = 1, hi = remaining;
-    while (lo < hi) {
-      const int mid = (lo + hi + 1) / 2;
-      char tmp[512];
-      snprintf(tmp, sizeof(tmp), "%.*s", mid, url + offset);
-      if (renderer.getTextWidth(SMALL_FONT_ID, tmp) <= maxWidth)
-        lo = mid;
-      else
-        hi = mid - 1;
-    }
-    char line[512];
-    snprintf(line, sizeof(line), "%.*s", lo, url + offset);
-    renderer.drawCenteredText(SMALL_FONT_ID, y, line);
+  for (const auto& line : urlLines) {
+    renderer.drawCenteredText(SMALL_FONT_ID, y, line.c_str());
     y += lhSmall;
-    offset += lo;
-    remaining -= lo;
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CAPTIVE_PORTAL_DONE), "", "");

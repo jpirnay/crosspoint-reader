@@ -160,7 +160,13 @@ void OtaUpdateActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + metrics.verticalSpacing, tr(STR_POWER_ON_HINT));
+    const int hintWidth = contentRect.width - 2 * metrics.contentSidePadding;
+    const auto hintLines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_POWER_ON_HINT), hintWidth, 4);
+    int hintY = top + height + metrics.verticalSpacing;
+    for (const auto& line : hintLines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, hintY, line.c_str());
+      hintY += height;
+    }
   }
 
   renderer.displayBuffer();
