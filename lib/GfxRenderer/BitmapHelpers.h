@@ -127,21 +127,21 @@ class AtkinsonDitherer {
     if (adjusted < 0) adjusted = 0;
     if (adjusted > 255) adjusted = 255;
 
-    // Quantize to 4 levels — evenly-spaced midpoint thresholds for factory LUT
+    // Quantize to 4 levels — thresholds tuned to X4 display brightness
     uint8_t quantized;
     int quantizedValue;
-    if (adjusted < 43) {
+    if (adjusted < 30) {
       quantized = 0;
-      quantizedValue = 0;
-    } else if (adjusted < 128) {
+      quantizedValue = 15;
+    } else if (adjusted < 50) {
       quantized = 1;
-      quantizedValue = 85;
-    } else if (adjusted < 213) {
+      quantizedValue = 30;
+    } else if (adjusted < 140) {
       quantized = 2;
-      quantizedValue = 170;
+      quantizedValue = 80;
     } else {
       quantized = 3;
-      quantizedValue = 255;
+      quantizedValue = 210;
     }
 
     // Calculate error (only distribute 6/8 = 75%)
@@ -215,21 +215,21 @@ class FloydSteinbergDitherer {
     if (adjusted < 0) adjusted = 0;
     if (adjusted > 255) adjusted = 255;
 
-    // Quantize to 4 levels — evenly-spaced midpoint thresholds for factory LUT
+    // Quantize to 4 levels — thresholds tuned to X4 display brightness
     uint8_t quantized;
     int quantizedValue;
-    if (adjusted < 43) {
+    if (adjusted < 30) {
       quantized = 0;
-      quantizedValue = 0;
-    } else if (adjusted < 128) {
+      quantizedValue = 15;
+    } else if (adjusted < 50) {
       quantized = 1;
-      quantizedValue = 85;
-    } else if (adjusted < 213) {
+      quantizedValue = 30;
+    } else if (adjusted < 140) {
       quantized = 2;
-      quantizedValue = 170;
+      quantizedValue = 80;
     } else {
       quantized = 3;
-      quantizedValue = 255;
+      quantizedValue = 210;
     }
 
     // Calculate error
