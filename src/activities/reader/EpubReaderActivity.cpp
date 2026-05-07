@@ -16,6 +16,7 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "CrossPointSettings.h"
@@ -109,6 +110,27 @@ const char* orientationToString(const GfxRenderer::Orientation orientation) {
       return "Landscape CCW";
   }
   return "Unknown";
+}
+
+int getImageOnlyPageYOffset(const Page& page, const int viewportHeight) {
+  if (viewportHeight <= 0 || page.elements.empty()) {
+    return 0;
+  }
+
+  const bool imageOnlyPage = std::all_of(
+      page.elements.begin(), page.elements.end(),
+      [](const std::shared_ptr<PageElement>& element) { return element && element->getTag() == TAG_PageImage; });
+  if (!imageOnlyPage) {
+    return 0;
+  }
+
+  int16_t imgX, imgY, imgW, imgH;
+  if (!page.getImageBoundingBox(imgX, imgY, imgW, imgH) || imgH >= viewportHeight) {
+    return 0;
+  }
+
+  const int centeredTop = (viewportHeight - imgH) / 2;
+  return std::max(0, centeredTop - static_cast<int>(imgY));
 }
 
 }  // namespace
@@ -241,7 +263,7 @@ void EpubReaderActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       buttonEvents.drain();
-      automaticPageTurnActive = false;
+      stopAutomaticPageTurn();
       // updates chapter title space to indicate page turn disabled
       requestUpdate();
       return;
@@ -1009,9 +1031,30 @@ void EpubReaderActivity::applyTextDarkness(const uint8_t textDarkness) {
   requestUpdate();
 }
 
+void EpubReaderActivity::stopAutomaticPageTurn() {
+  if (!automaticPageTurnActive) {
+    return;
+  }
+
+  automaticPageTurnActive = false;
+
+  if (UITheme::getStatusBarHeight(true) == UITheme::getStatusBarHeight()) {
+    return;
+  }
+
+  // Preserve current reading position so we can restore after reflow.
+  RenderLock lock(*this);
+  if (section) {
+    cachedSpineIndex = currentSpineIndex;
+    cachedChapterTotalPageCount = section->pageCount;
+    nextPageNumber = section->currentPage;
+  }
+  section.reset();
+}
+
 void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
   if (selectedPageTurnOption == 0 || selectedPageTurnOption >= std::size(PAGE_TURN_LABELS)) {
-    automaticPageTurnActive = false;
+    stopAutomaticPageTurn();
     return;
   }
 
@@ -1020,9 +1063,8 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
   pageTurnDuration = (1UL * 60 * 1000) / PAGE_TURN_LABELS[selectedPageTurnOption];
   automaticPageTurnActive = true;
 
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  // resets cached section so that space is reserved for auto page turn indicator when None or progress bar only
-  if (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight()) {
+  // Reset cached section when automatic page turn adds a forced status item band.
+  if (UITheme::getStatusBarHeight(true) != UITheme::getStatusBarHeight()) {
     // Preserve current reading position so we can restore after reflow.
     RenderLock lock(*this);
     if (section) {
@@ -1223,21 +1265,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  orientedMarginTop += SETTINGS.screenMargin;
+  const int statusBarTopHeight = UITheme::getStatusBarTopHeight(automaticPageTurnActive);
+  const int statusBarBottomHeight = UITheme::getStatusBarBottomHeight(automaticPageTurnActive);
+
+  orientedMarginTop += std::max(static_cast<int>(SETTINGS.screenMargin), statusBarTopHeight);
   orientedMarginLeft += SETTINGS.screenMargin;
   orientedMarginRight += SETTINGS.screenMargin;
-
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-
-  // reserves space for automatic page turn indicator when no status bar or progress bar only
-  if (automaticPageTurnActive &&
-      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
-    orientedMarginBottom +=
-        std::max(SETTINGS.screenMargin,
-                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
-  } else {
-    orientedMarginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
-  }
+  orientedMarginBottom += std::max(static_cast<int>(SETTINGS.screenMargin), statusBarBottomHeight);
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
@@ -1485,10 +1519,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   fcm->resetStats();
   logReaderMemSnapshot("prewarm_begin");
 
+  const int viewportHeight = std::max(0, renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom);
+  const int contentTop = orientedMarginTop + getImageOnlyPageYOffset(*page, viewportHeight);
+
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   const uint32_t heapBefore = esp_get_free_heap_size();
   auto scope = fcm->createPrewarmScope();
-  page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);  // scan pass
+  page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);  // scan pass
   scope.endScanAndPrewarm();
   const uint32_t heapAfter = esp_get_free_heap_size();
   fcm->logStats("prewarm");
@@ -1506,7 +1543,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   lastRenderStats.forcedHalfRefresh = forceHalfRefreshThisPage;
 
   logReaderMemSnapshot("before_bw_render");
-  page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+  page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
   renderStatusBar();
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
@@ -1520,12 +1557,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // Step 2: Re-render with images and display again (images appear clean)
     int16_t imgX, imgY, imgW, imgH;
     if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
-      renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
+      renderer.fillRect(imgX + orientedMarginLeft, imgY + contentTop, imgW, imgH, false);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
-      page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -1558,7 +1595,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     logReaderMemSnapshot("gray_lsb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
     renderer.copyGrayscaleLsbBuffers();
     const auto tGrayLsb = millis();
     logReaderMemSnapshot("gray_lsb_end");
@@ -1567,7 +1604,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     logReaderMemSnapshot("gray_msb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, orientedMarginTop);
+    page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
     renderer.copyGrayscaleMsbBuffers();
     const auto tGrayMsb = millis();
     logReaderMemSnapshot("gray_msb_end");
@@ -1638,16 +1675,9 @@ void EpubReaderActivity::renderStatusBar() const {
   const float bookProgress = epub->calculateProgress(currentSpineIndex, sectionChapterProg) * 100;
 
   std::string title;
-  int textYOffset = 0;
 
   if (automaticPageTurnActive) {
     title = tr(STR_AUTO_TURN_ENABLED) + std::to_string(60 * 1000 / pageTurnDuration);
-
-    const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-    if (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight()) {
-      textYOffset += UITheme::getInstance().getMetrics().statusBarVerticalMargin;
-    }
-
   } else if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE) {
     const int tocIndex =
         section ? section->getTocIndexForPage(section->currentPage) : epub->getTocIndexForSpineIndex(currentSpineIndex);
@@ -1663,7 +1693,7 @@ void EpubReaderActivity::renderStatusBar() const {
 
   const bool isStarred = section && bookmarkStore.has(static_cast<uint16_t>(currentSpineIndex),
                                                       static_cast<uint16_t>(section->currentPage));
-  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, isStarred);
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, isStarred);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {
@@ -1754,11 +1784,10 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   // Compute margins exactly as render() does
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  marginTop += SETTINGS.screenMargin;
+  marginTop += std::max(static_cast<int>(SETTINGS.screenMargin), UITheme::getStatusBarTopHeight());
   marginLeft += SETTINGS.screenMargin;
   marginRight += SETTINGS.screenMargin;
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  marginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+  marginBottom += std::max(static_cast<int>(SETTINGS.screenMargin), UITheme::getStatusBarBottomHeight());
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - marginLeft - marginRight;
   const uint16_t viewportHeight = renderer.getScreenHeight() - marginTop - marginBottom;
@@ -1838,8 +1867,10 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
     return false;
   }
 
+  const int imageOnlyOffset = getImageOnlyPageYOffset(*page, viewportHeight);
+  const int renderMarginTop = marginTop + imageOnlyOffset;
   renderer.clearScreen();
-  page->render(renderer, effectiveFontId, marginLeft, marginTop);
+  page->render(renderer, effectiveFontId, marginLeft, renderMarginTop);
   // No displayBuffer call — caller (SleepActivity) handles that after compositing the overlay
   return true;
 }
