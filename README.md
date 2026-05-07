@@ -46,4 +46,4 @@ Last update: April, 12th, 2026
 | [vCodex](https://github.com/franssjz/cpr-vcodex) | Nice | mainly crosspoint functionality plus reading statistics | EPUB, XTC, TXT | Good reading stats | Small team | No | No | No |
 | [PlusPoint](https://github.com/ngxson/pluspoint-reader) | Okay | Experimental | EPUB, TXT, JS Apps | Support for custom JS apps; better RTC | Based on older code, small team | Yes | Yes | No |
 | [SUMI](https://github.com/psychoplath9450/SUMI) | Nice | Lua custom apps; Bluetooth keyboard support for notes; Game Boy emulator; Bluetooth Transfer | EPUB, TXT, XTC, MD | Many apps, customizable, Papyrix fork | Single Contributor, **No Wi-Fi** | Yes | Yes | Yes |
-| [CrossInk](https://github.com/uxjulia/CrossInk) | Okay | Calibre Wireless support; KOReader progress sync; Wi-Fi transfer | EPUB, XTC, TXT | Small team | One of the best alternatives | No | No | No |
+| [CrossInk](https://github.com/uxjulia/CrossInk) | Okay | Calibre Wireless support; KOReader progress sync; Wi-Fi transfer | EPUB, XTC, TXT | One of the best alternatives | Small team | No | No | No |
