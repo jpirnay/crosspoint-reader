@@ -369,6 +369,7 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
 
   // Process each complete source row in this MCU row.
   // Clamp to MAX_MCU_HEIGHT so srcRow never indexes past the populated mcuBuf rows.
+  const int safeEndRow = blockY + std::min(blockH, MAX_MCU_HEIGHT);
   for (int y = blockY; y < safeEndRow && y < ctx->srcHeight; y++) {
     const uint8_t* srcRow = ctx->mcuBuf + (y - blockY) * ctx->srcWidth;
 
