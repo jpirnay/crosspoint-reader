@@ -73,7 +73,7 @@ intervals = [
     (0x0300, 0x036F),
     ### Greek & Coptic ###
     # Used in science, maths, philosophy, some academic texts
-    # (0x0370, 0x03FF),
+    (0x0370, 0x03FF),
     ### Cyrillic ###
     # Russian, Ukrainian, Bulgarian, etc.
     (0x0400, 0x04FF),
