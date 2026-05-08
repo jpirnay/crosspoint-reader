@@ -6,6 +6,9 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <JpegToBmpConverter.h>
+#include <Logging.h>
+#include <PngToBmpConverter.h>
 #include <Utf8.h>
 #include <Xtc.h>
 
@@ -20,10 +23,43 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/reader/ReaderActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
+// Convert a sidecar JPG/PNG cover to a 1-bit BMP in the cache and return the BMP path, or "" on failure.
+// fileName is the basename of the output file (without directory), e.g. "340x540.bmp" or "400.bmp".
+std::string convertSidecarToBmp(const std::string& bookPath, const std::string& sidecarPath, int width, int height,
+                                const std::string& fileName) {
+  const std::string cacheDir = "/.crosspoint/sidecar_" + std::to_string(std::hash<std::string>{}(bookPath));
+  Storage.mkdir(cacheDir.c_str());
+  const std::string bmpPath = cacheDir + "/" + fileName;
+  if (Storage.exists(bmpPath.c_str())) return bmpPath;
+
+  FsFile src;
+  if (!Storage.openFileForRead("HOME", sidecarPath, src)) return "";
+  FsFile dst;
+  if (!Storage.openFileForWrite("HOME", bmpPath, dst)) {
+    src.close();
+    return "";
+  }
+
+  bool ok = false;
+  if (FsHelpers::hasJpgExtension(sidecarPath)) {
+    ok = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(src, dst, width, height);
+  } else if (FsHelpers::hasPngExtension(sidecarPath)) {
+    ok = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(src, dst, width, height);
+  }
+  src.close();
+  dst.close();
+  if (!ok) {
+    Storage.remove(bmpPath.c_str());
+    return "";
+  }
+  return bmpPath;
+}
+
 constexpr int CLASSIC_MIN_RECENT_TILE_HEIGHT = 280;
 constexpr int LYRA_MIN_RECENT_TILE_HEIGHT = 170;
 constexpr int LYRA_3_COVERS_MIN_RECENT_TILE_HEIGHT = 200;
@@ -140,6 +176,21 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
       continue;
     }
 
+    // Check for a sidecar cover — takes priority over embedded cover.
+    // Also catches books registered before sidecar support (empty coverBmpPath).
+    const std::string sidecar = ReaderActivity::sidecarCoverPath(book.path);
+    if (!sidecar.empty()) {
+      const bool sidecarAlreadyStored =
+          book.coverBmpPath == sidecar || book.coverBmpPath.find("sidecar_") != std::string::npos;
+      if (!sidecarAlreadyStored) {
+        RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, sidecar);
+        RecentBook updated = book;
+        updated.coverBmpPath = sidecar;
+        recentBooks.push_back(updated);
+        continue;
+      }
+    }
+
     recentBooks.push_back(book);
   }
 }
@@ -152,36 +203,36 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
   for (; nextRecentCoverIndex < recentBooks.size(); nextRecentCoverIndex++) {
     RecentBook& book = recentBooks[nextRecentCoverIndex];
     if (!book.coverBmpPath.empty()) {
-      if (!thumbSizes.empty()) {
-        // Theme uses WxH thumbnails — check which are missing and generate
-        bool anyMissing = false;
-        for (const auto& sz : thumbSizes) {
-          const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, sz.first, sz.second);
-          if (!Storage.exists(path.c_str())) {
-            anyMissing = true;
-            break;
-          }
-        }
-
-        if (anyMissing) {
+      // Sidecar covers (JPG/PNG paths stored directly) must be converted to BMP thumbnails
+      // and the stored coverBmpPath updated to the cache path with [WIDTH]x[HEIGHT] placeholder.
+      const bool isSidecar =
+          FsHelpers::hasJpgExtension(book.coverBmpPath) || FsHelpers::hasPngExtension(book.coverBmpPath);
+      if (isSidecar) {
+        if (!Storage.exists(book.coverBmpPath.c_str())) {
+          RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, "");
+          book.coverBmpPath = "";
+        } else {
+          const std::string cacheBase = "/.crosspoint/sidecar_" + std::to_string(std::hash<std::string>{}(book.path));
+          const std::string placeholder = cacheBase + "/[HEIGHT].bmp";
           bool success = true;
-          if (FsHelpers::hasEpubExtension(book.path)) {
-            Epub epub(book.path, "/.crosspoint");
-            epub.load(false, true);
+          if (!thumbSizes.empty()) {
             for (const auto& sz : thumbSizes) {
-              const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, sz.first, sz.second);
-              if (!Storage.exists(path.c_str())) success = epub.generateThumbBmp(sz.first, sz.second) && success;
-            }
-          } else if (FsHelpers::hasXtcExtension(book.path)) {
-            Xtc xtc(book.path, "/.crosspoint");
-            if (xtc.load()) {
-              for (const auto& sz : thumbSizes) {
-                const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, sz.first, sz.second);
-                if (!Storage.exists(path.c_str())) success = xtc.generateThumbBmp(sz.first, sz.second) && success;
+              const std::string name = std::to_string(sz.first) + "x" + std::to_string(sz.second) + ".bmp";
+              if (convertSidecarToBmp(book.path, book.coverBmpPath, sz.first, sz.second, name).empty()) {
+                success = false;
+                break;
               }
             }
+          } else {
+            const int w = coverHeight * 6 / 10;
+            const std::string name = std::to_string(coverHeight) + ".bmp";
+            if (convertSidecarToBmp(book.path, book.coverBmpPath, w, coverHeight, name).empty()) success = false;
           }
-          if (!success) {
+          if (success) {
+            RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, placeholder);
+            book.coverBmpPath = placeholder;
+          } else {
+            LOG_ERR("HOME", "Failed to convert sidecar cover for %s", book.path.c_str());
             RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, "");
             book.coverBmpPath = "";
           }
@@ -191,13 +242,38 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           requestUpdate();
           return;
         }
-      } else {
-        std::string coverPath = UITheme::getCoverThumbPath(book.coverBmpPath, coverHeight);
-        if (!Storage.exists(coverPath.c_str())) {
-          if (FsHelpers::hasEpubExtension(book.path)) {
-            Epub epub(book.path, "/.crosspoint");
-            epub.load(false, true);
-            bool success = epub.generateThumbBmp(coverHeight);
+      }
+
+      if (!book.coverBmpPath.empty()) {
+        if (!thumbSizes.empty()) {
+          // Theme uses WxH thumbnails — check which are missing and generate
+          bool anyMissing = false;
+          for (const auto& sz : thumbSizes) {
+            const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, sz.first, sz.second);
+            if (!Storage.exists(path.c_str())) {
+              anyMissing = true;
+              break;
+            }
+          }
+
+          if (anyMissing) {
+            bool success = true;
+            if (FsHelpers::hasEpubExtension(book.path)) {
+              Epub epub(book.path, "/.crosspoint");
+              epub.load(false, true);
+              for (const auto& sz : thumbSizes) {
+                const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, sz.first, sz.second);
+                if (!Storage.exists(path.c_str())) success = epub.generateThumbBmp(sz.first, sz.second) && success;
+              }
+            } else if (FsHelpers::hasXtcExtension(book.path)) {
+              Xtc xtc(book.path, "/.crosspoint");
+              if (xtc.load()) {
+                for (const auto& sz : thumbSizes) {
+                  const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, sz.first, sz.second);
+                  if (!Storage.exists(path.c_str())) success = xtc.generateThumbBmp(sz.first, sz.second) && success;
+                }
+              }
+            }
             if (!success) {
               RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, "");
               book.coverBmpPath = "";
@@ -207,10 +283,14 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             recentsLoading = false;
             requestUpdate();
             return;
-          } else if (FsHelpers::hasXtcExtension(book.path)) {
-            Xtc xtc(book.path, "/.crosspoint");
-            if (xtc.load()) {
-              bool success = xtc.generateThumbBmp(coverHeight);
+          }
+        } else {
+          std::string coverPath = UITheme::getCoverThumbPath(book.coverBmpPath, coverHeight);
+          if (!Storage.exists(coverPath.c_str())) {
+            if (FsHelpers::hasEpubExtension(book.path)) {
+              Epub epub(book.path, "/.crosspoint");
+              epub.load(false, true);
+              bool success = epub.generateThumbBmp(coverHeight);
               if (!success) {
                 RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, "");
                 book.coverBmpPath = "";
@@ -220,10 +300,24 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               recentsLoading = false;
               requestUpdate();
               return;
+            } else if (FsHelpers::hasXtcExtension(book.path)) {
+              Xtc xtc(book.path, "/.crosspoint");
+              if (xtc.load()) {
+                bool success = xtc.generateThumbBmp(coverHeight);
+                if (!success) {
+                  RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.series, "");
+                  book.coverBmpPath = "";
+                }
+                coverRendered = false;
+                nextRecentCoverIndex++;
+                recentsLoading = false;
+                requestUpdate();
+                return;
+              }
             }
           }
         }
-      }
+      }  // if (!book.coverBmpPath.empty()) after sidecar check
     }
   }
 

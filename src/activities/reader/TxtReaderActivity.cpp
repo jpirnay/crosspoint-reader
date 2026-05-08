@@ -13,6 +13,7 @@
 #include "CrossPointState.h"
 #include "GlobalBookmarkIndex.h"
 #include "MappedInputManager.h"
+#include "ReaderActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "StarredPagesActivity.h"
@@ -112,7 +113,7 @@ void TxtReaderActivity::onEnter() {
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "", "");
+  RECENT_BOOKS.addBook(filePath, fileName, "", "", ReaderActivity::sidecarCoverPath(filePath));
 
   // Trigger first update
   requestUpdate();

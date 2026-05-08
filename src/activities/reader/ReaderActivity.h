@@ -30,6 +30,8 @@ class ReaderActivity final : public Activity {
   void onGoBack();
 
  public:
+  static std::string sidecarCoverPath(const std::string& bookPath);
+
   explicit ReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialBookPath)
       : Activity("Reader", renderer, mappedInput), initialBookPath(std::move(initialBookPath)) {}
   void onEnter() override;

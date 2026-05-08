@@ -56,6 +56,17 @@ bool ReaderActivity::isImageFile(const std::string& path) {
   return FsHelpers::hasBmpExtension(path) || FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path);
 }
 
+std::string ReaderActivity::sidecarCoverPath(const std::string& bookPath) {
+  const auto dot = bookPath.rfind('.');
+  if (dot == std::string::npos) return "";
+  const std::string base = bookPath.substr(0, dot);
+  for (const char* ext : {".jpg", ".jpeg", ".png", ".bmp"}) {
+    const std::string candidate = base + ext;
+    if (Storage.exists(candidate.c_str())) return candidate;
+  }
+  return "";
+}
+
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
     LOG_ERR("READER", "File does not exist: %s", path.c_str());

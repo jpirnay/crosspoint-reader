@@ -309,6 +309,9 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
   auto drawCover = [&](int bookIdx, int x, int y, int maxW, int maxH) -> bool {
     if (bookIdx < 0 || bookIdx >= bookCount) return false;
     const RecentBook& book = recentBooks[bookIdx];
+    // Side tiles may extend off-screen — only round corners that are on-screen.
+    const bool roundLeft = (x >= 0);
+    const bool roundRight = (x + maxW <= screenW);
     bool hasCover = false;
     if (!book.coverBmpPath.empty()) {
       const std::string thumbPath = UITheme::getCoverThumbPath(book.coverBmpPath, maxW, maxH);
@@ -331,23 +334,28 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
               const int ex = kCornerRadius - 1 - dx;
               const int ey = kCornerRadius - 1 - dy;
               if (ex * ex + ey * ey > (kCornerRadius - 1) * (kCornerRadius - 1)) {
-                renderer.drawPixel(x + dx, y + dy, false);                        // top-left
-                renderer.drawPixel(x + maxW - 1 - dx, y + dy, false);             // top-right
-                renderer.drawPixel(x + dx, y + maxH - 1 - dy, false);             // bottom-left
-                renderer.drawPixel(x + maxW - 1 - dx, y + maxH - 1 - dy, false);  // bottom-right
+                if (roundLeft) {
+                  renderer.drawPixel(x + dx, y + dy, false);             // top-left
+                  renderer.drawPixel(x + dx, y + maxH - 1 - dy, false);  // bottom-left
+                }
+                if (roundRight) {
+                  renderer.drawPixel(x + maxW - 1 - dx, y + dy, false);             // top-right
+                  renderer.drawPixel(x + maxW - 1 - dx, y + maxH - 1 - dy, false);  // bottom-right
+                }
               }
             }
           }
-          renderer.drawRoundedRect(x, y, maxW, maxH, kThinOutlineW, kCornerRadius, true);
+          renderer.drawRoundedRect(x, y, maxW, maxH, kThinOutlineW, kCornerRadius, roundLeft, roundRight, roundLeft,
+                                   roundRight, true);
           hasCover = true;
         }
         file.close();
       }
     }
     if (!hasCover) {
-      renderer.drawRoundedRect(x, y, maxW, maxH, 1, kCornerRadius, true);
+      renderer.drawRoundedRect(x, y, maxW, maxH, 1, kCornerRadius, roundLeft, roundRight, roundLeft, roundRight, true);
       renderer.fillRoundedRect(x, y + maxH / 3, maxW, 2 * maxH / 3, kCornerRadius, /*roundTopLeft=*/false,
-                               /*roundTopRight=*/false, /*roundBottomLeft=*/true, /*roundBottomRight=*/true,
+                               /*roundTopRight=*/false, /*roundBottomLeft=*/roundLeft, /*roundBottomRight=*/roundRight,
                                Color::Black);
       renderer.drawIcon(CoverIcon, x + maxW / 2 - 16, y + 8, 32, 32);
     }
@@ -373,12 +381,18 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     const int prevIdx = (centerIdx + bookCount - 1) % bookCount;
     const int nextIdx = (centerIdx + 1) % bookCount;
     if (bookCount >= 3) {
-      if (drawCover(prevIdx, leftX, sideTileY, kSideCoverMaxW, kSideCoverMaxH))
-        renderer.drawRoundedRect(leftX, sideTileY, kSideCoverMaxW, kSideCoverMaxH, 1, kCornerRadius, true);
+      if (drawCover(prevIdx, leftX, sideTileY, kSideCoverMaxW, kSideCoverMaxH)) {
+        const bool rl = (leftX >= 0), rr = (leftX + kSideCoverMaxW <= screenW);
+        renderer.drawRoundedRect(leftX, sideTileY, kSideCoverMaxW, kSideCoverMaxH, 1, kCornerRadius, rl, rr, rl, rr,
+                                 true);
+      }
     }
     if (bookCount >= 2) {
-      if (drawCover(nextIdx, rightX, sideTileY, kSideCoverMaxW, kSideCoverMaxH))
-        renderer.drawRoundedRect(rightX, sideTileY, kSideCoverMaxW, kSideCoverMaxH, 1, kCornerRadius, true);
+      if (drawCover(nextIdx, rightX, sideTileY, kSideCoverMaxW, kSideCoverMaxH)) {
+        const bool rl = (rightX >= 0), rr = (rightX + kSideCoverMaxW <= screenW);
+        renderer.drawRoundedRect(rightX, sideTileY, kSideCoverMaxW, kSideCoverMaxH, 1, kCornerRadius, rl, rr, rl, rr,
+                                 true);
+      }
     }
 
     // Clear a white outline ring around the centre cover, then draw the cover
