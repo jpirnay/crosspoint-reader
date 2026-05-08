@@ -23,11 +23,11 @@ Therefore this branch focuses on real fixes and real improvements while trying t
 - Book information screen
 - Markdown-support
 - WiFi captive portal support
-- Supporting ~~strikethrough~~ (*)
+- Supporting ~~strikethrough~~ (*) and tables
 - Support for used defined actions on double-click / long-click per button (*)
-- User defined fonts (*)
+- User defined fonts
 - ...
-(*) in the codebase not yet an official release
+
 
 # Choosing the _right_ reader...
 
