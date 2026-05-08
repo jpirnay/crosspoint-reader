@@ -1,5 +1,6 @@
 #include "SleepActivity.h"
 
+#include <BitmapHelpers.h>
 #include <Epub.h>
 #include <Epub/converters/PngToFramebufferConverter.h>
 #include <FsHelpers.h>
@@ -616,12 +617,19 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
   renderer.clearScreen();
 
-  const bool hasGreyscale = bitmap.hasGreyscale() &&
-                            SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+  const auto filter = SETTINGS.sleepScreenCoverFilter;
+  const bool brighten = filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::BRIGHTEN;
+  const bool hasGreyscale =
+      bitmap.hasGreyscale() && (filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER ||
+                                filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::BRIGHTEN);
+  const auto previousBrightnessMode = getGlobalBitmapBrightnessMode();
+  if (brighten) {
+    setGlobalBitmapBrightnessMode(BitmapBrightnessMode::Brighten);
+  }
 
   renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
 
-  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+  if (filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
     renderer.invertScreen();
   }
 
@@ -712,6 +720,10 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
 
     renderer.displayGrayBuffer();
     renderer.setRenderMode(GfxRenderer::BW);
+  }
+
+  if (brighten) {
+    setGlobalBitmapBrightnessMode(previousBrightnessMode);
   }
 }
 

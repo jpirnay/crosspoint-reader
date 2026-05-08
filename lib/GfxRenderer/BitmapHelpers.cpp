@@ -6,11 +6,15 @@
 #include "Bitmap.h"
 
 // Brightness/Contrast adjustments:
-constexpr bool USE_BRIGHTNESS = false;       // true: apply brightness/gamma adjustments
-constexpr int BRIGHTNESS_BOOST = 10;         // Brightness offset (0-50)
-constexpr bool GAMMA_CORRECTION = false;     // Gamma curve (brightens midtones)
+static BitmapBrightnessMode gBitmapBrightnessMode = BitmapBrightnessMode::Default;
+constexpr int BRIGHTNESS_BOOST = 30;         // Brightness offset for the Brighten filter
+constexpr bool GAMMA_CORRECTION = true;      // Gamma curve (brightens midtones)
 constexpr float CONTRAST_FACTOR = 1.15f;     // Contrast multiplier (1.0 = no change, >1 = more contrast)
 constexpr bool USE_NOISE_DITHERING = false;  // Hash-based noise dithering
+
+void setGlobalBitmapBrightnessMode(BitmapBrightnessMode mode) { gBitmapBrightnessMode = mode; }
+
+BitmapBrightnessMode getGlobalBitmapBrightnessMode() { return gBitmapBrightnessMode; }
 
 // Integer approximation of gamma correction (brightens midtones)
 // Uses a simple curve: out = 255 * sqrt(in/255) ≈ sqrt(in * 255)
@@ -41,10 +45,9 @@ static inline int applyContrast(int gray) {
 }
 // Combined brightness/contrast/gamma adjustment
 int adjustPixel(int gray) {
-  if (!USE_BRIGHTNESS) return gray;
+  if (gBitmapBrightnessMode != BitmapBrightnessMode::Brighten) return gray;
 
-  // Order: contrast first, then brightness, then gamma
-  gray = applyContrast(gray);
+  // Brighten image stops: boost & gamma curve only. Preserve midtones and highlights.
   gray += BRIGHTNESS_BOOST;
   if (gray > 255) gray = 255;
   if (gray < 0) gray = 0;

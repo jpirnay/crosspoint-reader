@@ -33,6 +33,7 @@ class CrossPointSettings {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
     INVERTED_BLACK_AND_WHITE = 2,
+    BRIGHTEN = 3,
     SLEEP_SCREEN_COVER_FILTER_COUNT
   };
 

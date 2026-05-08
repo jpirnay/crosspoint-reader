@@ -11,6 +11,10 @@ uint8_t quantizeSimple(int gray);
 uint8_t quantize1bit(int gray, int x, int y);
 int adjustPixel(int gray);
 
+enum class BitmapBrightnessMode { Default = 0, Brighten = 1 };
+void setGlobalBitmapBrightnessMode(BitmapBrightnessMode mode);
+BitmapBrightnessMode getGlobalBitmapBrightnessMode();
+
 enum class BmpRowOrder { BottomUp, TopDown };
 
 // Populates a 1-bit BMP header in the provided memory.
