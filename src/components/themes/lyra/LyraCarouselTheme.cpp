@@ -149,8 +149,6 @@ void renderOneCarouselFrame(GfxRenderer& renderer, const std::vector<RecentBook>
 
   lastCarouselSelectorIndex = bookIdx;
   renderer.clearScreen();
-  UITheme::getInstance().getTheme().drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding},
-                                               nullptr);
   UITheme::getInstance().getTheme().drawRecentBookCover(
       renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight}, recentBooks, bookCount, d1, d2,
       d3, []() { return true; });
@@ -251,6 +249,8 @@ bool LyraCarouselTheme::tryFastHomeRender(GfxRenderer& renderer, const std::vect
   }
 
   memcpy(frameBuffer, gCachedFrames[slotIdx], bufferSize);
+  UITheme::getInstance().getTheme().drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding},
+                                               nullptr);
 
   // Overlay the selection border when carousel row is active
   if (inCarouselRow) {
