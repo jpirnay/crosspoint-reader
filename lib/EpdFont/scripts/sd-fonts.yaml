@@ -278,30 +278,3 @@ families:
       bold:       {url: "https://raw.githubusercontent.com/jacobxperez/lexica-ultralegible/main/fonts/ttf/LexicaUltralegible-Bold.ttf"}
       italic:     {url: "https://raw.githubusercontent.com/jacobxperez/lexica-ultralegible/main/fonts/ttf/LexicaUltralegible-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/jacobxperez/lexica-ultralegible/main/fonts/ttf/LexicaUltralegible-BoldItalic.ttf"}
-
-  # ── CJK & Hangul ───────────────────────────────────────────────────────
-  # Single-style only: CJK families ship the regular weight as a multi-MB
-  # OTF; bundling four styles per size would blow past reasonable SD-card
-  # footprints for users who only read English with occasional CJK.
-
-  - name: NotoSansCJK
-    description: "Sans-serif (Chinese, Japanese, Korean)"
-    intervals: builtin,cjk
-    sizes: [10, 12, 14, 16, 18]
-    styles:
-      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf"}
-
-  - name: NotoSerifCJK
-    description: "Serif (Chinese, Japanese, Korean)"
-    intervals: builtin,cjk
-    sizes: [10, 12, 14, 16, 18]
-    styles:
-      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/SimplifiedChinese/NotoSerifCJKsc-Regular.otf"}
-
-  - name: NotoSansHangul
-    description: "Sans-serif (Korean Hangul)"
-    intervals: builtin,hangul
-    sizes: [10, 12, 14, 16, 18]
-    styles:
-      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf"}
-
