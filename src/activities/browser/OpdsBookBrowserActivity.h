@@ -37,7 +37,7 @@ class OpdsBookBrowserActivity final : public Activity {
  private:
   ButtonNavigator buttonNavigator;
   BrowserState state = BrowserState::LOADING;
-  std::vector<OpdsEntry> entries;
+  std::vector<uint32_t> entryOffsets;
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
@@ -53,6 +53,8 @@ class OpdsBookBrowserActivity final : public Activity {
   size_t downloadTotal = 0;
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
+
+  OpdsEntry getEntry(size_t index) const;
 
   void checkAndConnectWifi();
   void launchWifiSelection();

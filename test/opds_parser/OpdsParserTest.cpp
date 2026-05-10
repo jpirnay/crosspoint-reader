@@ -51,7 +51,9 @@ bool parseSingleBookEntry(OpdsEntry& entryOut, const char* href, const char* typ
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml.data()), xml.size());
   parser.flush();
 
@@ -60,7 +62,6 @@ bool parseSingleBookEntry(OpdsEntry& entryOut, const char* href, const char* typ
     testsFailed++;
     return false;
   }
-  const auto& entries = parser.getEntries();
   if (entries.size() != 1) {
     fprintf(stderr, "  FAIL: %s:%d: entries.size() == %zu, expected 1\n", __FILE__, __LINE__, entries.size());
     testsFailed++;
@@ -153,12 +154,13 @@ void testDistinctAcquisitionFormatsRemainSeparate() {
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml), strlen(xml));
   parser.flush();
 
   ASSERT_TRUE(!parser.error());
-  const auto& entries = parser.getEntries();
   ASSERT_SIZE(entries.size(), 1);
   const auto& links = entries.front().acquisitionLinks;
   ASSERT_SIZE(links.size(), 4);
@@ -181,12 +183,14 @@ void testUnsupportedMimeType() {
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml), strlen(xml));
   parser.flush();
 
   ASSERT_TRUE(!parser.error());
-  ASSERT_SIZE(parser.getEntries().size(), 0);
+  ASSERT_SIZE(entries.size(), 0);
   PASS();
 }
 
@@ -220,12 +224,13 @@ void testEmptyHrefOrType() {
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml), strlen(xml));
   parser.flush();
 
   ASSERT_TRUE(!parser.error());
-  const auto& entries = parser.getEntries();
   ASSERT_SIZE(entries.size(), 0);
   PASS();
 }
@@ -243,12 +248,13 @@ void testDuplicateAcquisitionLinks() {
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml), strlen(xml));
   parser.flush();
 
   ASSERT_TRUE(!parser.error());
-  const auto& entries = parser.getEntries();
   ASSERT_SIZE(entries.size(), 1);
   const auto& links = entries.front().acquisitionLinks;
   ASSERT_SIZE(links.size(), 2);
@@ -272,12 +278,13 @@ void testIdenticalHrefAcquisitionLinksAreDeduplicated() {
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml), strlen(xml));
   parser.flush();
 
   ASSERT_TRUE(!parser.error());
-  const auto& entries = parser.getEntries();
   ASSERT_SIZE(entries.size(), 1);
   const auto& links = entries.front().acquisitionLinks;
   ASSERT_SIZE(links.size(), 1);
@@ -299,12 +306,13 @@ void testSlashVariantHrefAcquisitionLinksAreDeduplicated() {
   </entry>
 </feed>)";
 
+  std::vector<OpdsEntry> entries;
   OpdsParser parser;
+  parser.onEntryParsed = [&](OpdsEntry e) { entries.push_back(std::move(e)); };
   parser.write(reinterpret_cast<const uint8_t*>(xml), strlen(xml));
   parser.flush();
 
   ASSERT_TRUE(!parser.error());
-  const auto& entries = parser.getEntries();
   ASSERT_SIZE(entries.size(), 1);
   const auto& links = entries.front().acquisitionLinks;
   ASSERT_SIZE(links.size(), 1);

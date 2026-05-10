@@ -14,7 +14,10 @@ int ButtonEventManager::buttonToIndex(const Button button) {
   return -1;
 }
 
-bool ButtonEventManager::hasDoubleAction(const Button button) {
+bool ButtonEventManager::hasDoubleAction(const Button button) const {
+  if (forcedDoubleMask & (1 << static_cast<int>(button))) {
+    return true;
+  }
   using BA = CrossPointSettings::BUTTON_ACTION;
   switch (button) {
     case Button::Back:

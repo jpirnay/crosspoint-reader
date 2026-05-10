@@ -2,6 +2,7 @@
 #include <Print.h>
 #include <expat.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@ struct OpdsEntry {
   std::string href;    // Navigation URL or epub download URL
   std::string id;
   std::vector<OpdsAcquisitionLink> acquisitionLinks;
+  std::string imageHref;  // Cover image URL (rel="http://opds-spec.org/image"), books only
 };
 
 // Legacy alias for backward compatibility
@@ -41,14 +43,17 @@ using OpdsBook = OpdsEntry;
  *
  * Usage:
  *   OpdsParser parser;
- *   if (parser.parse(xmlData, xmlLength)) {
- *     for (const auto& entry : parser.getEntries()) {
- *       if (entry.type == OpdsEntryType::BOOK) {
- *         // Downloadable book
- *       } else {
- *         // Navigation link to another catalog
- *       }
+ *   parser.onEntryParsed = [](OpdsEntry entry) {
+ *     if (entry.type == OpdsEntryType::BOOK) {
+ *       // Process downloadable book
+ *     } else {
+ *       // Process navigation link
  *     }
+ *   };
+ *
+ *   // Entries are emitted immediately as they are parsed from the stream.
+ *   if (parser.parse(xmlData, xmlLength)) {
+ *     // Parsing completed successfully
  *   }
  */
 class OpdsParser final : public Print {
@@ -74,22 +79,11 @@ class OpdsParser final : public Print {
   operator bool() { return !error(); }
 
   /**
-   * Get the parsed entries (both navigation and book entries).
-   * @return Vector of OpdsEntry entries
-   */
-  const std::vector<OpdsEntry>& getEntries() const& { return entries; }
-  std::vector<OpdsEntry> getEntries() && { return std::move(entries); }
-
-  /**
-   * Get only book entries (legacy compatibility).
-   * @return Vector of book entries
-   */
-  std::vector<OpdsEntry> getBooks() const;
-
-  /**
    * Clear all parsed entries.
    */
   void clear();
+
+  std::function<void(OpdsEntry)> onEntryParsed;
 
  private:
   // Expat callbacks
@@ -105,7 +99,6 @@ class OpdsParser final : public Print {
   static const char* findAttribute(const XML_Char** atts, const char* name);
 
   XML_Parser parser = nullptr;
-  std::vector<OpdsEntry> entries;
   OpdsEntry currentEntry;
   std::string currentText;
 
