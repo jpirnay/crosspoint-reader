@@ -353,6 +353,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     return false;
   }
 
+  // Evict old variants for this spine to keep cache size controlled BEFORE creating the new one
+  evictOldVariants();
+
   if (!Storage.openFileForWrite("SCT", filePath, file)) {
     return false;
   }
@@ -364,9 +367,6 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   size_t lastSlash = localPath.find_last_of('/');
   std::string contentBase = (lastSlash != std::string::npos) ? localPath.substr(0, lastSlash + 1) : "";
   std::string imageBasePath = getImageBasePath(propertyHash);
-
-  // Evict old variants for this spine to keep cache size controlled
-  evictOldVariants();
 
   CssParser* cssParser = nullptr;
   if (embeddedStyle) {
@@ -483,12 +483,15 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   serialization::writePod(file, lutOffset);
   serialization::writePod(file, anchorMapOffset);
   serialization::writePod(file, paragraphLutOffset);
-  file.close();
+  file.flush();
+
   if (cssParser) {
     cssParser->clear();
   }
 
   buildTocBoundaries(anchors);
+
+  file.close();
 
   // Cache the LUT in memory and open the file for reading so that
   // subsequent loadPageFromSectionFile() calls can seek directly without re-opening.
