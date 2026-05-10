@@ -81,14 +81,22 @@ def extract_static_instance(source_path: Path, axes: dict, family_name: str, sty
         old.unlink()
 
     print(f"  Extracting static instance: {family_name}/{style_name} ({axis_key})")
-    font = TTFont(str(source_path))
-    # `static` was removed (or never existed) in current fontTools; it raises
-    # TypeError under recent releases. updateFontNames=True keeps the saved
-    # name table accurate; optimize=False skips a gvar pass that's wasted
-    # when every axis is fully pinned.
-    font = instantiateVariableFont(font, axes, updateFontNames=True, optimize=False)
-    font.save(str(cached))
-    font.close()
+    # Keep separate handles for the source variable font and the static
+    # instance: instantiateVariableFont with default inplace=False returns a
+    # *new* TTFont, so rebinding `font` would otherwise strand the source's
+    # file handle open until GC runs.
+    #
+    # updateFontNames=True keeps the saved name table accurate; optimize=False
+    # skips a gvar pass that's wasted when every axis is fully pinned.
+    source_font = TTFont(str(source_path))
+    try:
+        font = instantiateVariableFont(source_font, axes, updateFontNames=True, optimize=False)
+        try:
+            font.save(str(cached))
+        finally:
+            font.close()
+    finally:
+        source_font.close()
 
     return cached
 
