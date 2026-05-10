@@ -403,6 +403,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     return;
   }
 
+  entryOffsets.clear();
+
   std::string url = (path.find("http") == 0) ? path : UrlUtils::buildUrl(server.url, path);
   LOG_DBG("OPDS", "Fetching: %s", url.c_str());
 
@@ -448,12 +450,14 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   const auto& prevUrl = parser.getPrevPageUrl();
 
   if (!prevUrl.empty()) {
-    OpdsEntry prevEntry{OpdsEntryType::NAVIGATION, tr(STR_PREV_PAGE), "", prevUrl, ""};
+    std::string resolvedPrevUrl = UrlUtils::buildUrl(url, prevUrl);
+    OpdsEntry prevEntry{OpdsEntryType::NAVIGATION, tr(STR_PREV_PAGE), "", resolvedPrevUrl, ""};
     entryOffsets.insert(entryOffsets.begin(), cacheFile.position());
     writeEntryToCache(cacheFile, prevEntry);
   }
   if (!nextUrl.empty()) {
-    OpdsEntry nextEntry{OpdsEntryType::NAVIGATION, tr(STR_NEXT_PAGE), "", nextUrl, ""};
+    std::string resolvedNextUrl = UrlUtils::buildUrl(url, nextUrl);
+    OpdsEntry nextEntry{OpdsEntryType::NAVIGATION, tr(STR_NEXT_PAGE), "", resolvedNextUrl, ""};
     entryOffsets.push_back(cacheFile.position());
     writeEntryToCache(cacheFile, nextEntry);
   }

@@ -4,6 +4,7 @@
 #include <Logging.h>
 
 #include <cstring>
+#include <utility>
 
 namespace {
 // Returns the length of href after trimming trailing slashes.
@@ -198,7 +199,7 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
             self->currentEntry.acquisitionLinks.push_back(acquisition);
           }
         } else if (rel && type && strstr(rel, "opds-spec.org/image") != nullptr &&
-                   strstr(rel, "thumbnail") == nullptr && strstr(type, "image/jpeg") != nullptr &&
+                   strstr(rel, "thumbnail") == nullptr && strncmp(type, "image/", 6) == 0 &&
                    self->currentEntry.imageHref.empty()) {
           self->currentEntry.imageHref = href;
         } else if (type && strstr(type, "application/atom+xml") != nullptr) {
@@ -238,7 +239,10 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 
   if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
     if (!self->currentEntry.title.empty() && !self->currentEntry.href.empty()) {
-      if (self->onEntryParsed) self->onEntryParsed(self->currentEntry);
+      if (self->onEntryParsed) {
+        self->onEntryParsed(std::move(self->currentEntry));
+        self->currentEntry = OpdsEntry{};
+      }
     }
     self->inEntry = false;
   } else if (self->inEntry) {

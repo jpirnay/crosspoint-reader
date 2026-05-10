@@ -43,14 +43,17 @@ using OpdsBook = OpdsEntry;
  *
  * Usage:
  *   OpdsParser parser;
- *   if (parser.parse(xmlData, xmlLength)) {
- *     for (const auto& entry : parser.getEntries()) {
- *       if (entry.type == OpdsEntryType::BOOK) {
- *         // Downloadable book
- *       } else {
- *         // Navigation link to another catalog
- *       }
+ *   parser.onEntryParsed = [](OpdsEntry entry) {
+ *     if (entry.type == OpdsEntryType::BOOK) {
+ *       // Process downloadable book
+ *     } else {
+ *       // Process navigation link
  *     }
+ *   };
+ *
+ *   // Entries are emitted immediately as they are parsed from the stream.
+ *   if (parser.parse(xmlData, xmlLength)) {
+ *     // Parsing completed successfully
  *   }
  */
 class OpdsParser final : public Print {

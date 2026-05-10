@@ -509,9 +509,6 @@ void loop() {
     while (buttonEventManager.consumeEvent(ev)) {
       const uint8_t action = actionFor(ev);
       if (action == BA::BTN_DEFAULT) {
-        if (ev.type == ButtonEventManager::PressType::Double) {
-          continue;
-        }
         defaultEvents.push_back(ev);
         continue;
       }
