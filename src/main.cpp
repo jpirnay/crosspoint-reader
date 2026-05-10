@@ -229,7 +229,12 @@ void setup() {
     // We only want to skip the hold verification (allowing a short press to wake) if the short
     // press or double press actually have an action assigned, or if the clock screensaver is active.
     // Otherwise, short presses from sleep should be ignored entirely and return to sleep.
-    bool allowShortPress = (SETTINGS.useClock != 0) || (SETTINGS.btnShortPower != CrossPointSettings::BTN_DEFAULT) ||
+    //
+    // X3 always cuts all power during sleep (battery-latch MOSFET, keepClockAlive=false), so any
+    // wakeup is a full cold boot. By the time verifyPowerButtonWakeup runs the button may already
+    // be released — hardware design guarantees the press was intentional, so skip hold-verification.
+    bool allowShortPress = gpio.deviceIsX3() || (SETTINGS.useClock != 0) ||
+                           (SETTINGS.btnShortPower != CrossPointSettings::BTN_DEFAULT) ||
                            (SETTINGS.btnDoublePower != CrossPointSettings::BTN_DEFAULT);
 
     gpio.verifyPowerButtonWakeup(CrossPointSettings::getPowerButtonDuration(), allowShortPress);
