@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <memory>
 
+#include "ButtonEventManager.h"
 #include "MappedInputManager.h"
 #include "OpdsFormatLabel.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -63,6 +64,7 @@ void writeEntryToCache(HalFile& f, const OpdsEntry& entry) {
   writeString(f, entry.author);
   writeString(f, entry.href);
   writeString(f, entry.id);
+  writeString(f, entry.imageHref);
   uint16_t numLinks = entry.acquisitionLinks.size();
   f.write(reinterpret_cast<const uint8_t*>(&numLinks), sizeof(numLinks));
   for (const auto& link : entry.acquisitionLinks) {
@@ -83,6 +85,7 @@ OpdsEntry readEntryFromCache(HalFile& f) {
   entry.author = readString(f);
   entry.href = readString(f);
   entry.id = readString(f);
+  entry.imageHref = readString(f);
   uint16_t numLinks = 0;
   if (f.read(&numLinks, sizeof(numLinks)) == sizeof(numLinks)) {
     for (uint16_t i = 0; i < numLinks; ++i) {
@@ -110,6 +113,9 @@ OpdsEntry OpdsBookBrowserActivity::getEntry(size_t index) const {
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
 
+  globalButtonEvents().forceDoubleAction(ButtonEventManager::Button::Up, true);
+  globalButtonEvents().forceDoubleAction(ButtonEventManager::Button::Down, true);
+
   state = BrowserState::CHECK_WIFI;
   entryOffsets.clear();
   navigationHistory.clear();
@@ -130,6 +136,9 @@ void OpdsBookBrowserActivity::onEnter() {
 
 void OpdsBookBrowserActivity::onExit() {
   Activity::onExit();
+
+  globalButtonEvents().forceDoubleAction(ButtonEventManager::Button::Up, false);
+  globalButtonEvents().forceDoubleAction(ButtonEventManager::Button::Down, false);
 
   HalClock::wifiOff();
 
@@ -231,17 +240,29 @@ void OpdsBookBrowserActivity::loop() {
     }
 
     if (!entryOffsets.empty()) {
-      // Navigator is restricted to Up/Down so a Left release used to launch
-      // search (line above) cannot also be consumed here as a previous-item
-      // step on the same tick.
-      buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
-        selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entryOffsets.size());
-        requestUpdate();
-      });
-      buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
-        selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entryOffsets.size());
-        requestUpdate();
-      });
+      ButtonEventManager::ButtonEvent extEvent;
+      while (globalButtonEvents().consumeEvent(extEvent)) {
+        if (extEvent.type == ButtonEventManager::PressType::Double) {
+          if (extEvent.button == ButtonEventManager::Button::Down) {
+            selectorIndex = (selectorIndex + 9) % entryOffsets.size();
+            requestUpdate();
+          } else if (extEvent.button == ButtonEventManager::Button::Up) {
+            int size = entryOffsets.size();
+            selectorIndex = (selectorIndex - 9 + size) % size;
+            requestUpdate();
+          }
+        } else if (extEvent.type == ButtonEventManager::PressType::Short ||
+                   extEvent.type == ButtonEventManager::PressType::Long) {
+          if (extEvent.button == ButtonEventManager::Button::Down) {
+            selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entryOffsets.size());
+            requestUpdate();
+          } else if (extEvent.button == ButtonEventManager::Button::Up) {
+            selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entryOffsets.size());
+            requestUpdate();
+          }
+        }
+      }
+
       buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
         selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entryOffsets.size(), PAGE_ITEMS);
         requestUpdate();
@@ -537,7 +558,37 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const OpdsAcqu
     // Clear any existing cache for this book just in case it's a redownload of
     // a previously opened book.
     if (acquisition.mimeType == "application/epub+zip") {
-      Epub(filename, "/.crosspoint").clearCache();
+      if (!book.imageHref.empty()) {
+        const std::string coverUrl =
+            (book.imageHref.rfind("http", 0) == 0) ? book.imageHref : UrlUtils::buildUrl(server.url, book.imageHref);
+
+        std::string baseFilename = filename;
+        size_t dotPos = baseFilename.find_last_of('.');
+        if (dotPos != std::string::npos) {
+          baseFilename = baseFilename.substr(0, dotPos);
+        }
+
+        std::string ext = ".jpg";
+        if (book.imageHref.length() >= 4) {
+          std::string lowerHref = book.imageHref.substr(book.imageHref.length() - 4);
+          std::transform(lowerHref.begin(), lowerHref.end(), lowerHref.begin(), ::tolower);
+          if (lowerHref == ".png") {
+            ext = ".png";
+          }
+        }
+        std::string sidecarPath = baseFilename + ext;
+
+        const auto coverDlResult = HttpDownloader::downloadToFile(
+            coverUrl, sidecarPath, [this](const size_t, const size_t) { requestUpdate(true); }, server.username,
+            server.password);
+        if (coverDlResult != HttpDownloader::OK) {
+          LOG_ERR("OPDS", "Failed to download cover from %s (err %d)", coverUrl.c_str(), (int)coverDlResult);
+          Storage.remove(sidecarPath.c_str());
+        }
+      }
+
+      Epub epub(filename, "/.crosspoint");
+      epub.clearCache();
     } else if (acquisition.formatKey == "xtc" || acquisition.formatKey == "xtch") {
       Xtc(filename, "/.crosspoint").clearCache();
     }

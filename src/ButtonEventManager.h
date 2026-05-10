@@ -49,6 +49,16 @@ class ButtonEventManager {
   // Reset all per-button FSMs. Call on activity transitions to prevent bleed-through.
   void drain();
 
+  // Temporarily force double-click detection for a button (adds latency to Short press).
+  // Call this in the Activity's transition setup or loop.
+  void forceDoubleAction(Button button, bool enable = true) {
+    if (enable) {
+      forcedDoubleMask |= (1 << static_cast<int>(button));
+    } else {
+      forcedDoubleMask &= ~(1 << static_cast<int>(button));
+    }
+  }
+
   // Preserve a default event for activity processing after main loop dispatch.
   // This is used when the configured action is BTN_DEFAULT.
   void pushEventFront(Button button, PressType type);
@@ -59,13 +69,16 @@ class ButtonEventManager {
 
   // Returns true if a double-click action is configured for this button.
   // ButtonEventManager queries CrossPointSettings internally.
-  static bool hasDoubleAction(Button button);
+  bool hasDoubleAction(Button button) const;
 
  private:
-  static constexpr int NUM_BUTTONS = 7;
+  static constexpr int NUM_BUTTONS = 9;
   static constexpr Button ALL_BUTTONS[NUM_BUTTONS] = {
-      Button::Back, Button::Confirm, Button::Left, Button::Right, Button::PageBack, Button::PageForward, Button::Power,
+      Button::Back, Button::Confirm,  Button::Left,        Button::Right, Button::Up,
+      Button::Down, Button::PageBack, Button::PageForward, Button::Power,
   };
+
+  uint32_t forcedDoubleMask = 0;
 
   enum class State { Idle, Pressed, ReleasedOnce, DoublePressed };
 

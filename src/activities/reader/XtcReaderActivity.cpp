@@ -102,16 +102,16 @@ void XtcReaderActivity::loop() {
 
     if (ev.type == ButtonEventManager::PressType::Short) {
       if ((ev.button == MappedInputManager::Button::PageBack && SETTINGS.btnShortPageBack == BA::BTN_DEFAULT &&
-           ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageBack)) ||
+           globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageBack)) ||
           (ev.button == MappedInputManager::Button::Left && SETTINGS.btnShortLeft == BA::BTN_DEFAULT &&
-           ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Left))) {
+           globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Left))) {
         delayedPrevTurn = true;
         continue;
       }
       if ((ev.button == MappedInputManager::Button::PageForward && SETTINGS.btnShortPageForward == BA::BTN_DEFAULT &&
-           ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageForward)) ||
+           globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageForward)) ||
           (ev.button == MappedInputManager::Button::Right && SETTINGS.btnShortRight == BA::BTN_DEFAULT &&
-           ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Right))) {
+           globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Right))) {
         delayedNextTurn = true;
         continue;
       }

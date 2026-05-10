@@ -95,16 +95,16 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   // because the button event system delays short events until the double-click window expires.
   using BA = CrossPointSettings::BUTTON_ACTION;
   const bool prev = (SETTINGS.btnShortPageBack == BA::BTN_DEFAULT &&
-                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageBack) &&
+                     !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageBack) &&
                      input.wasReleased(MappedInputManager::Button::PageBack)) ||
                     (SETTINGS.btnShortLeft == BA::BTN_DEFAULT &&
-                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Left) &&
+                     !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Left) &&
                      input.wasReleased(MappedInputManager::Button::Left));
   const bool next = (SETTINGS.btnShortPageForward == BA::BTN_DEFAULT &&
-                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::PageForward) &&
+                     !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageForward) &&
                      input.wasReleased(MappedInputManager::Button::PageForward)) ||
                     (SETTINGS.btnShortRight == BA::BTN_DEFAULT &&
-                     !ButtonEventManager::hasDoubleAction(MappedInputManager::Button::Right) &&
+                     !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Right) &&
                      input.wasReleased(MappedInputManager::Button::Right));
   return {prev, next};
 }
