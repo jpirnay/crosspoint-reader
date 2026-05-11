@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Utf8.h>
+#include <esp_heap_caps.h>
 #include <expat.h>
 
 #include <algorithm>
@@ -30,10 +31,41 @@ constexpr int NUM_HEADER_TAGS = sizeof(HEADER_TAGS) / sizeof(HEADER_TAGS[0]);
 constexpr size_t MIN_SIZE_FOR_POPUP = 15 * 1024;
 constexpr size_t SIZE_FOR_PROGRESS_HEARTBEAT = 30 * 1024;
 constexpr size_t SIZE_FOR_PROGRESS_FINE = 80 * 1024;
+constexpr size_t MIN_FREE_HEAP_FOR_INDEXING_POPUP = 32 * 1024;
+constexpr size_t MIN_CONTIG_HEAP_FOR_INDEXING_POPUP = 12 * 1024;
+
+// Parser progress popup/ticks trigger full-screen refreshes that can temporarily
+// collapse heap during section cache builds on constrained targets. Keep disabled
+// by default; enable only when debugging parse progress behavior.
+#ifndef EHP_ENABLE_PARSE_PROGRESS_UI
+#define EHP_ENABLE_PARSE_PROGRESS_UI 0
+#endif
+
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
 constexpr size_t IMAGE_EXTRACT_CHUNK_SIZE = 1024;
 constexpr size_t MIN_FREE_HEAP_FOR_IMAGE_EXTRACT = 48 * 1024;
 constexpr size_t MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT = 36 * 1024;
+
+#ifndef EHP_TEXT_LAYOUT_SOFT_MIN_FREE_HEAP
+#define EHP_TEXT_LAYOUT_SOFT_MIN_FREE_HEAP (18 * 1024)
+#endif
+
+#ifndef EHP_TEXT_LAYOUT_SOFT_MIN_MAX_ALLOC
+#define EHP_TEXT_LAYOUT_SOFT_MIN_MAX_ALLOC (12 * 1024)
+#endif
+
+#ifndef EHP_TEXT_LAYOUT_HARD_MIN_FREE_HEAP
+#define EHP_TEXT_LAYOUT_HARD_MIN_FREE_HEAP (9 * 1024)
+#endif
+
+#ifndef EHP_TEXT_LAYOUT_HARD_MIN_MAX_ALLOC
+#define EHP_TEXT_LAYOUT_HARD_MIN_MAX_ALLOC (6 * 1024)
+#endif
+
+constexpr size_t MIN_FREE_HEAP_FOR_TEXT_LAYOUT = EHP_TEXT_LAYOUT_SOFT_MIN_FREE_HEAP;
+constexpr size_t MIN_MAX_ALLOC_FOR_TEXT_LAYOUT = EHP_TEXT_LAYOUT_SOFT_MIN_MAX_ALLOC;
+constexpr size_t MIN_FREE_HEAP_FOR_TEXT_LAYOUT_HARD = EHP_TEXT_LAYOUT_HARD_MIN_FREE_HEAP;
+constexpr size_t MIN_MAX_ALLOC_FOR_TEXT_LAYOUT_HARD = EHP_TEXT_LAYOUT_HARD_MIN_MAX_ALLOC;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "pre"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
@@ -198,6 +230,34 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   }
 }
 
+bool ChapterHtmlSlimParser::ensureHeapForTextLayout(const char* phase) {
+  if (streamFailed) {
+    return false;
+  }
+
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+  if (freeHeap >= MIN_FREE_HEAP_FOR_TEXT_LAYOUT || maxAllocHeap >= MIN_MAX_ALLOC_FOR_TEXT_LAYOUT) {
+    return true;
+  }
+
+  // Soft low-memory zone: keep parsing in degraded mode and only hard-abort when
+  // both free and contiguous heap fall to critical levels.
+  if (freeHeap >= MIN_FREE_HEAP_FOR_TEXT_LAYOUT_HARD && maxAllocHeap >= MIN_MAX_ALLOC_FOR_TEXT_LAYOUT_HARD) {
+    lowMemoryImageFallback = true;
+    LOG_DBG("EHP", "Low heap (%u free, %u max alloc) before %s; continuing in degraded mode", freeHeap, maxAllocHeap,
+            phase);
+    return true;
+  }
+
+  LOG_ERR("EHP", "Low heap (%u free, %u max alloc), aborting parse before %s", freeHeap, maxAllocHeap, phase);
+  streamFailed = true;
+  if (activeParser) {
+    XML_StopParser(activeParser, XML_FALSE);
+  }
+  return false;
+}
+
 // flush the contents of partWordBuffer to currentTextBlock
 void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // Determine font style from depth-based tracking and CSS effective style
@@ -229,6 +289,11 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
 
     if (currentTextBlock->size() > 96) {
+      if (!ensureHeapForTextLayout("long-block split")) {
+        partWordBufferIndex = 0;
+        nextWordContinues = false;
+        return;
+      }
       LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
       const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
       const uint16_t effectiveWidth =
@@ -1572,8 +1637,25 @@ bool ChapterHtmlSlimParser::setup(const size_t totalInflatedSize) {
     progressStepPercent = 50;
   }
 
+  const uint32_t popupFreeHeap = ESP.getFreeHeap();
+  const uint32_t popupContigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+#if EHP_ENABLE_PARSE_PROGRESS_UI
+  progressUiEnabled =
+      popupFreeHeap >= MIN_FREE_HEAP_FOR_INDEXING_POPUP && popupContigHeap >= MIN_CONTIG_HEAP_FOR_INDEXING_POPUP;
+  if (!progressUiEnabled) {
+    LOG_DBG("EHP", "Skipping indexing popup due to low heap (free=%u contig=%u)", popupFreeHeap, popupContigHeap);
+    // When popup is disabled, also disable mid-parse ticks.
+    progressStepPercent = 0;
+  }
+#else
+  progressUiEnabled = false;
+  progressStepPercent = 0;
+  LOG_DBG("EHP", "Skipping parser progress popup/ticks (EHP_ENABLE_PARSE_PROGRESS_UI=0, free=%u contig=%u)",
+          popupFreeHeap, popupContigHeap);
+#endif
+
   // Show initial progress popup for files above threshold.
-  if (progressFn && totalStreamSize >= MIN_SIZE_FOR_POPUP) {
+  if (progressFn && progressUiEnabled && totalStreamSize >= MIN_SIZE_FOR_POPUP) {
     progressFn(0);
   }
   return true;
@@ -1614,7 +1696,7 @@ size_t ChapterHtmlSlimParser::write(const uint8_t* buffer, const size_t size) {
   // Report progress at the granularity chosen up-front (see progressStepPercent).
   // Skip the 100% callback — the page render that follows immediately replaces the popup,
   // so the final tick is wasted work.
-  if (progressFn && progressStepPercent > 0 && totalStreamSize > 0) {
+  if (progressFn && progressUiEnabled && progressStepPercent > 0 && totalStreamSize > 0) {
     const int progress = static_cast<int>(bytesStreamed * 100 / totalStreamSize);
     if (progress < 100 && progress / progressStepPercent > lastReportedProgress / progressStepPercent) {
       lastReportedProgress = progress;
@@ -1735,6 +1817,10 @@ void ChapterHtmlSlimParser::makePages() {
   const int horizontalInset = blockStyle.totalHorizontalInset();
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+
+  if (!ensureHeapForTextLayout("paragraph layout")) {
+    return;
+  }
 
   currentTextBlock->layoutAndExtractLines(
       renderer, fontId, effectiveWidth,

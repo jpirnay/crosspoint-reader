@@ -137,6 +137,7 @@ class ChapterHtmlSlimParser final : public Print {
   size_t bytesStreamed = 0;
   int lastReportedProgress = -1;
   int progressStepPercent = 0;
+  bool progressUiEnabled = true;
   bool streamFailed = false;
   uint32_t streamStartTimeMs = 0;
 
@@ -155,6 +156,7 @@ class ChapterHtmlSlimParser final : public Print {
   std::unordered_map<std::string, CssStyle> inlineStyleCache_;
 
   void updateEffectiveInlineStyle();
+  bool ensureHeapForTextLayout(const char* phase);
   void startNewTextBlock(const BlockStyle& blockStyle);
   void flushPartWordBuffer();
   void makePages();

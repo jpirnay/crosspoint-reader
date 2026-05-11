@@ -26,6 +26,7 @@ struct JpegContext {
   const RenderConfig* config{nullptr};
   int screenWidth{0};
   int screenHeight{0};
+  ImageDitherMode effectiveDitherMode{ImageDitherMode::Bayer};
 
   // Source dimensions after JPEGDEC's built-in scaling
   int scaledSrcWidth{0};
@@ -103,7 +104,7 @@ uint8_t ditherGray(JpegContext& ctx, uint8_t gray, int localX, int outX, int out
     return quantizeGray4Level(gray);
   }
 
-  switch (ctx.config->ditherMode) {
+  switch (ctx.effectiveDitherMode) {
     case ImageDitherMode::Atkinson:
       if (ctx.atkinsonDitherer) {
         return ctx.atkinsonDitherer->processPixel(gray, localX);
@@ -178,6 +179,71 @@ int32_t jpegSeek(JPEGFILE* pFile, int32_t pos) {
 // Heap-allocate on demand so memory is only used during active decode.
 constexpr size_t JPEG_DECODER_APPROX_SIZE = 20 * 1024;
 constexpr size_t MIN_FREE_HEAP_FOR_JPEG = JPEG_DECODER_APPROX_SIZE + 16 * 1024;
+
+// Optional memory-behavior knobs for embedded targets.
+#ifndef JPEG_ENABLE_FIRST_RENDER_NO_CACHE
+#define JPEG_ENABLE_FIRST_RENDER_NO_CACHE 1
+#endif
+
+#ifndef JPEG_CACHE_MIN_FREE_HEAP_MARGIN
+#define JPEG_CACHE_MIN_FREE_HEAP_MARGIN (24 * 1024)
+#endif
+
+#ifndef JPEG_CACHE_MIN_MAX_ALLOC_MARGIN
+#define JPEG_CACHE_MIN_MAX_ALLOC_MARGIN (20 * 1024)
+#endif
+
+#ifndef JPEG_DITHER_LOW_MEM_MIN_FREE_HEAP
+#define JPEG_DITHER_LOW_MEM_MIN_FREE_HEAP (MIN_FREE_HEAP_FOR_JPEG + 8 * 1024)
+#endif
+
+#ifndef JPEG_DITHER_LOW_MEM_MIN_MAX_ALLOC
+#define JPEG_DITHER_LOW_MEM_MIN_MAX_ALLOC (48 * 1024)
+#endif
+
+size_t jpegCacheBytes(int width, int height) {
+  return static_cast<size_t>((width + 3) / 4) * static_cast<size_t>(height);
+}
+
+bool shouldEnableJpegCache(const RenderConfig& config, int width, int height) {
+  if (config.cachePath.empty()) return false;
+
+#if JPEG_ENABLE_FIRST_RENDER_NO_CACHE
+  if (!Storage.exists(config.cachePath.c_str())) {
+    LOG_DBG("JPG", "Skipping cache on first render (compile-time policy): %s", config.cachePath.c_str());
+    return false;
+  }
+#endif
+
+  const size_t cacheBytes = jpegCacheBytes(width, height);
+  const size_t freeHeap = ESP.getFreeHeap();
+  const size_t maxAlloc = ESP.getMaxAllocHeap();
+  const size_t minFreeForCaching = MIN_FREE_HEAP_FOR_JPEG + JPEG_CACHE_MIN_FREE_HEAP_MARGIN;
+  const size_t minMaxAllocForCaching = cacheBytes + JPEG_CACHE_MIN_MAX_ALLOC_MARGIN;
+
+  if (freeHeap < minFreeForCaching) {
+    LOG_DBG("JPG", "Skipping cache: free heap %u < %u (cache %u bytes)", static_cast<unsigned>(freeHeap),
+            static_cast<unsigned>(minFreeForCaching), static_cast<unsigned>(cacheBytes));
+    return false;
+  }
+
+  if (maxAlloc < minMaxAllocForCaching) {
+    LOG_DBG("JPG", "Skipping cache: max alloc %u < %u (cache %u bytes)", static_cast<unsigned>(maxAlloc),
+            static_cast<unsigned>(minMaxAllocForCaching), static_cast<unsigned>(cacheBytes));
+    return false;
+  }
+
+  return true;
+}
+
+bool shouldForceBayerDither(const RenderConfig& config) {
+  if (!config.useDithering) return false;
+  if (config.ditherMode == ImageDitherMode::Bayer) return false;
+
+  const size_t freeHeap = ESP.getFreeHeap();
+  const size_t maxAlloc = ESP.getMaxAllocHeap();
+  return freeHeap < JPEG_DITHER_LOW_MEM_MIN_FREE_HEAP || maxAlloc < JPEG_DITHER_LOW_MEM_MIN_MAX_ALLOC;
+}
 
 bool readJpegDimensionsFromHeader(const std::string& imagePath, ImageDimensions& out) {
   FsFile f;
@@ -526,6 +592,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.config = &config;
   ctx.screenWidth = renderer.getScreenWidth();
   ctx.screenHeight = renderer.getScreenHeight();
+  ctx.effectiveDitherMode = config.ditherMode;
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
   if (rc != 1) {
@@ -605,12 +672,18 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   jpeg->setUserPointer(&ctx);
 
   // Allocate cache buffer using final output dimensions
-  ctx.caching = !config.cachePath.empty();
+  ctx.caching = shouldEnableJpegCache(config, destWidth, destHeight);
   if (ctx.caching) {
     if (!ctx.cache.allocate(destWidth, destHeight, config.x, config.y)) {
       LOG_ERR("JPG", "Failed to allocate cache buffer, continuing without caching");
       ctx.caching = false;
     }
+  }
+
+  if (shouldForceBayerDither(config)) {
+    LOG_DBG("JPG", "Low-memory mode: forcing Bayer dithering (%u free, %u max alloc)",
+            static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(ESP.getMaxAllocHeap()));
+    ctx.effectiveDitherMode = ImageDitherMode::Bayer;
   }
 
   // See PngToFramebufferConverter for rationale: BW-only display needs a 1-bit
@@ -624,7 +697,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
 
   if (config.useDithering && !ctx.atkinson1BitDitherer) {
 #ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-    switch (config.ditherMode) {
+    switch (ctx.effectiveDitherMode) {
       case ImageDitherMode::Atkinson:
         ctx.atkinsonDitherer.reset(new (std::nothrow) AtkinsonDitherer(destWidth));
         if (!ctx.atkinsonDitherer) {

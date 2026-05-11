@@ -40,6 +40,12 @@ class EpubReaderActivity final : public Activity {
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   bool pendingHalfRefreshAfterImagePage = false;
+  // Temporary AA suspension when BW snapshot allocation fails under memory pressure.
+  // Automatically lifted once heap recovers above hysteresis thresholds.
+  bool antiAliasingSuspendedLowMemory = false;
+  bool showTruncatedSectionHintThisRender = false;
+  uint8_t truncatedSectionHintRendersRemaining = 0;
+  int lastWarnedTruncatedSpineIndex = -1;
   struct RenderPhaseStats {
     unsigned long prewarmMs = 0UL;
     unsigned long bwRenderMs = 0UL;

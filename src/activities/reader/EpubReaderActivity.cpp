@@ -44,6 +44,50 @@ constexpr unsigned long skipChapterMs = 700;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 constexpr int PAGE_TURN_LABELS[] = {1, 1, 3, 6, 12};
 
+// Silent next-chapter indexing should only run when heap is healthy enough,
+// otherwise it tends to produce heavily truncated fallback caches.
+#ifndef CP_SILENT_INDEX_MIN_FREE_HEAP_BYTES
+#define CP_SILENT_INDEX_MIN_FREE_HEAP_BYTES (64 * 1024)
+#endif
+
+#ifndef CP_SILENT_INDEX_MIN_CONTIG_HEAP_BYTES
+#define CP_SILENT_INDEX_MIN_CONTIG_HEAP_BYTES (24 * 1024)
+#endif
+
+constexpr uint32_t SILENT_INDEX_MIN_FREE_HEAP_BYTES = CP_SILENT_INDEX_MIN_FREE_HEAP_BYTES;
+constexpr uint32_t SILENT_INDEX_MIN_CONTIG_HEAP_BYTES = CP_SILENT_INDEX_MIN_CONTIG_HEAP_BYTES;
+
+// Hysteresis for auto AA recovery after low-memory BW snapshot failures.
+// Override at build time via -D flags, for example:
+//   -DCP_AA_RECOVERY_FREE_HEAP_BYTES=30720
+//   -DCP_AA_RECOVERY_CONTIG_HEAP_BYTES=12288
+#ifndef CP_AA_RECOVERY_FREE_HEAP_BYTES
+#define CP_AA_RECOVERY_FREE_HEAP_BYTES (28 * 1024)
+#endif
+
+#ifndef CP_AA_RECOVERY_CONTIG_HEAP_BYTES
+#define CP_AA_RECOVERY_CONTIG_HEAP_BYTES (12 * 1024)
+#endif
+
+constexpr uint32_t AA_RECOVERY_FREE_HEAP_BYTES = CP_AA_RECOVERY_FREE_HEAP_BYTES;
+constexpr uint32_t AA_RECOVERY_CONTIG_HEAP_BYTES = CP_AA_RECOVERY_CONTIG_HEAP_BYTES;
+
+// Snapshotting BW buffer for grayscale restore can fragment heap heavily on tight
+// pages. Skip attempting snapshot altogether below this safety window.
+#ifndef CP_BW_SNAPSHOT_MIN_FREE_HEAP_BYTES
+#define CP_BW_SNAPSHOT_MIN_FREE_HEAP_BYTES (72 * 1024)
+#endif
+
+#ifndef CP_BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES
+#define CP_BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES (52 * 1024)
+#endif
+
+constexpr uint32_t BW_SNAPSHOT_MIN_FREE_HEAP_BYTES = CP_BW_SNAPSHOT_MIN_FREE_HEAP_BYTES;
+constexpr uint32_t BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES = CP_BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES;
+constexpr uint8_t TRUNCATED_SECTION_HINT_RENDER_COUNT = 2;
+constexpr const char* TRUNCATED_SECTION_HINT_LINE_1 = "Chapter may be truncated (low memory).";
+constexpr const char* TRUNCATED_SECTION_HINT_LINE_2 = "Try: No embedded style | No images | AA Off";
+
 #if DEBUG_MEMORY_CONSUMPTION
 void logReaderMemSnapshot(const char* stage) {
   const uint32_t freeHeap = esp_get_free_heap_size();
@@ -1300,6 +1344,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   lastRenderStats.textAntiAliasing = SETTINGS.textAntiAliasing;
   lastRenderStats.freeHeapBefore = esp_get_free_heap_size();
   lastRenderStats.largestFreeBlockBefore = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  showTruncatedSectionHintThisRender = false;
 
   if (!section) {
     if (currentSpineIndex < 0 || currentSpineIndex >= spineCount) {
@@ -1352,6 +1397,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       LOG_DBG("ERS", "Cache found, skipping build...");
     }
     lastRenderStats.sectionLoadMs = millis() - sectionStart;
+
+    if (section->isTruncatedCache() && currentSpineIndex != lastWarnedTruncatedSpineIndex) {
+      lastWarnedTruncatedSpineIndex = currentSpineIndex;
+      truncatedSectionHintRendersRemaining = TRUNCATED_SECTION_HINT_RENDER_COUNT;
+      LOG_INF("ERS", "Section %d is truncated; showing mitigation hint", currentSpineIndex);
+    }
 
     if (nextPageNumber == UINT16_MAX) {
       section->currentPage = section->pageCount - 1;
@@ -1472,10 +1523,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     lastRenderStats.spineIndex = currentSpineIndex;
     lastRenderStats.pageIndex = section->currentPage;
     lastRenderStats.pageCount = section->pageCount;
+    showTruncatedSectionHintThisRender = truncatedSectionHintRendersRemaining > 0;
 
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     lastRenderStats.requestRenderMs = millis() - start;
+    if (truncatedSectionHintRendersRemaining > 0) {
+      truncatedSectionHintRendersRemaining--;
+    }
     LOG_DBG("ERS", "Rendered page in %dms", lastRenderStats.requestRenderMs);
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
@@ -1492,6 +1547,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
 void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportWidth, const uint16_t viewportHeight) {
   if (!epub || !section || section->pageCount < 2) {
+    return;
+  }
+
+  const uint32_t freeHeap = esp_get_free_heap_size();
+  const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  if (freeHeap < SILENT_INDEX_MIN_FREE_HEAP_BYTES || contigHeap < SILENT_INDEX_MIN_CONTIG_HEAP_BYTES) {
+    LOG_DBG("ERS", "Skipping silent indexing due to low heap (free=%lu contig=%lu)", freeHeap, contigHeap);
     return;
   }
 
@@ -1560,8 +1622,23 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
           (int32_t)heapAfter - (int32_t)heapBefore);
   logReaderMemSnapshot("prewarm_end");
 
+  const bool aaConfigured = SETTINGS.textAntiAliasing;
+  bool aaEnabledForThisRender = aaConfigured;
+  if (aaConfigured && antiAliasingSuspendedLowMemory) {
+    const uint32_t freeHeapNow = esp_get_free_heap_size();
+    const uint32_t contigHeapNow = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+    if (freeHeapNow >= AA_RECOVERY_FREE_HEAP_BYTES && contigHeapNow >= AA_RECOVERY_CONTIG_HEAP_BYTES) {
+      antiAliasingSuspendedLowMemory = false;
+      LOG_INF("ERS", "Re-enabling text anti-aliasing after heap recovery (free=%lu contig=%lu)", freeHeapNow,
+              contigHeapNow);
+    } else {
+      aaEnabledForThisRender = false;
+    }
+  }
+  lastRenderStats.textAntiAliasing = aaEnabledForThisRender;
+
   // Force special handling for pages with images when anti-aliasing is on
-  bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing;
+  bool imagePageWithAA = page->hasImages() && aaEnabledForThisRender;
   bool forceHalfRefreshThisPage = pendingHalfRefreshAfterImagePage && SETTINGS.halfRefreshAfterImagePage;
   pendingHalfRefreshAfterImagePage = false;
   lastRenderStats.imagePageWithAA = imagePageWithAA;
@@ -1570,6 +1647,23 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   logReaderMemSnapshot("before_bw_render");
   page->render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
   renderStatusBar();
+  if (showTruncatedSectionHintThisRender) {
+    const int hintX = orientedMarginLeft + 4;
+    const int hintY1 = contentTop + 4;
+    const int hintY2 = hintY1 + 20;
+    const int maxWidth = std::max(0, renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight - 8);
+    // Clear a dedicated band so the hint stays readable over any page content.
+    const int boxX = hintX - 2;
+    const int boxY = hintY1 - 2;
+    const int boxW = maxWidth + 4;
+    const int boxH = 44;
+    renderer.fillRect(boxX, boxY, boxW, boxH, false);
+    renderer.drawRect(boxX, boxY, boxW, boxH, true);
+    const std::string line1 = renderer.truncatedText(UI_10_FONT_ID, TRUNCATED_SECTION_HINT_LINE_1, maxWidth);
+    const std::string line2 = renderer.truncatedText(UI_10_FONT_ID, TRUNCATED_SECTION_HINT_LINE_2, maxWidth);
+    renderer.drawText(UI_10_FONT_ID, hintX, hintY1, line1.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, hintX, hintY2, line2.c_str(), true);
+  }
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
   logReaderMemSnapshot("after_bw_render");
@@ -1604,11 +1698,33 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   const auto tDisplay = millis();
 
-  // Save bw buffer to reset buffer state after grayscale data sync
+  // Save bw buffer to reset buffer state after grayscale data sync.
+  // Pre-check heap to avoid entering the chunk-retry path when success is unlikely.
+  const uint32_t bwStoreFreeHeap = esp_get_free_heap_size();
+  const uint32_t bwStoreContigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  const bool shouldAttemptBwSnapshot =
+      bwStoreFreeHeap >= BW_SNAPSHOT_MIN_FREE_HEAP_BYTES && bwStoreContigHeap >= BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES;
+
   logReaderMemSnapshot("bw_store_begin");
-  renderer.storeBwBuffer();
+  bool bwBufferStored = false;
+  if (shouldAttemptBwSnapshot) {
+    bwBufferStored = renderer.storeBwBuffer();
+  } else {
+    LOG_INF("ERS", "Skipping BW snapshot precheck (free=%lu contig=%lu, need free>=%lu contig>=%lu)", bwStoreFreeHeap,
+            bwStoreContigHeap, static_cast<uint32_t>(BW_SNAPSHOT_MIN_FREE_HEAP_BYTES),
+            static_cast<uint32_t>(BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES));
+  }
   const auto tBwStore = millis();
   logReaderMemSnapshot("bw_store_end");
+  if (!bwBufferStored) {
+    if (aaEnabledForThisRender && !antiAliasingSuspendedLowMemory) {
+      antiAliasingSuspendedLowMemory = true;
+      const uint32_t freeHeapNow = esp_get_free_heap_size();
+      const uint32_t contigHeapNow = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+      LOG_INF("ERS", "Suspending text anti-aliasing due to low heap (free=%lu contig=%lu)", freeHeapNow, contigHeapNow);
+    }
+    LOG_INF("ERS", "Skipping grayscale/BW-restore for this page (insufficient heap for BW snapshot)");
+  }
 
   if (page->hasImages() && getEffectiveImageRendering() != CrossPointSettings::IMAGES_SUPPRESS) {
     pendingHalfRefreshAfterImagePage = true;
@@ -1616,7 +1732,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   // grayscale rendering
   // TODO: Only do this if font supports it
-  if (SETTINGS.textAntiAliasing) {
+  if (aaEnabledForThisRender && bwBufferStored) {
     logReaderMemSnapshot("gray_lsb_begin");
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
@@ -1659,21 +1775,24 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
             tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tGrayLsb - tBwStore,
             tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
   } else {
-    // restore the bw data
-    logReaderMemSnapshot("bw_restore_begin");
-    renderer.restoreBwBuffer();
-    const auto tBwRestore = millis();
-    logReaderMemSnapshot("bw_restore_end");
+    uint32_t bwRestoreMs = 0;
+    if (bwBufferStored) {
+      // restore the bw data
+      logReaderMemSnapshot("bw_restore_begin");
+      renderer.restoreBwBuffer();
+      const auto tBwRestore = millis();
+      logReaderMemSnapshot("bw_restore_end");
+      bwRestoreMs = tBwRestore - tBwStore;
+    }
 
     const auto tEnd = millis();
     lastRenderStats.usedGrayscale = false;
     lastRenderStats.phases = {
-        tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, 0, 0, 0, tBwRestore - tBwStore,
+        tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, 0, 0, 0, bwRestoreMs,
         tEnd - t0};
     LOG_DBG("ERS",
             "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tBwRestore - tBwStore,
-            tEnd - t0);
+            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, bwRestoreMs, tEnd - t0);
   }
 
   if (const auto* cacheManager = renderer.getFontCacheManager()) {

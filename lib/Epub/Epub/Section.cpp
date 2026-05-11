@@ -12,7 +12,7 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 26;
+constexpr uint8_t SECTION_FILE_VERSION = 27;
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) +   // SECTION_FILE_VERSION
                                  sizeof(int) +       // fontId
                                  sizeof(float) +     // lineCompression
@@ -20,6 +20,7 @@ constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) +   // SECTION_FILE_VERSION
                                  sizeof(uint8_t) +   // paragraphAlignment
                                  sizeof(uint16_t) +  // viewportWidth
                                  sizeof(uint16_t) +  // viewportHeight
+                                 sizeof(bool) +      // parseComplete
                                  sizeof(uint16_t) +  // pageCount (stored as 16-bit in header)
                                  sizeof(bool) +      // hyphenationEnabled
                                  sizeof(bool) +      // embeddedStyle
@@ -195,9 +196,9 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   }
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
                                    sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
-                                   sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
-                                   sizeof(embeddedStyle) + sizeof(bionicReadingEnabled) + sizeof(imageRendering) +
-                                   sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
+                                   sizeof(viewportHeight) + sizeof(bool) + sizeof(pageCount) +
+                                   sizeof(hyphenationEnabled) + sizeof(embeddedStyle) + sizeof(bionicReadingEnabled) +
+                                   sizeof(imageRendering) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
@@ -210,6 +211,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, embeddedStyle);
   serialization::writePod(file, bionicReadingEnabled);
   serialization::writePod(file, imageRendering);
+  serialization::writePod(file, false);      // Placeholder for parseComplete (patched later)
   serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0, patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
@@ -220,13 +222,30 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
                               const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                               const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                               const bool bionicReadingEnabled, const uint8_t imageRendering) {
+  truncatedCache = false;
   uint32_t propertyHash =
       calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                             viewportHeight, hyphenationEnabled, embeddedStyle, bionicReadingEnabled, imageRendering);
   filePath = getSectionFilePath(propertyHash);
 
+  bool usingEmbeddedStyleFallback = false;
   if (!Storage.openFileForRead("SCT", filePath, file)) {
-    return false;
+    // Fallback: allow loading a no-CSS cache variant when embedded CSS is enabled.
+    if (embeddedStyle) {
+      const uint32_t fallbackHash =
+          calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+                                viewportHeight, hyphenationEnabled, false, bionicReadingEnabled, imageRendering);
+      const std::string fallbackPath = getSectionFilePath(fallbackHash);
+      if (Storage.openFileForRead("SCT", fallbackPath, file)) {
+        filePath = fallbackPath;
+        usingEmbeddedStyleFallback = true;
+        LOG_ERR("SCT", "Using no-CSS section cache fallback: %s", filePath.c_str());
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
   }
 
   // Match parameters
@@ -248,6 +267,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     bool fileEmbeddedStyle;
     bool fileBionicReadingEnabled;
     uint8_t fileImageRendering;
+    bool fileParseComplete;
     serialization::readPod(file, fileFontId);
     serialization::readPod(file, fileLineCompression);
     serialization::readPod(file, fileExtraParagraphSpacing);
@@ -258,16 +278,21 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     serialization::readPod(file, fileEmbeddedStyle);
     serialization::readPod(file, fileBionicReadingEnabled);
     serialization::readPod(file, fileImageRendering);
+    serialization::readPod(file, fileParseComplete);
 
+    const bool embeddedStyleMatches =
+        (embeddedStyle == fileEmbeddedStyle) || (usingEmbeddedStyleFallback && !fileEmbeddedStyle);
     if (fontId != fileFontId || lineCompression != fileLineCompression ||
         extraParagraphSpacing != fileExtraParagraphSpacing || paragraphAlignment != fileParagraphAlignment ||
         viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight ||
-        hyphenationEnabled != fileHyphenationEnabled || embeddedStyle != fileEmbeddedStyle ||
+        hyphenationEnabled != fileHyphenationEnabled || !embeddedStyleMatches ||
         bionicReadingEnabled != fileBionicReadingEnabled || imageRendering != fileImageRendering) {
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();  // closes file before removal
       return false;
     }
+
+    truncatedCache = !fileParseComplete;
   }
 
   serialization::readPod(file, pageCount);
@@ -311,6 +336,7 @@ bool Section::clearCache() {
   lut.clear();
   pageCount = 0;
   currentPage = 0;
+  truncatedCache = false;
 
   if (!Storage.exists(filePath.c_str())) {
     LOG_DBG("SCT", "Cache does not exist, no action needed");
@@ -413,7 +439,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   const uint32_t phaseParseStart = millis();
   const bool streamOk = epub->readItemContentsToStream(localPath, visitor, 1024);
   const bool finalizeOk = visitor.finalize();
-  bool success = streamOk && finalizeOk && visitor.streamSucceeded();
+  const bool parserStreamOk = visitor.streamSucceeded();
+  const bool parseComplete = streamOk && finalizeOk && parserStreamOk;
+  bool success = parseComplete;
+  const bool hasParsedPages = pageCount > 0;
   const uint32_t parseMs = millis() - phaseParseStart;
   // streamMs is no longer a separate phase (SD-write of temp file is gone); keep the
   // log breakdown stable by reporting it as 0.
@@ -421,13 +450,35 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   const uint32_t phaseFinalizeStart = millis();
   if (!success) {
-    LOG_ERR("SCT", "Failed to parse XML and build pages (stream=%d finalize=%d)", streamOk ? 1 : 0, finalizeOk ? 1 : 0);
-    file.close();
-    Storage.remove(filePath.c_str());
-    if (cssParser) {
-      cssParser->clear();
+    // If parsing fails mid-stream due low memory but some pages were already serialized,
+    // keep the partial section cache so the chapter remains readable instead of failing hard.
+    if (hasParsedPages) {
+      LOG_ERR("SCT", "Parse incomplete; keeping partial section cache with %u pages (stream=%d finalize=%d parser=%d)",
+              pageCount, streamOk ? 1 : 0, finalizeOk ? 1 : 0, parserStreamOk ? 1 : 0);
+      success = true;
+    } else if (embeddedStyle) {
+      LOG_ERR("SCT",
+              "Parse failed with embedded CSS enabled; retrying section creation with embeddedStyle=0 "
+              "(stream=%d finalize=%d)",
+              streamOk ? 1 : 0, finalizeOk ? 1 : 0);
+      file.close();
+      Storage.remove(filePath.c_str());
+      if (cssParser) {
+        cssParser->clear();
+      }
+      return createSectionFile(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+                               viewportHeight, hyphenationEnabled, false, bionicReadingEnabled, imageRendering,
+                               progressFn);
+    } else {
+      LOG_ERR("SCT", "Failed to parse XML and build pages (stream=%d finalize=%d)", streamOk ? 1 : 0,
+              finalizeOk ? 1 : 0);
+      file.close();
+      Storage.remove(filePath.c_str());
+      if (cssParser) {
+        cssParser->clear();
+      }
+      return false;
     }
-    return false;
   }
   const uint32_t fileSize = static_cast<uint32_t>(inflatedSize);
 
@@ -477,8 +528,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     serialization::writePod(file, entry.listItemIndex);
   }
 
-  // Patch header with final pageCount, lutOffset, anchorMapOffset, and paragraphLutOffset
-  file.seek(HEADER_SIZE - sizeof(uint32_t) * 3 - sizeof(pageCount));
+  // Patch header with final parseComplete/pageCount and offsets.
+  file.seek(HEADER_SIZE - sizeof(uint32_t) * 3 - sizeof(pageCount) - sizeof(bool));
+  serialization::writePod(file, parseComplete);
   serialization::writePod(file, pageCount);
   serialization::writePod(file, lutOffset);
   serialization::writePod(file, anchorMapOffset);
@@ -499,6 +551,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     LOG_ERR("SCT", "Failed to open section file for reading after creation");
     return false;
   }
+  truncatedCache = !parseComplete;
   this->lut = std::move(lut);
   const uint32_t finalizeMs = millis() - phaseFinalizeStart;
   const uint32_t totalMs = millis() - phaseTotalStart;
