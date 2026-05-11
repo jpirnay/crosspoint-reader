@@ -983,6 +983,11 @@ ParsedText::LineProcessResult ParsedText::extractLine(
       totalNaturalGaps += renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]), firstCp,
                                                    wordStyles[lastBreakAt + wordIdx - 1]);
     } else if (wordIdx > 0 && continuesVec[lastBreakAt + wordIdx]) {
+      // Non-breaking space tokens (" " with continues=true) are visible, stretchable spaces —
+      // count them as justifiable gaps so justifyExtra is distributed to them too.
+      if (words[lastBreakAt + wordIdx] == " ") {
+        actualGapCount++;
+      }
       // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
       totalNaturalGaps += renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]), firstCp,
                                               wordStyles[lastBreakAt + wordIdx - 1]);
@@ -1026,6 +1031,11 @@ ParsedText::LineProcessResult ParsedText::extractLine(
       advance +=
           renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
                               firstCodepoint(words[lastBreakAt + wordIdx + 1]), wordStyles[lastBreakAt + wordIdx]);
+      // Non-breaking space tokens are stretchable — expand them during justification like normal spaces.
+      if (words[lastBreakAt + wordIdx] == " " && continuesVec[lastBreakAt + wordIdx] &&
+          blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
+        advance += justifyExtra;
+      }
       xpos += advance;
     } else {
       int gap = 0;
