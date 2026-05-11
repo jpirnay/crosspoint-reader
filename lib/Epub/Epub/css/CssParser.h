@@ -45,7 +45,7 @@ class CssParser {
   };
 
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
-  static constexpr uint8_t CSS_CACHE_VERSION = 4;
+  static constexpr uint8_t CSS_CACHE_VERSION = 5;
 
   explicit CssParser(std::string cachePath) : cachePath(std::move(cachePath)) {}
   ~CssParser() = default;
@@ -141,8 +141,8 @@ class CssParser {
   mutable bool cacheIndexLoaded_ = false;
   mutable size_t cachedRuleCount_ = 0;
   mutable std::unordered_map<std::string, uint32_t> cacheRuleOffsets_;
-  uint32_t totalSelectorCandidates_ = 0;
-  uint32_t unsupportedSelectorSkips_ = 0;
+  mutable uint32_t totalSelectorCandidates_ = 0;
+  mutable uint32_t unsupportedSelectorSkips_ = 0;
 
   // Bounded hot cache of most recently used rules.
   mutable std::list<std::string> hotRuleLru_;

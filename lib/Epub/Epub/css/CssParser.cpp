@@ -78,6 +78,29 @@ constexpr char compileTempRulesCache[] = "/css_rules.compile.tmp";
 // Check if character is CSS whitespace
 bool isCssWhitespace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; }
 
+// Resolver supports only: tag, .class, tag.class
+bool isSelectorUsableByResolver(std::string_view selector) {
+  if (selector.empty()) {
+    return false;
+  }
+
+  if (selector.find_first_of("+>[:#~* ") != std::string_view::npos) {
+    return false;
+  }
+
+  const size_t dotPos = selector.find('.');
+  if (dotPos == std::string_view::npos) {
+    return true;  // tag
+  }
+
+  if (dotPos == 0) {
+    return selector.size() > 1 && selector.find('.', 1) == std::string_view::npos;  // .class only
+  }
+
+  // tag.class only, no additional dots
+  return dotPos + 1 < selector.size() && selector.find('.', dotPos + 1) == std::string_view::npos;
+}
+
 template <typename Fn>
 void forEachNormalizedClassToken(const std::string& classAttr, std::string& normalizedBuf, Fn&& fn) {
   size_t i = 0;
@@ -449,60 +472,7 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
     std::string key = normalized(sel);
     if (key.empty()) continue;
 
-    // TODO: Consider adding support for sibling css selectors in the future
-    // Ensure no + in selector as we don't support adjacent CSS selectors for now
-    if (key.find('+') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Consider adding support for direct nested css selectors in the future
-    // Ensure no > in selector as we don't support nested CSS selectors for now
-    if (key.find('>') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Consider adding support for attribute css selectors in the future
-    // Ensure no [ in selector as we don't support attribute CSS selectors for now
-    if (key.find('[') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Consider adding support for pseudo selectors in the future
-    // Ensure no : in selector as we don't support pseudo CSS selectors for now
-    if (key.find(':') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Consider adding support for ID css selectors in the future
-    // Ensure no # in selector as we don't support ID CSS selectors for now
-    if (key.find('#') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Consider adding support for general sibling combinator selectors in the future
-    // Ensure no ~ in selector as we don't support general sibling combinator CSS selectors for now
-    if (key.find('~') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Consider adding support for wildcard css selectors in the future
-    // Ensure no * in selector as we don't support wildcard CSS selectors for now
-    if (key.find('*') != std::string_view::npos) {
-      unsupportedSelectorSkips_++;
-      continue;
-    }
-
-    // TODO: Add support for more complex selectors in the future
-    // At the moment, we only ever check for `tag`, `tag.class1` or `.class1`
-    // If the selector has whitespace in it, then it's either a CSS selector for a descendant element (e.g. `tag1 tag2`)
-    // or some other slightly more advanced CSS selector which we don't support yet
-    if (key.find(' ') != std::string_view::npos) {
+    if (!isSelectorUsableByResolver(key)) {
       unsupportedSelectorSkips_++;
       continue;
     }
@@ -695,7 +665,12 @@ bool CssParser::loadFromStream(FsFile& source) {
     handleChar('/');
   }
 
-  LOG_DBG("CSS", "Parsed %zu rules from %zu bytes", rulesBySelector_.size(), totalRead);
+  if (compileModeActive_) {
+    LOG_DBG("CSS", "Parsed %zu usable selectors from %zu bytes (compile mode)", compileSelectorOffsets_.size(),
+            totalRead);
+  } else {
+    LOG_DBG("CSS", "Parsed %zu rules from %zu bytes", rulesBySelector_.size(), totalRead);
+  }
   return true;
 }
 
@@ -747,6 +722,8 @@ bool CssParser::endCacheCompile() {
   outFile.write(CssParser::CSS_CACHE_VERSION);
   const auto ruleCount = static_cast<uint16_t>(compileSelectorOffsets_.size());
   outFile.write(reinterpret_cast<const uint8_t*>(&ruleCount), sizeof(ruleCount));
+  outFile.write(reinterpret_cast<const uint8_t*>(&totalSelectorCandidates_), sizeof(totalSelectorCandidates_));
+  outFile.write(reinterpret_cast<const uint8_t*>(&unsupportedSelectorSkips_), sizeof(unsupportedSelectorSkips_));
 
   FsFile tempFile;
   if (!Storage.openFileForRead("CSS", compileTempPath_, tempFile)) {
@@ -1072,6 +1049,14 @@ bool CssParser::ensureCacheIndexLoaded() const {
     return false;
   }
 
+  uint32_t totalCandidates = 0;
+  uint32_t unsupportedSkips = 0;
+  if (file.read(reinterpret_cast<uint8_t*>(&totalCandidates), sizeof(totalCandidates)) != sizeof(totalCandidates) ||
+      file.read(reinterpret_cast<uint8_t*>(&unsupportedSkips), sizeof(unsupportedSkips)) != sizeof(unsupportedSkips)) {
+    file.close();
+    return false;
+  }
+
   cacheRuleOffsets_.clear();
   cacheRuleOffsets_.reserve(ruleCount);
   hotRuleCache_.clear();
@@ -1105,10 +1090,13 @@ bool CssParser::ensureCacheIndexLoaded() const {
   }
 
   cachedRuleCount_ = cacheRuleOffsets_.size();
+  totalSelectorCandidates_ = totalCandidates;
+  unsupportedSelectorSkips_ = unsupportedSkips;
   cacheIndexLoaded_ = true;
   file.close();
-  LOG_DBG("CSS", "Loaded CSS index: %u selectors (hot cache size=%u)", static_cast<unsigned>(cachedRuleCount_),
-          static_cast<unsigned>(HOT_RULE_CACHE_SIZE));
+  LOG_DBG("CSS", "Loaded CSS index: %u selectors (hot cache size=%u, unsupported=%lu/%lu)",
+          static_cast<unsigned>(cachedRuleCount_), static_cast<unsigned>(HOT_RULE_CACHE_SIZE),
+          static_cast<unsigned long>(unsupportedSelectorSkips_), static_cast<unsigned long>(totalSelectorCandidates_));
   return true;
 }
 
@@ -1217,6 +1205,8 @@ bool CssParser::saveToCache() const {
   // Write rule count
   const auto ruleCount = static_cast<uint16_t>(rulesBySelector_.size());
   file.write(reinterpret_cast<const uint8_t*>(&ruleCount), sizeof(ruleCount));
+  file.write(reinterpret_cast<const uint8_t*>(&totalSelectorCandidates_), sizeof(totalSelectorCandidates_));
+  file.write(reinterpret_cast<const uint8_t*>(&unsupportedSelectorSkips_), sizeof(unsupportedSelectorSkips_));
 
   // Write each rule: selector string + CssStyle fields
   for (const auto& pair : rulesBySelector_) {
