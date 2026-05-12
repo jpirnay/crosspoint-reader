@@ -7,11 +7,13 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
@@ -202,6 +204,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     LOG_ERR("FONT", "Failed to clean staging dir: %s", stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
     errorMessage_ = "Failed to prepare staging area";
     return;
   }
@@ -210,6 +214,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     LOG_ERR("FONT", "Failed to create staging dir: %s", stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
     errorMessage_ = "Failed to create staging area";
     return;
   }
@@ -254,6 +260,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       Storage.removeDir(stagingDir);
       RenderLock lock(*this);
       state_ = ERROR;
+      pendingErrorAction_ = PendingFontAction::Download;
+      downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
       errorMessage_ = "Download failed: " + file.name;
       return;
     }
@@ -263,6 +271,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       Storage.removeDir(stagingDir);
       RenderLock lock(*this);
       state_ = ERROR;
+      pendingErrorAction_ = PendingFontAction::Download;
+      downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
       errorMessage_ = "Invalid font file: " + file.name;
       return;
     }
@@ -275,6 +285,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     Storage.removeDir(stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
     errorMessage_ = "Failed to prepare backup area";
     return;
   }
@@ -284,6 +296,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     Storage.removeDir(stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
     errorMessage_ = "Failed to replace installed font";
     return;
   }
@@ -296,6 +310,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     Storage.removeDir(stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
     errorMessage_ = "Failed to finalize font install";
     return;
   }
@@ -310,6 +326,61 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
   RenderLock lock(*this);
   state_ = COMPLETE;
+}
+
+void FontDownloadActivity::promptDeleteFamily(int familyIndex) {
+  if (familyIndex < 0 || familyIndex >= static_cast<int>(families_.size())) return;
+  const auto& family = families_[familyIndex];
+  const std::string heading = tr(STR_DELETE) + std::string("?");
+  const std::string body = family.name;
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, body),
+                         [this, familyIndex](const ActivityResult& result) {
+                           if (result.isCancelled) return;
+                           deleteFamilyAtIndex(familyIndex);
+                         });
+}
+
+void FontDownloadActivity::deleteFamilyAtIndex(int familyIndex) {
+  if (familyIndex < 0 || familyIndex >= static_cast<int>(families_.size())) return;
+
+  auto& family = families_[familyIndex];
+  const auto result = fontInstaller_.deleteFamily(family.name.c_str());
+  if (result == FontInstaller::Error::OK) {
+    fontInstaller_.refreshRegistry();
+    family.installed = false;
+    family.hasUpdate = false;
+    pendingErrorAction_ = PendingFontAction::None;
+    errorMessage_.clear();
+
+    if (selectedIndex_ >= listItemCount()) {
+      selectedIndex_ = std::max(0, listItemCount() - 1);
+    }
+
+    RenderLock lock(*this);
+    state_ = FAMILY_LIST;
+    requestUpdate();
+    return;
+  }
+
+  std::string message = "Failed to delete font";
+  if (result == FontInstaller::Error::INVALID_FAMILY_NAME) {
+    message = "Invalid font family";
+  }
+
+  RenderLock lock(*this);
+  state_ = ERROR;
+  downloadingFamilyIndex_ = familyIndex;
+  pendingErrorAction_ = PendingFontAction::Delete;
+  errorMessage_ = message;
+}
+
+std::string FontDownloadActivity::confirmButtonLabel() const {
+  if (families_.empty()) return tr(STR_DOWNLOAD);
+  if (isDownloadAllSelected()) return tr(STR_DOWNLOAD);
+  const auto& family = families_[familyIndexFromList(selectedIndex_)];
+  if (family.installed && !family.hasUpdate) return tr(STR_DELETE);
+  if (family.hasUpdate) return tr(STR_UPDATE);
+  return tr(STR_DOWNLOAD);
 }
 
 // --- Input handling ---
@@ -339,13 +410,17 @@ void FontDownloadActivity::loop() {
       if (!families_.empty()) {
         if (isDownloadAllSelected()) {
           downloadAll();
+          requestUpdateAndWait();
         } else {
-          const auto& family = families_[familyIndexFromList(selectedIndex_)];
-          if (!family.installed || family.hasUpdate) {
-            downloadFamily(families_[familyIndexFromList(selectedIndex_)]);
+          const int familyIndex = familyIndexFromList(selectedIndex_);
+          const auto& family = families_[familyIndex];
+          if (family.installed && !family.hasUpdate) {
+            promptDeleteFamily(familyIndex);
+          } else {
+            downloadFamily(families_[familyIndex]);
+            requestUpdateAndWait();
           }
         }
-        requestUpdateAndWait();
       }
     }
   } else if (state_ == COMPLETE) {
@@ -366,7 +441,11 @@ void FontDownloadActivity::loop() {
       requestUpdate();
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       if (downloadingFamilyIndex_ >= 0 && downloadingFamilyIndex_ < static_cast<int>(families_.size())) {
-        downloadFamily(families_[downloadingFamilyIndex_]);
+        if (pendingErrorAction_ == PendingFontAction::Delete) {
+          deleteFamilyAtIndex(downloadingFamilyIndex_);
+        } else {
+          downloadFamily(families_[downloadingFamilyIndex_]);
+        }
         requestUpdateAndWait();
       } else {
         {
@@ -400,7 +479,7 @@ void FontDownloadActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FONT_DOWNLOAD));
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FONT_MANAGER));
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
@@ -434,7 +513,8 @@ void FontDownloadActivity::render(RenderLock&&) {
           },
           true);
 
-      const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DOWNLOAD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+      const std::string confirmLabel = confirmButtonLabel();
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel.c_str(), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
   } else if (state_ == DOWNLOADING) {
