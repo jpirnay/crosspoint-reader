@@ -112,8 +112,8 @@ bool computePageDynamicYBand(const Page& page, const GfxRenderer& renderer, cons
   for (const auto& el : page.elements) {
     if (!el) continue;
 
-    int elementTop = el->yPos;
-    int elementBottom = el->yPos;
+    const int elementTop = el->yPos;
+    int elementBottom = elementTop;
     switch (el->getTag()) {
       case TAG_PageLine:
         elementBottom = el->yPos + lineHeight;
