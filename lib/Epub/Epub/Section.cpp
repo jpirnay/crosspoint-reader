@@ -357,6 +357,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 bool Section::clearCache() {
   file.close();  // Must be closed before removal on FAT32
   lut.clear();
+  tocBoundaries.clear();
   pageCount = 0;
   currentPage = 0;
   truncatedCache = false;
