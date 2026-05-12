@@ -67,7 +67,7 @@ class Section {
   bool createSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                          uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle,
                          bool bionicReadingEnabled, uint8_t imageRendering,
-                         const std::function<void(int)>& progressFn = nullptr);
+                         const std::function<void(int)>& progressFn = nullptr, bool skipEviction = false);
   std::unique_ptr<Page> loadPageFromSectionFile();
   bool isTruncatedCache() const { return truncatedCache; }
 

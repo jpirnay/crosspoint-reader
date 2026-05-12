@@ -210,8 +210,7 @@ bool shouldEnableJpegCache(const RenderConfig& config, int width, int height) {
 
 #if JPEG_ENABLE_FIRST_RENDER_NO_CACHE
   if (!Storage.exists(config.cachePath.c_str())) {
-    LOG_DBG("JPG", "Skipping cache on first render (compile-time policy): %s", config.cachePath.c_str());
-    return false;
+    LOG_DBG("JPG", "No existing JPEG cache file on first render; enabling cache write: %s", config.cachePath.c_str());
   }
 #endif
 

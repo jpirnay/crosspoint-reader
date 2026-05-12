@@ -327,6 +327,8 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
       int32_t outIdx = findGlyphIndex(fontData, fontData->ligaturePairs[li].ligatureCp);
       if (outIdx < 0) continue;
+      const EpdGlyph& outGlyph = fontData->glyph[outIdx];
+      if (outGlyph.dataLength == 0 || outGlyph.width == 0 || outGlyph.height == 0) continue;
 
       bool found = false;
       for (uint16_t i = 0; i < glyphCount; i++) {

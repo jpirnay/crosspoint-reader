@@ -70,6 +70,9 @@ constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 constexpr size_t CSS_FIXED_STYLE_BYTES =
     4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(uint8_t) + sizeof(uint16_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
+                                           sizeof(uint8_t) + sizeof(uint16_t),
+              "CSS_FIXED_STYLE_BYTES must match the compiled style payload layout");
 
 // Cache file name (version is CssParser::CSS_CACHE_VERSION)
 constexpr char rulesCache[] = "/css_rules.cache";
@@ -490,6 +493,7 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
         continue;
       }
 
+      compileTempFile_.flush();
       CssStyle merged = style;
       auto existingOffsetIt = compileSelectorOffsets_.find(key);
       if (existingOffsetIt != compileSelectorOffsets_.end()) {
@@ -499,6 +503,9 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
             readCssStylePayload(tempRead, existing)) {
           existing.applyOver(merged);
           merged = existing;
+        } else {
+          LOG_ERR("CSS", "Failed to read compiled style for selector '%s' at offset %u", key.c_str(),
+                  existingOffsetIt->second);
         }
         if (tempRead) {
           tempRead.close();
@@ -790,7 +797,12 @@ size_t CssParser::ruleCount() const {
 
 void CssParser::clear() {
   if (compileTempFile_) {
+    compileTempFile_.flush();
     compileTempFile_.close();
+  }
+  if (!compileTempPath_.empty()) {
+    Storage.remove(compileTempPath_.c_str());
+    compileTempPath_.clear();
   }
   rulesBySelector_.clear();
   cacheRuleOffsets_.clear();
@@ -1135,6 +1147,8 @@ CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& 
     std::string classToken;
     std::string classKey;
     classKey.reserve(32);
+    std::string combinedKey;
+    combinedKey.reserve(tag.size() + 1 + 32);
 
     forEachNormalizedClassToken(classAttr, classToken, [&](const std::string& cls) {
       classKey.clear();
@@ -1148,13 +1162,7 @@ CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& 
         }
         result.applyOver(classStyle);
       }
-    });
 
-    // TODO: Support combinations of classes (e.g. style on p.class1.class2)
-    // 3. Apply element.class styles (higher priority)
-    std::string combinedKey;
-    combinedKey.reserve(tag.size() + 1 + 32);
-    forEachNormalizedClassToken(classAttr, classToken, [&](const std::string& cls) {
       combinedKey.clear();
       combinedKey.append(tag);
       combinedKey.push_back('.');

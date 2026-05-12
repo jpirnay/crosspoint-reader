@@ -2157,6 +2157,10 @@ bool GfxRenderer::storeBwBuffer() { return storeBwBufferRect(0, 0, getScreenWidt
 
 bool GfxRenderer::storeBwBufferRect(const int x, const int y, const int width, const int height) {
   if (width <= 0 || height <= 0) {
+    freeBwBufferChunks();
+    bwSnapshotRowStart = 0;
+    bwSnapshotRowEnd = 0;
+    bwSnapshotSizeBytes = 0;
     LOG_ERR("GFX", "!! BW buffer store rect invalid: x=%d y=%d w=%d h=%d", x, y, width, height);
     return false;
   }
@@ -2164,6 +2168,10 @@ bool GfxRenderer::storeBwBufferRect(const int x, const int y, const int width, c
   const int screenWidth = getScreenWidth();
   const int screenHeight = getScreenHeight();
   if (screenWidth <= 0 || screenHeight <= 0 || panelWidthBytes == 0 || panelHeight == 0 || !frameBuffer) {
+    freeBwBufferChunks();
+    bwSnapshotRowStart = 0;
+    bwSnapshotRowEnd = 0;
+    bwSnapshotSizeBytes = 0;
     LOG_ERR("GFX", "!! BW buffer store unavailable (screen=%dx%d panelHeight=%u rowBytes=%u fb=%p)", screenWidth,
             screenHeight, panelHeight, panelWidthBytes, frameBuffer);
     return false;
@@ -2174,6 +2182,10 @@ bool GfxRenderer::storeBwBufferRect(const int x, const int y, const int width, c
   const int clampedX1 = std::min(screenWidth - 1, x + width - 1);
   const int clampedY1 = std::min(screenHeight - 1, y + height - 1);
   if (clampedX0 > clampedX1 || clampedY0 > clampedY1) {
+    freeBwBufferChunks();
+    bwSnapshotRowStart = 0;
+    bwSnapshotRowEnd = 0;
+    bwSnapshotSizeBytes = 0;
     LOG_ERR("GFX", "!! BW buffer store rect outside screen: x=%d y=%d w=%d h=%d", x, y, width, height);
     return false;
   }
@@ -2202,6 +2214,10 @@ bool GfxRenderer::storeBwBufferRect(const int x, const int y, const int width, c
   rowStart = std::max(0, rowStart);
   rowEnd = std::min(static_cast<int>(panelHeight) - 1, rowEnd);
   if (rowStart > rowEnd) {
+    freeBwBufferChunks();
+    bwSnapshotRowStart = 0;
+    bwSnapshotRowEnd = 0;
+    bwSnapshotSizeBytes = 0;
     LOG_ERR("GFX", "!! BW buffer store row-band invalid after orientation mapping: rows=%d..%d", rowStart, rowEnd);
     return false;
   }
