@@ -292,7 +292,7 @@ bool ChapterHtmlSlimParser::flushPartWordBuffer() {
       if (!ensureHeapForTextLayout("long-block split")) {
         partWordBufferIndex = 0;
         nextWordContinues = false;
-        return;
+        return false;
       }
       LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
       const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
