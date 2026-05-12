@@ -472,8 +472,7 @@ void EpubReaderActivity::loop() {
       const std::string nextBookPath =
           BookFinished::findNextBookInDirectory(epub->getPath(), epub->getSeries(), epub->getSeriesIndex());
       startActivityForResult(
-          std::make_unique<FinishedBookActivity>(renderer, mappedInput, epub->getPath(), nextBookPath,
-                                                 SETTINGS.moveFinishedBooksToCompleted),
+          std::make_unique<FinishedBookActivity>(renderer, mappedInput, epub->getPath(), nextBookPath),
           [this, nextBookPath](const ActivityResult& result) {
             if (result.isCancelled) {
               requestUpdate();
@@ -722,8 +721,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
         const std::string nextBookPath =
             BookFinished::findNextBookInDirectory(epub->getPath(), epub->getSeries(), epub->getSeriesIndex());
         startActivityForResult(
-            std::make_unique<FinishedBookActivity>(renderer, mappedInput, epub->getPath(), nextBookPath,
-                                                   SETTINGS.moveFinishedBooksToCompleted),
+            std::make_unique<FinishedBookActivity>(renderer, mappedInput, epub->getPath(), nextBookPath),
             [this, nextBookPath](const ActivityResult& result) {
               if (result.isCancelled) {
                 requestUpdate();
@@ -1481,8 +1479,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           BookFinished::findNextBookInDirectory(epub->getPath(), epub->getSeries(), epub->getSeriesIndex());
       lock.unlock();
       startActivityForResult(
-          std::make_unique<FinishedBookActivity>(renderer, mappedInput, epub->getPath(), nextBookPath,
-                                                 SETTINGS.moveFinishedBooksToCompleted),
+          std::make_unique<FinishedBookActivity>(renderer, mappedInput, epub->getPath(), nextBookPath),
           [this, nextBookPath](const ActivityResult& result) {
             finishedBookActivityStarted_ = false;
             if (result.isCancelled) {

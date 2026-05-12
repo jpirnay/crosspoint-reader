@@ -21,7 +21,7 @@ enum class FinishedBookAction {
 class FinishedBookActivity : public Activity {
  public:
   FinishedBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string currentBookPath,
-                       std::string nextBookPath, bool moveFinishedBooksToCompleted);
+                       std::string nextBookPath);
 
   void onEnter() override;
   void loop() override;

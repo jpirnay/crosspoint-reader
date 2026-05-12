@@ -140,8 +140,7 @@ void XtcReaderActivity::loop() {
       const std::string nextBookPath =
           BookFinished::findNextBookInDirectory(currentBookPath, std::string(), std::string());
       startActivityForResult(
-          std::make_unique<FinishedBookActivity>(renderer, mappedInput, currentBookPath, nextBookPath,
-                                                 SETTINGS.moveFinishedBooksToCompleted),
+          std::make_unique<FinishedBookActivity>(renderer, mappedInput, currentBookPath, nextBookPath),
           [this, nextBookPath, currentBookPath](const ActivityResult& result) {
             if (result.isCancelled) {
               requestUpdate();

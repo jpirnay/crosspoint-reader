@@ -46,7 +46,7 @@ std::string getFilename(const std::string& filePath) {
 static constexpr int kFinishedBookCoverHeight = 240;
 static constexpr int kFinishedBookCoverMaxWidth = 220;
 
-std::string findUniqueCompletedSidecarPath(const std::string& basePath) {
+std::string findUniquePathWithSuffix(const std::string& basePath) {
   if (!Storage.exists(basePath.c_str())) {
     return basePath;
   }
@@ -62,6 +62,8 @@ std::string findUniqueCompletedSidecarPath(const std::string& basePath) {
   }
   return {};
 }
+
+std::string findUniqueCompletedSidecarPath(const std::string& basePath) { return findUniquePathWithSuffix(basePath); }
 
 std::string convertSidecarToBmp(const std::string& bookPath, const std::string& sidecarPath, int width, int height,
                                 const std::string& fileName) {
@@ -391,22 +393,7 @@ std::string buildCompletedTargetPath(const std::string& currentBookPath) {
   return std::string("/COMPLETED/") + fileName;
 }
 
-std::string findUniqueCompletedPath(const std::string& basePath) {
-  if (!Storage.exists(basePath.c_str())) {
-    return basePath;
-  }
-
-  const auto dotPos = basePath.find_last_of('.');
-  const std::string base = (dotPos == std::string::npos) ? basePath : basePath.substr(0, dotPos);
-  const std::string ext = (dotPos == std::string::npos) ? std::string() : basePath.substr(dotPos);
-  for (int suffix = 1; suffix < 1000; ++suffix) {
-    const std::string candidate = base + " (" + std::to_string(suffix) + ")" + ext;
-    if (!Storage.exists(candidate.c_str())) {
-      return candidate;
-    }
-  }
-  return {};
-}
+std::string findUniqueCompletedPath(const std::string& basePath) { return findUniquePathWithSuffix(basePath); }
 }  // namespace
 
 namespace BookFinished {
@@ -463,13 +450,11 @@ bool moveFinishedBookToCompleted(const std::string& currentBookPath, std::string
 }  // namespace BookFinished
 
 FinishedBookActivity::FinishedBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           std::string currentBookPath, std::string nextBookPath,
-                                           bool moveFinishedBooksToCompleted)
+                                           std::string currentBookPath, std::string nextBookPath)
     : Activity("FinishedBook", renderer, mappedInput),
       currentBookPath_(std::move(currentBookPath)),
       nextBookPath_(std::move(nextBookPath)),
-      nextBookAvailable_(!nextBookPath_.empty()),
-      moveFinishedBooksToCompleted_(moveFinishedBooksToCompleted) {
+      nextBookAvailable_(!nextBookPath_.empty()) {
   nextBookName_ = nextBookAvailable_ ? getFilename(nextBookPath_) : tr(STR_NOT_SET);
 }
 
@@ -477,12 +462,7 @@ void FinishedBookActivity::onEnter() {
   Activity::onEnter();
   const bool canMoveToCompleted = !pathIsInCompleted(currentBookPath_);
   const int optionCount = 1 + (nextBookAvailable_ ? 1 : 0) + (canMoveToCompleted ? 1 : 0) + 1;
-  if (selectedIndex_ < 0 || selectedIndex_ >= optionCount) {
-    selectedIndex_ = 0;
-  }
-  if (selectedIndex_ >= optionCount) {
-    selectedIndex_ = optionCount - 1;
-  }
+  selectedIndex_ = std::clamp(selectedIndex_, 0, optionCount - 1);
   moveFinishedBooksToCompleted_ = SETTINGS.moveFinishedBooksToCompleted;
   removeFinishedBooksFromRecents_ = SETTINGS.removeFinishedBooksFromRecents;
 
@@ -607,7 +587,7 @@ void FinishedBookActivity::render(RenderLock&&) {
   y += yGap + 4;
 
   if (nextBookAvailable_) {
-    renderer.drawText(UI_12_FONT_ID, contentRect.x + metrics.contentSidePadding, y, "Next book to read:", true,
+    renderer.drawText(UI_12_FONT_ID, contentRect.x + metrics.contentSidePadding, y, tr(STR_NEXT_BOOK_HEADER), true,
                       EpdFontFamily::BOLD);
     y += yGap + metrics.verticalSpacing;
   }

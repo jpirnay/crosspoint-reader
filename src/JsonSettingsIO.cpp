@@ -212,6 +212,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     doc["sdFontFamilyName"] = s.sdFontFamilyName;
   }
   doc["moveFinishedBooksToCompleted"] = s.moveFinishedBooksToCompleted;
+  doc["removeFinishedBooksFromRecents"] = s.removeFinishedBooksFromRecents;
 
   String json;
   serializeJson(doc, json);
