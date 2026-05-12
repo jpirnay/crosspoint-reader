@@ -68,7 +68,7 @@ void SettingsActivity::onEnter() {
   SettingInfo includeBetaUpdatesSetting{};
 
   auto insertFontDownloadBelowFontSection = [&]() {
-    auto fontDownload = SettingInfo::Action(StrId::STR_FONT_DOWNLOAD, SettingAction::DownloadFonts);
+    auto fontDownload = SettingInfo::Action(StrId::STR_FONT_MANAGER, SettingAction::DownloadFonts);
     fontDownload.withSubcategory(StrId::STR_MENU_READER_FONT);
     addToMoved(readerSettings, lastReaderSub, std::move(fontDownload));
     insertedFontDownload = true;

@@ -56,11 +56,18 @@ class FontDownloadActivity : public Activity {
   std::vector<ManifestFamily> families_;
   int selectedIndex_ = 0;
 
+  enum class PendingFontAction {
+    None,
+    Download,
+    Delete,
+  };
+
   size_t currentFileIndex_ = 0;
   size_t currentFileTotal_ = 0;
   size_t fileProgress_ = 0;
   size_t fileTotal_ = 0;
   int downloadingFamilyIndex_ = 0;
+  PendingFontAction pendingErrorAction_ = PendingFontAction::None;
   std::string errorMessage_;
 
   void onWifiSelectionComplete(bool success);
@@ -71,5 +78,10 @@ class FontDownloadActivity : public Activity {
   int familyIndexFromList(int listIndex) const { return listIndex - 1; }
   int listItemCount() const { return families_.empty() ? 0 : static_cast<int>(families_.size()) + 1; }
   size_t totalUninstalledSize() const;
+
+  std::string confirmButtonLabel() const;
+  void promptDeleteFamily(int familyIndex);
+  void deleteFamilyAtIndex(int familyIndex);
+
   static std::string formatSize(size_t bytes);
 };
