@@ -335,7 +335,7 @@ void loop() {
   gpio.update();
   buttonEventManager.update();
   HalClock::updatePeriodic();
-  halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.tiltStabilization, SETTINGS.orientation);
+  halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);
   renderer.setTextDarkness(SETTINGS.textDarkness);
