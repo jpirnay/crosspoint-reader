@@ -60,6 +60,14 @@ def select_matplotlib_backend() -> None:
             f"\n{Fore.RED}Warning: No interactive Matplotlib backend available. "
             f"Graph window may not open correctly on this system.{Style.RESET_ALL}"
         )
+        print(
+            f"{Fore.YELLOW}To enable the graph window, install an interactive backend and restart the script.{Style.RESET_ALL}\n"
+            "  - python3-tk (TkAgg)\n"
+            "  - python3-pyqt5 or python3-pyqt6 (Qt5Agg)\n"
+            "  - python3-pyside2 or python3-pyside6 (QtAgg)\n"
+            "  - python3-gi python3-gi-cairo (GTK3Agg/GTK4Agg)\n"
+            "If you are using a virtualenv, install the package into the same environment."
+        )
 
 # Try to import potentially missing packages
 PACKAGE_MAPPING: dict[str, str] = {
