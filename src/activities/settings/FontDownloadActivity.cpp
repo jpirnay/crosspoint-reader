@@ -60,6 +60,7 @@ void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
     RenderLock lock(*this);
     state_ = FAMILY_LIST;
     selectedIndex_ = 0;
+    previousActionCount_ = actionCount();
   }
 }
 
@@ -202,6 +203,28 @@ size_t FontDownloadActivity::totalUpdateSize() const {
   return total;
 }
 
+void FontDownloadActivity::syncSelectedIndexForNewActionCount() {
+  const int currentActionCount = actionCount();
+  if (currentActionCount == previousActionCount_) {
+    return;
+  }
+
+  int newIndex = selectedIndex_;
+  if (selectedIndex_ >= previousActionCount_) {
+    const int familyIndex = selectedIndex_ - previousActionCount_;
+    newIndex = familyIndex + currentActionCount;
+  } else if (selectedIndex_ >= currentActionCount) {
+    newIndex = currentActionCount;
+  }
+
+  if (newIndex >= listItemCount()) {
+    newIndex = std::max(0, listItemCount() - 1);
+  }
+
+  selectedIndex_ = newIndex;
+  previousActionCount_ = currentActionCount;
+}
+
 bool FontDownloadActivity::hasDownloadCandidates() const {
   for (const auto& f : families_) {
     if (!f.installed) return true;
@@ -264,6 +287,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       currentFileIndex_ = i;
       fileProgress_ = 0;
       fileTotal_ = file.size;
+      lastProgressPercent_ = -1;
+      lastProgressUpdateMs_ = 0;
     }
     requestUpdateAndWait();
 
@@ -289,7 +314,20 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       mappedInput.update();
       fileProgress_ = downloaded;
       fileTotal_ = total;
-      requestUpdate(true);
+
+      const unsigned long now = millis();
+      int percent = 0;
+      if (total > 0) {
+        percent = static_cast<int>((static_cast<unsigned long long>(downloaded) * 100ULL + total / 2) / total);
+      }
+      const bool percentChanged = percent != lastProgressPercent_;
+      const bool timeElapsed = lastProgressUpdateMs_ == 0 || now - lastProgressUpdateMs_ > 2000;
+      if ((percentChanged && timeElapsed) || downloaded == total) {
+        requestUpdate(true);
+        lastProgressPercent_ = percent;
+        lastProgressUpdateMs_ = now;
+      }
+
       return !mappedInput.wasPressed(MappedInputManager::Button::Back);
     });
 
@@ -370,6 +408,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   fontInstaller_.refreshRegistry();
   family.installed = true;
   family.hasUpdate = false;
+  syncSelectedIndexForNewActionCount();
 
   RenderLock lock(*this);
   state_ = COMPLETE;
@@ -396,6 +435,7 @@ void FontDownloadActivity::deleteFamilyAtIndex(int familyIndex) {
     fontInstaller_.refreshRegistry();
     family.installed = false;
     family.hasUpdate = false;
+    syncSelectedIndexForNewActionCount();
     pendingErrorAction_ = PendingFontAction::None;
     errorMessage_.clear();
 
@@ -435,6 +475,7 @@ std::string FontDownloadActivity::confirmButtonLabel() const {
 
 void FontDownloadActivity::loop() {
   if (state_ == FAMILY_LIST) {
+    syncSelectedIndexForNewActionCount();
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       finish();
       return;
@@ -539,6 +580,7 @@ void FontDownloadActivity::render(RenderLock&&) {
   if (state_ == LOADING_MANIFEST) {
     renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_LOADING_FONT_LIST));
   } else if (state_ == FAMILY_LIST) {
+    syncSelectedIndexForNewActionCount();
     if (families_.empty()) {
       renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_NO_FONTS_AVAILABLE));
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

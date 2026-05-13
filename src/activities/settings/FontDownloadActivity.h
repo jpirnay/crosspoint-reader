@@ -70,6 +70,9 @@ class FontDownloadActivity : public Activity {
   PendingFontAction pendingErrorAction_ = PendingFontAction::None;
   std::string errorMessage_;
   bool cancelRequested_ = false;
+  int previousActionCount_ = 0;
+  int lastProgressPercent_ = -1;
+  unsigned long lastProgressUpdateMs_ = 0;
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
@@ -84,10 +87,13 @@ class FontDownloadActivity : public Activity {
   bool hasDownloadCandidates() const;
   bool hasUpdateCandidates() const;
   int actionCount() const { return (hasDownloadCandidates() ? 1 : 0) + (hasUpdateCandidates() ? 1 : 0); }
-  int familyIndexFromList(int listIndex) const { return listIndex - actionCount(); }
+  int familyIndexFromList(int listIndex) const {
+    return listIndex > actionCount() - 1 ? listIndex - actionCount() : -1;
+  }
   int listItemCount() const { return families_.empty() ? 0 : static_cast<int>(families_.size()) + actionCount(); }
   size_t totalUninstalledSize() const;
   size_t totalUpdateSize() const;
+  void syncSelectedIndexForNewActionCount();
 
   std::string confirmButtonLabel() const;
   void promptDeleteFamily(int familyIndex);
