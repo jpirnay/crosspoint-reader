@@ -26,6 +26,7 @@ class HalTiltSensor {
   bool _inTilt = false;
   bool _isAwake = false;
   unsigned long _initMs = 0;
+  unsigned long _sleepMs = 0;
   unsigned long _lastTiltMs = 0;
   unsigned long _wakeMs = 0;
 
@@ -43,10 +44,10 @@ class HalTiltSensor {
   static constexpr uint8_t REG_CTRL7 = 0x08;
   static constexpr uint8_t REG_GX_L = 0x3B;
 
-  static constexpr uint8_t CTRL1_BIG_ENDIAN = (1 << 5);
+  static constexpr uint8_t CTRL1_SPI_BE = (1 << 5);  // SPI byte-order bit; no-op on I2C (QMI8658C)
   static constexpr uint8_t CTRL1_AUTO_INC = (1 << 6);
   static constexpr uint8_t CTRL1_SENSOR_DISABLE = (1 << 0);
-  static constexpr uint8_t CTRL1_BASE = CTRL1_AUTO_INC | CTRL1_BIG_ENDIAN;
+  static constexpr uint8_t CTRL1_BASE = CTRL1_AUTO_INC | CTRL1_SPI_BE;
 
   static constexpr uint8_t CTRL3_FS_512DPS = (0b101 << 4);
   static constexpr uint8_t CTRL3_ODR_28HZ = 0b1000;
@@ -65,7 +66,7 @@ class HalTiltSensor {
 
   bool isAvailable() const { return _available; }
 
-  void update(const uint8_t mode, const uint8_t orientation, const bool inReader);
+  void update(CrossPointTiltPageTurn::Value mode, CrossPointOrientation::Value orientation, bool inReader);
 
   bool wasTiltedForward();
   bool wasTiltedBack();

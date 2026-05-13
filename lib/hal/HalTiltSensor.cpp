@@ -78,6 +78,7 @@ void HalTiltSensor::begin() {
 
   _available = true;
   _initMs = millis();
+  _sleepMs = millis();
   _lastPollMs = millis();
   LOG_INF("GYR", "QMI8658 gyro initialized and put to sleep");
 }
@@ -87,7 +88,7 @@ bool HalTiltSensor::wake() {
     return false;
   }
 
-  if ((millis() - _initMs) < SLEEP_STABILIZE_MS) {
+  if ((millis() - _sleepMs) < SLEEP_STABILIZE_MS) {
     return false;
   }
 
@@ -115,6 +116,7 @@ bool HalTiltSensor::deepSleep() {
   if (writeReg(REG_CTRL7, CTRL7_DISABLE_ALL) && writeReg(REG_CTRL1, CTRL1_BASE | CTRL1_SENSOR_DISABLE)) {
     clearPendingEvents();
     _inTilt = false;
+    _sleepMs = millis();
     LOG_INF("GYR", "QMI8658 entered sleep mode");
     return true;
   } else {
@@ -123,15 +125,16 @@ bool HalTiltSensor::deepSleep() {
   }
 }
 
-void HalTiltSensor::update(const uint8_t mode, const uint8_t orientation, const bool inReader) {
+void HalTiltSensor::update(CrossPointTiltPageTurn::Value mode, CrossPointOrientation::Value orientation,
+                           bool inReader) {
   if (!_available) {
     return;
   }
 
-  if ((mode != CrossPointTiltPageTurn::TILT_OFF) && !_isAwake) {
+  if ((mode != CrossPointTiltPageTurn::TILT_OFF && inReader) && !_isAwake) {
     _isAwake = wake();
     return;
-  } else if ((mode == CrossPointTiltPageTurn::TILT_OFF) && _isAwake) {
+  } else if ((mode == CrossPointTiltPageTurn::TILT_OFF || !inReader) && _isAwake) {
     _isAwake = !deepSleep();
     return;
   }
