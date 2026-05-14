@@ -4,6 +4,7 @@
 #include <Epub/converters/PngToFramebufferConverter.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <PNGdec.h>
@@ -357,10 +358,19 @@ void SleepActivity::onEnter() {
   if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
-  // X3 panels need extra settle passes to fully clear ghosting from the previous reader page
-  // before showing the static sleep image. No-op on other panels. Placed after the popup so
-  // its own displayBuffer doesn't consume the request.
-  display.requestResync(2);
+  // X3 panels: flash white before rendering the sleep image so any ghosting from the reader
+  // page is fully cleared. The full sync triggered by requestResync drives the panel to a
+  // clean white state; the sleep screen is then drawn on top without residual ghost content.
+  // Skipped for OVERLAY (frame buffer must stay intact) and BLANK (already renders white).
+  const bool needsX3PreFlash =
+      gpio.deviceIsX3() &&
+      SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
+      SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::BLANK;
+  if (needsX3PreFlash) {
+    renderer.clearScreen();
+    display.requestResync(1);
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  }
 
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
