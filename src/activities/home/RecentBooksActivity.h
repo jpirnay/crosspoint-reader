@@ -8,7 +8,6 @@
 
 #include "../Activity.h"
 #include "RecentBooksStore.h"
-#include "util/ButtonNavigator.h"
 
 class RecentBooksActivity final : public Activity {
  public:
@@ -18,8 +17,6 @@ class RecentBooksActivity final : public Activity {
   static constexpr int GRID_LABEL_HEIGHT = 36;  // two small-font lines below each thumbnail
 
  private:
-  ButtonNavigator buttonNavigator;
-
   int selectorIndex = 0;
   int initialFocusIndex = -1;  // applied once in onEnter(), then cleared
 

@@ -266,6 +266,24 @@ void RecentBooksActivity::loop() {
       return;
     }
 
+    // Left short: column left in grid, previous in list
+    if (ev.button == MappedInputManager::Button::Left && ev.type == ButtonEventManager::PressType::Short) {
+      if (!recentBooks.empty()) {
+        selectorIndex = ButtonNavigator::previousIndex(selectorIndex, listSize);
+        requestUpdate();
+      }
+      continue;
+    }
+
+    // Right short: column right in grid, next in list
+    if (ev.button == MappedInputManager::Button::Right && ev.type == ButtonEventManager::PressType::Short) {
+      if (!recentBooks.empty()) {
+        selectorIndex = ButtonNavigator::nextIndex(selectorIndex, listSize);
+        requestUpdate();
+      }
+      continue;
+    }
+
     // Left long: remove selected book (both views)
     if (ev.button == MappedInputManager::Button::Left && ev.type == ButtonEventManager::PressType::Long) {
       removeSelectedBook();
@@ -277,21 +295,6 @@ void RecentBooksActivity::loop() {
       showSelectedBookInfo();
       return;
     }
-  }
-
-  if (gridView) {
-    // Left/Right short: column navigation (no long-press conflict on these buttons)
-    buttonNavigator.onNextList({MappedInputManager::Button::Right}, selectorIndex, listSize,
-                               [this] { requestUpdate(); });
-    buttonNavigator.onPreviousList({MappedInputManager::Button::Left}, selectorIndex, listSize,
-                                   [this] { requestUpdate(); });
-    // (Up/Down handled via buttonEvents Short above)
-  } else {
-    // Left/Right short: consumed cleanly (no-op in list view but prevents phantom events)
-    buttonNavigator.onNextList({MappedInputManager::Button::Right}, selectorIndex, listSize,
-                               [this] { requestUpdate(); });
-    buttonNavigator.onPreviousList({MappedInputManager::Button::Left}, selectorIndex, listSize,
-                                   [this] { requestUpdate(); });
   }
 }
 
@@ -366,9 +369,6 @@ void RecentBooksActivity::renderGridCell(int index, bool selected, int cellX, in
     renderer.drawRect(cellX, cellY, tw, th);
   }
 
-  // White prefill inside thumbnail frame so 1-bit BMP transparent pixels show white
-  renderer.fillRect(cellX + 1, cellY + 1, tw - 2, th - 2, false);
-
   if (!book.coverBmpPath.empty()) {
     const std::string thumbPath = gridThumbPath(book.coverBmpPath, tw, th);
     FsFile file;
@@ -389,11 +389,17 @@ void RecentBooksActivity::renderGridCell(int index, bool selected, int cellX, in
           const int rendH = static_cast<int>(imgH * scale);
           const int offsetX = std::max(1, (tw - rendW) / 2);
           const int offsetY = std::max(1, (th - rendH) / 2);
+          // Only pre-clear exactly the rendered image area so the selected cell's black
+          // background shows through around the image instead of a white border.
+          renderer.fillRect(cellX + offsetX, cellY + offsetY, rendW, rendH, false);
           renderer.drawBitmap1Bit(bmp, cellX + offsetX, cellY + offsetY, innerW, innerH);
         }
       }
       file.close();
     }
+  } else {
+    // No cover — clear the whole interior so the placeholder looks clean.
+    renderer.fillRect(cellX + 1, cellY + 1, tw - 2, th - 2, false);
   }
 
   // Label: title line 1, author line 2; white text on black for selected, black on white otherwise
