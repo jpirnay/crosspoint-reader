@@ -532,6 +532,13 @@ void loop() {
         continue;
       }
 
+      // When a non-default Long action fires for a page-turn button, mark it so that
+      // detectPageTurn() suppresses the wasReleased-based page turn on button release.
+      if (ev.type == ButtonEventManager::PressType::Long &&
+          (ev.button == B::Left || ev.button == B::Right || ev.button == B::PageBack || ev.button == B::PageForward)) {
+        buttonEventManager.markLongPressDispatched(ev.button);
+      }
+
       switch (static_cast<BA>(action)) {
         case BA::BTN_PAGE_FORWARD:
           activityManager.dispatchButtonAction(BA::BTN_PAGE_FORWARD);

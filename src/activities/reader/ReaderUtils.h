@@ -115,16 +115,21 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   }
   const bool prevButtonReleased = (SETTINGS.btnShortPageBack == BA::BTN_DEFAULT &&
                                    !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageBack) &&
+                                   !globalButtonEvents().wasLongPressDispatched(MappedInputManager::Button::PageBack) &&
                                    input.wasReleased(MappedInputManager::Button::PageBack)) ||
                                   (SETTINGS.btnShortLeft == BA::BTN_DEFAULT &&
                                    !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Left) &&
+                                   !globalButtonEvents().wasLongPressDispatched(MappedInputManager::Button::Left) &&
                                    input.wasReleased(MappedInputManager::Button::Left));
-  const bool nextButtonReleased = (SETTINGS.btnShortPageForward == BA::BTN_DEFAULT &&
-                                   !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageForward) &&
-                                   input.wasReleased(MappedInputManager::Button::PageForward)) ||
-                                  (SETTINGS.btnShortRight == BA::BTN_DEFAULT &&
-                                   !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Right) &&
-                                   input.wasReleased(MappedInputManager::Button::Right));
+  const bool nextButtonReleased =
+      (SETTINGS.btnShortPageForward == BA::BTN_DEFAULT &&
+       !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::PageForward) &&
+       !globalButtonEvents().wasLongPressDispatched(MappedInputManager::Button::PageForward) &&
+       input.wasReleased(MappedInputManager::Button::PageForward)) ||
+      (SETTINGS.btnShortRight == BA::BTN_DEFAULT &&
+       !globalButtonEvents().hasDoubleAction(MappedInputManager::Button::Right) &&
+       !globalButtonEvents().wasLongPressDispatched(MappedInputManager::Button::Right) &&
+       input.wasReleased(MappedInputManager::Button::Right));
 
   const bool prev = tiltPrev || prevButtonReleased;
   const bool next = tiltNext || nextButtonReleased;

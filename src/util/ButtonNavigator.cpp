@@ -272,14 +272,14 @@ void ButtonNavigator::onListNav(const Buttons& buttons, const bool forward, int&
 
   const bool wasReleased = std::any_of(buttons.begin(), buttons.end(),
                                        [](const MappedInputManager::Button b) { return mappedInput->wasReleased(b); });
-  if (wasReleased) {
+  if (!wasReleased) return;
+
+  // Long press already fired: reset the guard and skip navigation — the jump-to-end
+  // already happened on the down-hold, so release produces no additional move.
+  if (longPressFired) {
     longPressFired = false;
     return;
   }
-
-  const bool wasPressed = std::any_of(buttons.begin(), buttons.end(),
-                                      [](const MappedInputManager::Button b) { return mappedInput->wasPressed(b); });
-  if (!wasPressed) return;
 
   const uint32_t now = millis();
   const bool isDouble = (now - lastPressMs) < listDoubleClickMs;

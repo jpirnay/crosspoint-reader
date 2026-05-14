@@ -71,6 +71,17 @@ class ButtonEventManager {
   // ButtonEventManager queries CrossPointSettings internally.
   bool hasDoubleAction(Button button) const;
 
+  // Called by the global dispatcher (main.cpp) when a Long event is consumed for a
+  // non-default action on a navigation button. Suppresses the release-based page turn
+  // that would otherwise fire when the button is released after the long action.
+  void markLongPressDispatched(Button button) { longPressDispatchedMask |= (1u << static_cast<int>(button)); }
+
+  // Returns true if markLongPressDispatched was called for this button since the last
+  // update(). detectPageTurn() uses this to skip wasReleased-based page turns.
+  bool wasLongPressDispatched(Button button) const {
+    return (longPressDispatchedMask & (1u << static_cast<int>(button))) != 0;
+  }
+
  private:
   static constexpr int NUM_BUTTONS = 9;
   static constexpr Button ALL_BUTTONS[NUM_BUTTONS] = {
@@ -79,6 +90,7 @@ class ButtonEventManager {
   };
 
   uint32_t forcedDoubleMask = 0;
+  uint32_t longPressDispatchedMask = 0;
 
   enum class State { Idle, Pressed, ReleasedOnce, DoublePressed };
 

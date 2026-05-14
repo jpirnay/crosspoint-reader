@@ -72,6 +72,7 @@ void ButtonEventManager::drain() {
     b.releaseTime = 0;
   }
   eventHead = eventTail = 0;
+  longPressDispatchedMask = 0;
 }
 
 void ButtonEventManager::processButton(const int idx, const Button btn) {
@@ -140,6 +141,14 @@ void ButtonEventManager::processButton(const int idx, const Button btn) {
 }
 
 void ButtonEventManager::update() {
+  // Clear the long-press-dispatched flag for buttons that are pressed again.
+  // This allows the flag to survive through the release tick (so detectPageTurn
+  // can suppress the page-turn on release) and resets cleanly on the next press.
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    if ((longPressDispatchedMask & (1u << i)) && input.wasPressed(ALL_BUTTONS[i])) {
+      longPressDispatchedMask &= ~(1u << i);
+    }
+  }
   for (int i = 0; i < NUM_BUTTONS; i++) {
     processButton(i, ALL_BUTTONS[i]);
   }

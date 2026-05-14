@@ -71,18 +71,6 @@ void XtcReaderChapterSelectionActivity::loop() {
       finish();
       return;
     }
-    if ((ev.button == MappedInputManager::Button::PageBack || ev.button == MappedInputManager::Button::Left) &&
-        ev.type == ButtonEventManager::PressType::Short) {
-      selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
-      requestUpdate();
-      return;
-    }
-    if ((ev.button == MappedInputManager::Button::PageForward || ev.button == MappedInputManager::Button::Right) &&
-        ev.type == ButtonEventManager::PressType::Short) {
-      selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
-      requestUpdate();
-      return;
-    }
   }
 
   buttonNavigator.onNextList(selectorIndex, totalItems, [this] { requestUpdate(); });
