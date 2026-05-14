@@ -6,6 +6,7 @@
 #include <I18n.h>
 
 #include "CrossPointSettings.h"
+#include "FontSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "SettingActionDispatch.h"
 #include "components/UITheme.h"
@@ -21,6 +22,26 @@ void SettingsSubmenuActivity::onEnter() {
 void SettingsSubmenuActivity::onActionSelected(int index) {
   const auto& setting = menuItems[index];
   if (setting.isSeparator) return;
+
+  if (setting.type == SettingType::ENUM && setting.nameId == StrId::STR_FONT_FAMILY) {
+    startActivityForResult(
+        std::make_unique<FontSelectionActivity>(renderer, mappedInput, FontSelectionActivity::Target::EPUB),
+        [this](const ActivityResult&) {
+          SETTINGS.saveToFile();
+          needsHalfRefresh = true;
+        });
+    return;
+  }
+
+  if (setting.type == SettingType::ENUM && setting.nameId == StrId::STR_TXT_FONT_FAMILY) {
+    startActivityForResult(
+        std::make_unique<FontSelectionActivity>(renderer, mappedInput, FontSelectionActivity::Target::TXT),
+        [this](const ActivityResult&) {
+          SETTINGS.saveToFile();
+          needsHalfRefresh = true;
+        });
+    return;
+  }
 
   if (setting.type == SettingType::ACTION) {
     MenuResult menuResult;

@@ -179,6 +179,36 @@ static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum) {
   return FONT_SIZE_TO_PT[fontSizeEnum];
 }
 
+void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, const char* wantedFamily, uint8_t fontSizeEnum) {
+  const std::string& currentFamily = manager_.currentFamilyName();
+  const uint8_t targetPt = targetPtSizeFromEnum(fontSizeEnum);
+
+  if (!wantedFamily || wantedFamily[0] == '\0') {
+    if (!currentFamily.empty()) manager_.unloadAll(renderer);
+    return;
+  }
+
+  bool familyMatches = (currentFamily == wantedFamily);
+  if (familyMatches) {
+    const auto* family = registry_.findFamily(wantedFamily);
+    if (!family) {
+      manager_.unloadAll(renderer);
+      return;
+    }
+    const auto* best = family->pickClosestSize(targetPt);
+    if (best && best->pointSize == manager_.currentPointSize()) return;
+  }
+
+  if (!currentFamily.empty()) manager_.unloadAll(renderer);
+
+  const auto* family = registry_.findFamily(wantedFamily);
+  if (family) {
+    if (!manager_.loadFamily(*family, renderer, targetPt)) {
+      LOG_ERR("SDFS", "Failed to load SD font family: %s", wantedFamily);
+    }
+  }
+}
+
 int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t fontSizeEnum) const {
   // The manager loads exactly one size for the active SD family. Resolve only
   // if the requested family matches the loaded family and the requested size

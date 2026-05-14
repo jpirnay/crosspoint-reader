@@ -191,6 +191,24 @@ void setupDisplayAndFonts() {
 // activity-side callers out of SdCardFontSystem internals.
 void ensureSdFontLoaded() { sdFontSystem.ensureLoaded(renderer); }
 
+void ensureSdFontLoadedForPath(const char* path) {
+  if (!path) {
+    ensureSdFontLoaded();
+    return;
+  }
+  const size_t len = strlen(path);
+  auto endsWith = [&](const char* suffix) {
+    const size_t sl = strlen(suffix);
+    return len >= sl && strcasecmp(path + len - sl, suffix) == 0;
+  };
+  const bool isTxtMd = endsWith(".txt") || endsWith(".md");
+  if (isTxtMd) {
+    sdFontSystem.ensureLoaded(renderer, SETTINGS.txtSdFontFamilyName, SETTINGS.txtFontSize);
+  } else {
+    sdFontSystem.ensureLoaded(renderer, SETTINGS.sdFontFamilyName, SETTINGS.fontSize);
+  }
+}
+
 void setup() {
   {
     esp_ota_img_states_t otaState;

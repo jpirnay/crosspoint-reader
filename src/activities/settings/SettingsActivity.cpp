@@ -97,7 +97,8 @@ void SettingsActivity::onEnter() {
       continue;
     }
     const bool isReaderFontEntry =
-        enriched.category == StrId::STR_CAT_READER && enriched.submenu == StrId::STR_MENU_READER_FONT;
+        enriched.category == StrId::STR_CAT_READER &&
+        (enriched.submenu == StrId::STR_MENU_READER_FONT || enriched.submenu == StrId::STR_MENU_TXT_FONT);
 
     if (!insertedFontDownload && sawReaderFontSection && !isReaderFontEntry) {
       insertFontDownloadBelowFontSection();

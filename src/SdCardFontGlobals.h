@@ -11,6 +11,11 @@ extern SdCardFontSystem sdFontSystem;
 // Defined in main.cpp; call before entering the reader or after settings change.
 extern void ensureSdFontLoaded();
 
+// Ensure the correct SD card font family is loaded for the given book path.
+// Selects EPUB or TXT/MD settings depending on the file extension.
+// Defined in main.cpp.
+extern void ensureSdFontLoadedForPath(const char* path);
+
 // Resolve the SD card font ID for the given family name and font size enum.
 // Returns 0 if no SD font with that family name and size is currently loaded.
 // Free function (not stored as a callback in CrossPointSettings) so the linker
