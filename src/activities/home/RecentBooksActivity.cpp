@@ -24,6 +24,7 @@
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/ButtonNavigator.h"
 
 namespace {
 std::string convertSidecarToBmp(const std::string& bookPath, const std::string& sidecarPath, int width, int height,
@@ -384,15 +385,16 @@ void RecentBooksActivity::renderGridCell(int index, bool selected, int cellX, in
           // then center the image within the frame.
           const float scaleX = static_cast<float>(innerW) / imgW;
           const float scaleY = static_cast<float>(innerH) / imgH;
-          const float scale = std::min(scaleX, scaleY);
+          // Cap at 1.0: never upscale (drawBitmap1Bit also won't upscale beyond maxW/maxH).
+          const float scale = std::min(1.0f, std::min(scaleX, scaleY));
           const int rendW = static_cast<int>(imgW * scale);
           const int rendH = static_cast<int>(imgH * scale);
           const int offsetX = std::max(1, (tw - rendW) / 2);
           const int offsetY = std::max(1, (th - rendH) / 2);
-          // Only pre-clear exactly the rendered image area so the selected cell's black
-          // background shows through around the image instead of a white border.
+          // Pre-clear only the exact rendered image area; the black selection background
+          // shows through in the surrounding space.
           renderer.fillRect(cellX + offsetX, cellY + offsetY, rendW, rendH, false);
-          renderer.drawBitmap1Bit(bmp, cellX + offsetX, cellY + offsetY, innerW, innerH);
+          renderer.drawBitmap1Bit(bmp, cellX + offsetX, cellY + offsetY, rendW, rendH);
         }
       }
       file.close();
