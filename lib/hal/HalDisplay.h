@@ -50,6 +50,7 @@ class HalDisplay {
   void copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer);
   void copyGrayscaleMsbBuffers(const uint8_t* msbBuffer);
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
+  void seedBwRam(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
 

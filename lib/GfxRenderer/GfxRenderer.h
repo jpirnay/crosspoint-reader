@@ -208,6 +208,7 @@ class GfxRenderer {
   uint8_t getTextDarkness() const { return static_cast<uint8_t>(textDarkness.load(std::memory_order_relaxed)); }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
+  void seedBwRam() const;
   void displayGrayBuffer() const;
   bool storeBwBuffer();                                         // Returns true if buffer was stored successfully
   bool storeBwBufferRect(int x, int y, int width, int height);  // Store only rows intersecting logical rect

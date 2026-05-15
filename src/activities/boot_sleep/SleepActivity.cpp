@@ -85,7 +85,8 @@ bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, co
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
 
-  renderer.clearScreen();
+  const bool applyFilter =
+      SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE;
 
   RenderConfig config;
   config.x = 0;
@@ -97,9 +98,10 @@ bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, co
   config.ditherMode = ImageDitherMode::Bayer;
   config.performanceMode = false;
   config.useExactDimensions = false;
+  config.monochromeOutput = applyFilter;
 
-  // Overlay drawing is shared across all three rendering passes (BW + LSB + MSB) so the
-  // text appears on every plane. Captured by reference so the lambda sees the renderer.
+  // Overlay drawing is shared across both grayscale passes (LSB + MSB) and the filter
+  // BW pass so text appears on every plane. Captured by reference so the lambda sees the renderer.
   const auto drawOverlay = [&]() {
     if (overlayInfo.progressText.empty()) {
       return;
@@ -158,18 +160,22 @@ bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, co
 
   PngToFramebufferConverter decoder;
 
-  // Pass 1: BW plane — mirrors SleepActivity::renderBitmapSleepScreen so the BW carrier
-  // matches the 4-level quantization layered on top via the LSB/MSB planes.
-  renderer.setRenderMode(GfxRenderer::BW);
-  renderer.clearScreen();
-  if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
-    LOG_DBG("SLP", "PNG sleep image decode failed: %s", filename.c_str());
-    return false;
+  if (applyFilter) {
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.clearScreen();
+    if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
+      LOG_DBG("SLP", "PNG sleep image decode failed: %s", filename.c_str());
+      renderer.setRenderMode(GfxRenderer::BW);
+      return false;
+    }
+    drawOverlay();
+    renderer.invertScreen();
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.setRenderMode(GfxRenderer::BW);
+    return true;
   }
-  drawOverlay();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
-  // Pass 2: GRAYSCALE_LSB plane.
+  // Pass 1: GRAYSCALE_LSB plane.
   renderer.clearScreen(0x00);
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
   if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
@@ -180,7 +186,7 @@ bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, co
   drawOverlay();
   renderer.copyGrayscaleLsbBuffers();
 
-  // Pass 3: GRAYSCALE_MSB plane.
+  // Pass 2: GRAYSCALE_MSB plane.
   renderer.clearScreen(0x00);
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
   if (!decoder.decodeToFramebuffer(filename, renderer, config)) {
