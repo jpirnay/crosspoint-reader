@@ -20,6 +20,8 @@ class ButtonNavigator final {
   uint32_t lastPreviousPressMs = 0;
   bool longPressNextFired = false;
   bool longPressPreviousFired = false;
+  bool pendingDoubleNext = false;
+  bool pendingDoublePrevious = false;
   int indexBeforePress = 0;
 
   static constexpr uint16_t listDoubleClickMs = 200;
@@ -28,7 +30,7 @@ class ButtonNavigator final {
 
   [[nodiscard]] bool shouldNavigateContinuously() const;
   void onListNav(const Buttons& buttons, bool forward, int& selectedIndex, int totalItems, uint32_t& lastPressMs,
-                 bool& longPressFired, const Callback& onChange);
+                 bool& longPressFired, bool& pendingDouble, const Callback& onChange);
 
  public:
   explicit ButtonNavigator(const uint16_t continuousIntervalMs = 500, const uint16_t continuousStartMs = 500)

@@ -226,26 +226,29 @@ int ButtonNavigator::previousPageIndex(const int currentIndex, const int totalIt
 }
 
 void ButtonNavigator::onNextList(int& selectedIndex, const int totalItems, const Callback& onChange) {
-  onListNav(getNextButtons(), true, selectedIndex, totalItems, lastNextPressMs, longPressNextFired, onChange);
+  onListNav(getNextButtons(), true, selectedIndex, totalItems, lastNextPressMs, longPressNextFired, pendingDoubleNext,
+            onChange);
 }
 
 void ButtonNavigator::onNextList(const Buttons& buttons, int& selectedIndex, const int totalItems,
                                  const Callback& onChange) {
-  onListNav(buttons, true, selectedIndex, totalItems, lastNextPressMs, longPressNextFired, onChange);
+  onListNav(buttons, true, selectedIndex, totalItems, lastNextPressMs, longPressNextFired, pendingDoubleNext, onChange);
 }
 
 void ButtonNavigator::onPreviousList(int& selectedIndex, const int totalItems, const Callback& onChange) {
   onListNav(getPreviousButtons(), false, selectedIndex, totalItems, lastPreviousPressMs, longPressPreviousFired,
-            onChange);
+            pendingDoublePrevious, onChange);
 }
 
 void ButtonNavigator::onPreviousList(const Buttons& buttons, int& selectedIndex, const int totalItems,
                                      const Callback& onChange) {
-  onListNav(buttons, false, selectedIndex, totalItems, lastPreviousPressMs, longPressPreviousFired, onChange);
+  onListNav(buttons, false, selectedIndex, totalItems, lastPreviousPressMs, longPressPreviousFired,
+            pendingDoublePrevious, onChange);
 }
 
 void ButtonNavigator::onListNav(const Buttons& buttons, const bool forward, int& selectedIndex, const int totalItems,
-                                uint32_t& lastPressMs, bool& longPressFired, const Callback& onChange) {
+                                uint32_t& lastPressMs, bool& longPressFired, bool& pendingDouble,
+                                const Callback& onChange) {
   if (!mappedInput || totalItems <= 0) return;
 
   const bool anyHeld = std::any_of(buttons.begin(), buttons.end(),
@@ -272,12 +275,18 @@ void ButtonNavigator::onListNav(const Buttons& buttons, const bool forward, int&
 
   const bool wasPressed = std::any_of(buttons.begin(), buttons.end(),
                                       [](const MappedInputManager::Button b) { return mappedInput->wasPressed(b); });
+  const uint32_t now = millis();
   if (wasPressed) {
-    lastPressMs = millis();
+    // Detect double-click on press: measure gap since previous release.
+    pendingDouble = lastPressMs > 0 && (now - lastPressMs) < listDoubleClickMs;
   }
 
   const bool wasReleased = std::any_of(buttons.begin(), buttons.end(),
                                        [](const MappedInputManager::Button b) { return mappedInput->wasReleased(b); });
+  if (wasReleased) {
+    // Record release time so the next press can measure the gap.
+    lastPressMs = now;
+  }
   if (!wasReleased) return;
 
   // Long press already fired: reset the guard and skip navigation — the jump-to-end
@@ -287,8 +296,8 @@ void ButtonNavigator::onListNav(const Buttons& buttons, const bool forward, int&
     return;
   }
 
-  const uint32_t now = millis();
-  const bool isDouble = (now - lastPressMs) < listDoubleClickMs;
+  const bool isDouble = pendingDouble;
+  pendingDouble = false;
 
   if (isDouble) {
     // Restore to position before the first press so the total movement is exactly listJumpCount.
