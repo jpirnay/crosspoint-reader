@@ -1050,13 +1050,15 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       }
     }
   } else if (strcmp(name, "hr") == 0) {
-    if (self->partWordBufferIndex > 0) self->flushPartWordBuffer();
+    if (self->partWordBufferIndex > 0) {
+      if (!self->flushPartWordBuffer()) return;
+    }
     self->makePages();
     if (!self->currentPage) {
       self->currentPage.reset(new Page());
       self->currentPageNextY = 0;
     }
-    const int lineHeight = self->renderer.getLineHeight(self->fontId) * self->lineCompression;
+    const int lineHeight = static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression + 0.5f);
     const int16_t marginV = static_cast<int16_t>(lineHeight / 2);
     self->currentPageNextY += marginV;
     if (self->currentPageNextY + 1 + marginV > self->viewportHeight) {

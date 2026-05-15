@@ -1079,9 +1079,9 @@ greet("World");</code></pre>
 <p>Second rule above. Two rules in a row with no text between them:</p>
 <hr/>
 <hr/>
-<p>Two rules appeared above. Now a rule at the very start of a section (right after the heading):</p>
+<p>Two rules appeared above. Now a rule right after the heading:</p>
 <hr/>
-<p>Rule appeared right after the heading. Finally, a rule near the end of the page to verify it does not cause a spurious page break when there is still room:</p>
+<p>Rule appeared right after the paragraph above. Finally, a rule near the end of the page to verify it does not cause a spurious page break when there is still room:</p>
 <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
 <hr/>
 <p>End of horizontal rule tests.</p>
