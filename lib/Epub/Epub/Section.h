@@ -9,6 +9,9 @@
 
 class Page;
 class GfxRenderer;
+class ChapterHtmlSlimParser;
+
+enum class BuildState { Idle, InProgress, Complete, Failed };
 
 class Section {
   std::shared_ptr<Epub> epub;
@@ -18,6 +21,18 @@ class Section {
   FsFile file;
   std::vector<uint32_t> lut;  // Cached page byte-offsets; loaded once, avoids per-page LUT seek
   bool truncatedCache = false;
+
+  // Incremental build state
+  BuildState _buildState = BuildState::Idle;
+  std::unique_ptr<ChapterHtmlSlimParser> _parser;
+  FsFile _lutFile;
+  FsFile _rawFile;  // temp extracted XHTML — fed to parser in chunks across pumps
+  size_t _rawRemaining = 0;
+  std::string _secPath;
+  std::string _lutPath;
+  std::string _ancPath;
+  std::string _rawPath;
+  std::string _imagePath;
 
   void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
@@ -48,6 +63,8 @@ class Section {
 
   // Computes the active file path for this section based on rendering properties
   std::string getSectionFilePath(uint32_t propertyHash) const;
+  // Computes the stem (no extension) for the incremental cache files (.sec/.lut/.anc)
+  std::string getSectionStem(uint32_t propertyHash) const;
   // Computes the image base path for extract images related to this specific section variant
   std::string getImageBasePath(uint32_t propertyHash) const;
   // Garbage collection: Keep only the most recent N variants per chapter
@@ -57,9 +74,8 @@ class Section {
   uint16_t pageCount = 0;
   int currentPage = 0;
 
-  explicit Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRenderer& renderer)
-      : epub(epub), spineIndex(spineIndex), renderer(renderer) {}
-  ~Section() = default;
+  explicit Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRenderer& renderer);
+  ~Section();
   bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                        uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle,
                        bool bionicReadingEnabled, uint8_t imageRendering);
@@ -70,6 +86,19 @@ class Section {
                          const std::function<void(int)>& progressFn = nullptr, bool skipEviction = false);
   std::unique_ptr<Page> loadPageFromSectionFile();
   bool isTruncatedCache() const { return truncatedCache; }
+
+  // Incremental build interface.
+  // Start building the section incrementally; fires an initial burst of INITIAL_PAGES pages.
+  // Returns false if the build cannot start (file I/O failure, heap too low, etc.).
+  bool beginIncrementalBuild(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+                             uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
+                             bool embeddedStyle, bool bionicReadingEnabled, uint8_t imageRendering);
+  // Pump up to maxPages pages or maxMs milliseconds, whichever comes first.
+  // Returns false on build failure. Check buildState() == Complete for completion.
+  bool pump(uint8_t maxPages, uint32_t maxMs);
+  BuildState buildState() const { return _buildState; }
+  // True once the 0-based page index n has been indexed and can be loaded.
+  bool hasPage(int n) const { return n >= 0 && n < static_cast<int>(lut.size()); }
 
   // Given a page in this section, return the TOC index for that page.
   int getTocIndexForPage(int page) const;

@@ -4,7 +4,9 @@
 
 #include "EpubReaderActivity.h"
 
+#include <Epub/EpubIndexingPolicy.h>
 #include <Epub/Page.h>
+#include <Epub/Section.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
@@ -346,6 +348,7 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   section.reset();
+  _prewarmSection.reset();
   UITheme::getInstance().getMutableTheme().onBookWillClose(epub ? epub->getPath() : "", epub.get(), nullptr, nullptr);
   epub.reset();
   currentPageFootnotes.clear();
@@ -364,6 +367,8 @@ void EpubReaderActivity::loop() {
     buttonEvents.drain();
     return;
   }
+
+  pumpIncrementalIndexIfNeeded();
 
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
@@ -1541,6 +1546,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
+  _lastViewportWidth = viewportWidth;
+  _lastViewportHeight = viewportHeight;
   lastRenderStats = {};
   lastRenderStats.orientation = static_cast<uint8_t>(renderer.getOrientation());
   lastRenderStats.marginTop = orientedMarginTop;
@@ -1578,29 +1585,16 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                   SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(), viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, bookBionicReadingOverride,
                                   imageRendering)) {
-      LOG_DBG("ERS", "Cache not found, building...");
+      LOG_DBG("ERS", "Cache not found, starting incremental build...");
       lastRenderStats.cacheRebuilt = true;
 
-      Rect popupRect{};
-      const auto progressFn = [this, &popupRect](int progress) {
-        if (popupRect.width == 0) {
-          // Drawing the popup already does a full refresh, which serves as the
-          // 0% indication; no need to follow it with a redundant fillPopupProgress.
-          popupRect = GUI.drawPopup(renderer, tr(STR_INDEXING));
-          return;
-        }
-        GUI.fillPopupProgress(renderer, popupRect, progress);
-      };
-
       // Reset cumulative SD font metadata cache so this section starts fresh.
-      // Pagination will rebuild only the cps it actually encounters, bounded
-      // by MAX_PAGE_GLYPHS per style.
       renderer.clearSdCardFontAccumulation();
-      if (!section->createSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
-                                      SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(), viewportWidth,
-                                      viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
-                                      bookBionicReadingOverride, imageRendering, progressFn)) {
-        LOG_ERR("ERS", "Failed to persist page data to SD");
+      if (!section->beginIncrementalBuild(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
+                                          SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(),
+                                          viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
+                                          bookBionicReadingOverride, imageRendering)) {
+        LOG_ERR("ERS", "Failed to start incremental build");
         section.reset();
         return;
       }
@@ -1616,7 +1610,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
 
     if (nextPageNumber == UINT16_MAX) {
-      section->currentPage = section->pageCount - 1;
+      // Navigating to the last page of this chapter. If the build is still in progress,
+      // pump to completion first so we land on the true last page, not the last indexed one.
+      if (section->buildState() == BuildState::InProgress) {
+        while (section->buildState() == BuildState::InProgress) {
+          section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+        }
+      }
+      section->currentPage = section->pageCount > 0 ? section->pageCount - 1 : 0;
     } else {
       section->currentPage = nextPageNumber;
     }
@@ -1672,6 +1673,16 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         section->currentPage = newPage;
       }
       cachedChapterTotalPageCount = 0;  // resets to 0 to prevent reading cached progress again
+    }
+
+    // Incremental Outrun: if the target page isn't indexed yet, pump until it is.
+    // This fires when a resumed session opens a chapter mid-way (e.g. page 15 of 50)
+    // and only the initial 3 pages are built so far.
+    if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
+      LOG_DBG("ERS", "Outrun: target page %d not yet indexed (have %d)", section->currentPage, section->pageCount);
+      while (!section->hasPage(section->currentPage) && section->buildState() == BuildState::InProgress) {
+        section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+      }
     }
 
     // Safety clamp: estimated page numbers from sync or progress.bin may exceed
@@ -1744,7 +1755,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
     LOG_DBG("ERS", "Rendered page in %dms", lastRenderStats.requestRenderMs);
   }
-  silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
   lastRenderStats.freeHeapAfter = esp_get_free_heap_size();
   lastRenderStats.largestFreeBlockAfter = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
@@ -1798,6 +1808,84 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
                                      bookBionicReadingOverride, imageRendering)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }
+}
+
+void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
+  if (!section) return;
+
+  const auto state = section->buildState();
+  if (state == BuildState::Complete || state == BuildState::Failed || state == BuildState::Idle) {
+    pumpNextChapterPrewarmIfNeeded();
+    return;
+  }
+
+  // Current chapter still building — rate-limited background pump
+  const uint32_t now = millis();
+  if (now - _lastCurrentPumpMs < EpubIndexingPolicy::CURRENT_BG_INTERVAL_MS) return;
+  _lastCurrentPumpMs = now;
+
+  const uint32_t freeHeap = esp_get_free_heap_size();
+  if (freeHeap < EpubIndexingPolicy::MIN_FREE_HEAP_BYTES) {
+    LOG_DBG("ERS", "Skipping incremental pump, low heap (%lu)", freeHeap);
+    return;
+  }
+
+  section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS);
+}
+
+void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
+  if (!epub || !section) return;
+  if (_lastViewportWidth == 0 || _lastViewportHeight == 0) return;
+
+  const uint32_t freeHeap = esp_get_free_heap_size();
+  const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  if (freeHeap < SILENT_INDEX_MIN_FREE_HEAP_BYTES || contigHeap < SILENT_INDEX_MIN_CONTIG_HEAP_BYTES) return;
+
+  const int nextSpineIndex = currentSpineIndex + 1;
+  if (nextSpineIndex < 0 || nextSpineIndex >= epub->getSpineItemsCount()) return;
+
+  // Reset prewarm section if it's for the wrong spine
+  if (_prewarmSection) {
+    const auto prewarmState = _prewarmSection->buildState();
+    if (prewarmState == BuildState::Complete || prewarmState == BuildState::Failed) {
+      _prewarmSection.reset();
+      return;
+    }
+    // Still building — continue pumping (rate-limited)
+    const uint32_t now = millis();
+    if (now - _lastPrewarmPumpMs < EpubIndexingPolicy::PREWARM_INTERVAL_MS) return;
+    _lastPrewarmPumpMs = now;
+    _prewarmSection->pump(EpubIndexingPolicy::PREWARM_PAGES, EpubIndexingPolicy::PREWARM_MAX_MS);
+    return;
+  }
+
+  // No prewarm section — check if next chapter already has a cache
+  {
+    Section testSection(epub, nextSpineIndex, renderer);
+    const bool embeddedStyle = getEffectiveEmbeddedStyle();
+    const uint8_t imageRendering = getEffectiveImageRendering();
+    if (testSection.loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
+                                    SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(),
+                                    _lastViewportWidth, _lastViewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
+                                    bookBionicReadingOverride, imageRendering)) {
+      return;  // Already cached
+    }
+  }
+
+  // Start prewarm incremental build
+  const bool embeddedStyle = getEffectiveEmbeddedStyle();
+  const uint8_t imageRendering = getEffectiveImageRendering();
+  _prewarmSection = std::make_unique<Section>(epub, nextSpineIndex, renderer);
+  renderer.clearSdCardFontAccumulation();
+  LOG_DBG("ERS", "Starting prewarm incremental build for spine %d", nextSpineIndex);
+  if (!_prewarmSection->beginIncrementalBuild(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
+                                              SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(),
+                                              _lastViewportWidth, _lastViewportHeight, SETTINGS.hyphenationEnabled,
+                                              embeddedStyle, bookBionicReadingOverride, imageRendering)) {
+    LOG_ERR("ERS", "Failed to start prewarm build for spine %d", nextSpineIndex);
+    _prewarmSection.reset();
+  }
+  _lastPrewarmPumpMs = millis();
 }
 
 void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
@@ -2038,8 +2126,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 void EpubReaderActivity::renderStatusBar() const {
   // Calculate progress in book
   const int currentPage = section->currentPage + 1;
-  const float pageCount = section->pageCount;
-  const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
+  // When indexing is still in progress, total page count is unknown — pass -1 as sentinel so
+  // drawStatusBar can show "1/?" instead of a partial count.
+  const bool indexing = (section->buildState() == BuildState::InProgress);
+  const int pageCount = indexing ? -1 : section->pageCount;
+  const float knownPageCount = static_cast<float>(section->pageCount > 0 ? section->pageCount : 1);
+  const float sectionChapterProg = (knownPageCount > 0) ? (static_cast<float>(currentPage) / knownPageCount) : 0;
   const float bookProgress = epub->calculateProgress(currentSpineIndex, sectionChapterProg) * 100;
 
   std::string title;

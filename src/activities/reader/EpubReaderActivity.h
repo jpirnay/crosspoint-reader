@@ -1,5 +1,6 @@
 #pragma once
 #include <Epub.h>
+#include <Epub/EpubIndexingPolicy.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
@@ -137,6 +138,13 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool finishedBookActivityStarted_ = false;
   ReaderUtils::InputDrainGuard inputDrainGuard;
+
+  // Incremental indexing pump timers and prewarm section
+  unsigned long _lastCurrentPumpMs = 0;
+  unsigned long _lastPrewarmPumpMs = 0;
+  std::unique_ptr<Section> _prewarmSection;
+  uint16_t _lastViewportWidth = 0;
+  uint16_t _lastViewportHeight = 0;
   bool automaticPageTurnActive = false;
   // Pages turned in the current reader session. Used to gate auto-push-on-close: a brief
   // inspection of a book should not trigger a network round-trip. Reset on every reader
@@ -168,6 +176,8 @@ class EpubReaderActivity final : public Activity {
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
+  void pumpIncrementalIndexIfNeeded();
+  void pumpNextChapterPrewarmIfNeeded();
   void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);

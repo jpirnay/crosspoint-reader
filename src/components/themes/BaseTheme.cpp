@@ -814,15 +814,25 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   int progressTextWidth = 0;
 
   if (hasProgressText) {
-    // Right aligned text for progress counter
+    // Right aligned text for progress counter.
+    // pageCount == -1 means "indexing in progress, total unknown" → show "?" for the total.
     char progressStr[32];
+    const bool pageCountUnknown = (pageCount < 0);
 
     if (SETTINGS.statusBarBookProgressPercentage && SETTINGS.statusBarChapterPageCount) {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", currentPage, pageCount, bookProgress);
+      if (pageCountUnknown) {
+        snprintf(progressStr, sizeof(progressStr), "%d/?  %.0f%%", currentPage, bookProgress);
+      } else {
+        snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", currentPage, pageCount, bookProgress);
+      }
     } else if (SETTINGS.statusBarBookProgressPercentage) {
       snprintf(progressStr, sizeof(progressStr), "%.0f%%", bookProgress);
     } else {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
+      if (pageCountUnknown) {
+        snprintf(progressStr, sizeof(progressStr), "%d/?", currentPage);
+      } else {
+        snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
+      }
     }
 
     progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);

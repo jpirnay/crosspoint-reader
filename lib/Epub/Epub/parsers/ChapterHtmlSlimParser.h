@@ -145,6 +145,11 @@ class ChapterHtmlSlimParser final : public Print {
   bool streamFailed = false;
   uint32_t streamStartTimeMs = 0;
 
+  // Incremental pumping: suspend after this many completed pages (INT_MAX = no limit).
+  int pageLimit = INT_MAX;
+  // True when XML_StopParser(resumable=true) has been called; resume() clears it.
+  bool suspended = false;
+
   // Footnote link tracking
   bool insideFootnoteLink = false;
   int footnoteLinkDepth = -1;
@@ -218,6 +223,14 @@ class ChapterHtmlSlimParser final : public Print {
   bool setup(size_t totalInflatedSize);
   bool finalize();
   [[nodiscard]] bool streamSucceeded() const { return !streamFailed; }
+
+  // Incremental pumping interface.
+  // Set maximum pages to emit before suspending (call before or between pumps).
+  void setPageLimit(int maxPages) { pageLimit = maxPages; }
+  // Resume a suspended parse. Returns false on error or if not suspended.
+  bool resume();
+  // True when the parser is suspended mid-stream (more data to come).
+  [[nodiscard]] bool isSuspended() const { return suspended; }
 
   // Print interface — fed by Epub::readItemContentsToStream.
   size_t write(uint8_t) override;
