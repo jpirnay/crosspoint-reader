@@ -13,6 +13,7 @@
 
 #include "../ActivityManager.h"
 #include "../ActivityResult.h"
+#include "../reader/FinishedBookActivity.h"
 #include "../settings/SdFirmwareUpdateActivity.h"
 #include "../util/BmpViewerActivity.h"
 #include "../util/ConfirmationActivity.h"
@@ -376,7 +377,6 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
     }
     case Action::MarkAsRead:
       doMarkAsRead(fullPath);
-      requestUpdate();
       return;
     case Action::Info:
       startActivityForResult(std::make_unique<BookInfoActivity>(renderer, mappedInput, fullPath),
@@ -431,13 +431,63 @@ void FileBrowserActivity::doMarkAsRead(const std::string& fullPath) {
   }
 
   FsFile f;
-  if (Storage.openFileForWrite("FBR", cachePath + "/progress.bin", f)) {
-    f.write(data, dataLen);
-    f.close();
-    LOG_INF("FBR", "Marked as read: %s", fullPath.c_str());
-  } else {
+  if (!Storage.openFileForWrite("FBR", cachePath + "/progress.bin", f)) {
     LOG_ERR("FBR", "Failed to write progress for mark-as-read: %s", fullPath.c_str());
+    return;
   }
+  f.write(data, dataLen);
+  f.close();
+  LOG_INF("FBR", "Marked as read: %s", fullPath.c_str());
+
+  // Series/index unknown without loading — findNextBook falls back to alphabetical order.
+  const std::string nextBookPath = BookFinished::findNextBookInDirectory(fullPath, {}, {});
+  startActivityForResult(std::make_unique<FinishedBookActivity>(renderer, mappedInput, fullPath, nextBookPath),
+                         [this, fullPath, nextBookPath](const ActivityResult& result) {
+                           if (result.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           const auto& menuResult = std::get<MenuResult>(result.data);
+                           if (menuResult.action == static_cast<int>(BookFinished::FinishedBookAction::GoHome)) {
+                             if (SETTINGS.moveFinishedBooksToCompleted) {
+                               std::string movedPath;
+                               BookFinished::moveFinishedBookToCompleted(fullPath, movedPath);
+                             }
+                             if (SETTINGS.removeFinishedBooksFromRecents) {
+                               RECENT_BOOKS.removeBook(fullPath);
+                             }
+                             onGoHome();
+                             return;
+                           }
+                           if (menuResult.action == static_cast<int>(BookFinished::FinishedBookAction::OpenNextBook) &&
+                               !nextBookPath.empty()) {
+                             if (SETTINGS.moveFinishedBooksToCompleted) {
+                               std::string movedPath;
+                               BookFinished::moveFinishedBookToCompleted(fullPath, movedPath);
+                             }
+                             if (SETTINGS.removeFinishedBooksFromRecents) {
+                               RECENT_BOOKS.removeBook(fullPath);
+                             }
+                             ReturnHint hint;
+                             hint.target = ReturnTo::FileBrowser;
+                             hint.path = basepath;
+                             activityManager.replaceWithReader(nextBookPath, std::move(hint));
+                             return;
+                           }
+                           // Stay — apply side effects then reload the list (file may have moved to /COMPLETED).
+                           if (SETTINGS.moveFinishedBooksToCompleted) {
+                             std::string movedPath;
+                             BookFinished::moveFinishedBookToCompleted(fullPath, movedPath);
+                           }
+                           if (SETTINGS.removeFinishedBooksFromRecents) {
+                             RECENT_BOOKS.removeBook(fullPath);
+                           }
+                           loadFiles();
+                           if (selectorIndex >= static_cast<int>(files.size())) {
+                             selectorIndex = files.empty() ? 0 : static_cast<int>(files.size()) - 1;
+                           }
+                           requestUpdate(true);
+                         });
 }
 
 void FileBrowserActivity::doSetAsSleepCover(const std::string& fullPath) {
