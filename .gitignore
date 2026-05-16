@@ -22,3 +22,10 @@ lib/EpdFont/scripts/downloaded_fonts/*
 lib/EpdFont/scripts/instanced_fonts/*
 lib/EpdFont/scripts/output/*
 .editorconfig
+# pioarduino / IDF component manager generated files
+managed_components/
+dependencies.lock
+CMakeLists.txt
+sdkconfig.defaults
+sdkconfig.default
+.dummy/
