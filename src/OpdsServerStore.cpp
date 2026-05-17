@@ -50,15 +50,15 @@ bool OpdsServerStore::saveToFile() const {
 
 bool OpdsServerStore::loadFromFile() {
   if (Storage.exists(OPDS_FILE_JSON)) {
-    String json = Storage.readFile(OPDS_FILE_JSON);
-    if (json.isEmpty()) {
+    static char buf[2048];
+    if (Storage.readFileToBuffer(OPDS_FILE_JSON, buf, sizeof(buf)) == 0) {
       LOG_ERR("OPS", "Failed to parse %s", OPDS_FILE_JSON);
       return false;
     }
 
     // resave flag is set when passwords were stored in plaintext and need re-obfuscation
     bool resave = false;
-    bool result = JsonSettingsIO::loadOpds(*this, json.c_str(), &resave);
+    bool result = JsonSettingsIO::loadOpds(*this, buf, &resave);
     if (!result) {
       LOG_ERR("OPS", "Failed to parse %s", OPDS_FILE_JSON);
       return false;

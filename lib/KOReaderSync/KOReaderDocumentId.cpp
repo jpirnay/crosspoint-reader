@@ -29,78 +29,59 @@ std::string KOReaderDocumentId::loadCachedHash(const std::string& cacheFilePath,
     return "";
   }
 
-  const String content = Storage.readFile(cacheFilePath.c_str());
-  if (content.isEmpty()) {
-    return "";
-  }
-
   // Format: "<filesize>:<fingerprint>\n<32-char-hex-hash>"
-  const int newlinePos = content.indexOf('\n');
-  if (newlinePos < 0) {
+  // Max size: ~20 digits + ':' + 8 hex + '\n' + 32 hex + '\n' = ~64 bytes
+  char buf[128];
+  if (Storage.readFileToBuffer(cacheFilePath.c_str(), buf, sizeof(buf)) == 0) {
     return "";
   }
 
-  const String header = content.substring(0, newlinePos);
-  const int colonPos = header.indexOf(':');
-  if (colonPos < 0) {
+  char* const newline = strchr(buf, '\n');
+  if (!newline) {
+    return "";
+  }
+  *newline = '\0';  // split header / hash in-place
+
+  const char* const colon = strchr(buf, ':');
+  if (!colon) {
     LOG_DBG("KODoc", "Hash cache invalidated: header missing fingerprint");
     return "";
   }
 
-  const String sizeTok = header.substring(0, colonPos);
-  const String fpTok = header.substring(colonPos + 1);
-
-  // Validate the filesize token – it must consist of ASCII digits and parse
-  // correctly to the expected size.
-  bool digitsOnly = true;
-  for (size_t i = 0; i < sizeTok.length(); ++i) {
-    const char ch = sizeTok[i];
-    if (ch < '0' || ch > '9') {
-      digitsOnly = false;
-      break;
+  // Validate and parse the size token (everything before the colon)
+  for (const char* p = buf; p < colon; ++p) {
+    if (*p < '0' || *p > '9') {
+      LOG_DBG("KODoc", "Hash cache invalidated: size token not numeric ('%s')", buf);
+      return "";
     }
   }
-  if (!digitsOnly) {
-    LOG_DBG("KODoc", "Hash cache invalidated: size token not numeric ('%s')", sizeTok.c_str());
+  char* end;
+  const unsigned long parsedSize = strtoul(buf, &end, 10);
+  if (end != colon || parsedSize != static_cast<unsigned long>(fileSize)) {
+    LOG_DBG("KODoc", "Hash cache invalidated: file size changed (%lu -> %zu)", parsedSize, fileSize);
     return "";
   }
 
-  const long parsed = sizeTok.toInt();
-  if (parsed < 0) {
-    LOG_DBG("KODoc", "Hash cache invalidated: size token parse error ('%s')", sizeTok.c_str());
+  // Validate stored fingerprint (8 hex chars after colon)
+  const char* const fpTok = colon + 1;
+  if (strlen(fpTok) != 8) {
+    LOG_DBG("KODoc", "Hash cache invalidated: bad fingerprint length (%zu)", strlen(fpTok));
     return "";
   }
-  const size_t cachedSize = static_cast<size_t>(parsed);
-  if (cachedSize != fileSize) {
-    LOG_DBG("KODoc", "Hash cache invalidated: file size or fingerprint changed (%zu -> %zu)", cachedSize, fileSize);
-    return "";
-  }
-
-  // Validate stored fingerprint format (8 hex characters)
-  if (fpTok.length() != 8) {
-    LOG_DBG("KODoc", "Hash cache invalidated: bad fingerprint length (%zu)", fpTok.length());
-    return "";
-  }
-  for (size_t i = 0; i < fpTok.length(); ++i) {
-    char c = fpTok[i];
-    bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-    if (!hex) {
+  for (const char* p = fpTok; *p; ++p) {
+    const char c = *p;
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
       LOG_DBG("KODoc", "Hash cache invalidated: non-hex character '%c' in fingerprint", c);
       return "";
     }
   }
-
-  {
-    String currentFpStr(currentFingerprint.c_str());
-    if (fpTok != currentFpStr) {
-      LOG_DBG("KODoc", "Hash cache invalidated: fingerprint changed (%s != %s)", fpTok.c_str(),
-              currentFingerprint.c_str());
-      return "";
-    }
+  if (currentFingerprint != fpTok) {
+    LOG_DBG("KODoc", "Hash cache invalidated: fingerprint changed (%s != %s)", fpTok, currentFingerprint.c_str());
+    return "";
   }
 
-  std::string hash = content.substring(newlinePos + 1).c_str();
-  // Trim any trailing whitespace / line endings
+  // Hash starts after the newline we replaced; trim trailing whitespace
+  std::string hash = newline + 1;
   while (!hash.empty() && (hash.back() == '\n' || hash.back() == '\r' || hash.back() == ' ')) {
     hash.pop_back();
   }
@@ -130,13 +111,11 @@ void KOReaderDocumentId::saveCachedHash(const std::string& cacheFilePath, const 
   }
 
   // Format: "<filesize>:<fingerprint>\n<hash>"
-  String content(std::to_string(fileSize).c_str());
-  content += ':';
-  content += fingerprint.c_str();
-  content += '\n';
-  content += hash.c_str();
+  char content[128];
+  snprintf(content, sizeof(content), "%zu:%s\n%s", fileSize, fingerprint.c_str(), hash.c_str());
+  const String contentStr(content);
 
-  if (!Storage.writeFile(cacheFilePath.c_str(), content)) {
+  if (!Storage.writeFile(cacheFilePath.c_str(), contentStr)) {
     LOG_DBG("KODoc", "Failed to write hash cache to %s", cacheFilePath.c_str());
   }
 }

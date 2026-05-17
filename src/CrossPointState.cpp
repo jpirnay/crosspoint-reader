@@ -22,9 +22,9 @@ bool CrossPointState::saveToFile() const {
 bool CrossPointState::loadFromFile() {
   // Try JSON first
   if (Storage.exists(STATE_FILE_JSON)) {
-    String json = Storage.readFile(STATE_FILE_JSON);
-    if (!json.isEmpty()) {
-      return JsonSettingsIO::loadState(*this, json.c_str());
+    static char buf[2048];
+    if (Storage.readFileToBuffer(STATE_FILE_JSON, buf, sizeof(buf)) > 0) {
+      return JsonSettingsIO::loadState(*this, buf);
     }
   }
 

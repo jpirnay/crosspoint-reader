@@ -291,13 +291,13 @@ bool WeatherClient::loadCache(WeatherData& data) {
     return false;
   }
 
-  String json = Storage.readFile(WEATHER_CACHE_FILE);
-  if (json.isEmpty()) {
+  static char buf[6144];
+  if (Storage.readFileToBuffer(WEATHER_CACHE_FILE, buf, sizeof(buf)) == 0) {
     return false;
   }
 
   JsonDocument doc;
-  auto error = deserializeJson(doc, json);
+  auto error = deserializeJson(doc, buf);
   if (error) {
     LOG_ERR("WEA", "Cache parse error: %s", error.c_str());
     return false;

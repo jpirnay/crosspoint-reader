@@ -42,10 +42,10 @@ bool KOReaderCredentialStore::saveToFile() const {
 bool KOReaderCredentialStore::loadFromFile() {
   // Try JSON first
   if (Storage.exists(KOREADER_FILE_JSON)) {
-    String json = Storage.readFile(KOREADER_FILE_JSON);
-    if (!json.isEmpty()) {
+    static char buf[512];
+    if (Storage.readFileToBuffer(KOREADER_FILE_JSON, buf, sizeof(buf)) > 0) {
       bool resave = false;
-      bool result = JsonSettingsIO::loadKOReader(*this, json.c_str(), &resave);
+      bool result = JsonSettingsIO::loadKOReader(*this, buf, &resave);
       if (result && resave) {
         saveToFile();
         LOG_DBG("KRS", "Resaved KOReader credentials to update format");

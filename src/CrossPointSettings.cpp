@@ -128,10 +128,10 @@ bool CrossPointSettings::saveToFile() const {
 bool CrossPointSettings::loadFromFile() {
   // Try JSON first
   if (Storage.exists(SETTINGS_FILE_JSON)) {
-    String json = Storage.readFile(SETTINGS_FILE_JSON);
-    if (!json.isEmpty()) {
+    static char buf[4096];
+    if (Storage.readFileToBuffer(SETTINGS_FILE_JSON, buf, sizeof(buf)) > 0) {
       bool resave = false;
-      bool result = JsonSettingsIO::loadSettings(*this, json.c_str(), &resave);
+      bool result = JsonSettingsIO::loadSettings(*this, buf, &resave);
       if (result) {
         enforceFixedShortActions(*this);
         saveStartupToNvs();  // Ensure NVS is in sync on boot

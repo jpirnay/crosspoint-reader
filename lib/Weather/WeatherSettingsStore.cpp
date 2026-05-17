@@ -34,13 +34,13 @@ bool WeatherSettingsStore::loadFromFile() {
     return false;
   }
 
-  String json = Storage.readFile(WEATHER_SETTINGS_FILE);
-  if (json.isEmpty()) {
+  static char buf[512];
+  if (Storage.readFileToBuffer(WEATHER_SETTINGS_FILE, buf, sizeof(buf)) == 0) {
     return false;
   }
 
   JsonDocument doc;
-  auto error = deserializeJson(doc, json);
+  auto error = deserializeJson(doc, buf);
   if (error) {
     LOG_ERR("WEA", "JSON parse error: %s", error.c_str());
     return false;

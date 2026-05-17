@@ -233,9 +233,9 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
 bool RecentBooksStore::loadFromFile() {
   // Try JSON first
   if (Storage.exists(RECENT_BOOKS_FILE_JSON)) {
-    String json = Storage.readFile(RECENT_BOOKS_FILE_JSON);
-    if (!json.isEmpty()) {
-      return JsonSettingsIO::loadRecentBooks(*this, json.c_str());
+    static char buf[8192];
+    if (Storage.readFileToBuffer(RECENT_BOOKS_FILE_JSON, buf, sizeof(buf)) > 0) {
+      return JsonSettingsIO::loadRecentBooks(*this, buf);
     }
   }
 
