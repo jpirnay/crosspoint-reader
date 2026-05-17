@@ -271,12 +271,12 @@ void EpubReaderActivity::onEnter() {
     int dataSize = f.read(data, 6);
     if (dataSize == 4 || dataSize == 6) {
       currentSpineIndex = data[0] + (data[1] << 8);
-      nextPageNumber = data[2] + (data[3] << 8);
-      cachedSpineIndex = currentSpineIndex;
-      LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
+      navTarget = NavigationTarget::makePage(data[2] + (data[3] << 8));
+      navTarget.cachedSpineIdx = currentSpineIndex;
+      LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, navTarget.page);
     }
     if (dataSize == 6) {
-      cachedChapterTotalPageCount = data[4] + (data[5] << 8);
+      navTarget.cachedPageCount = data[4] + (data[5] << 8);
     }
     f.close();
   }
@@ -286,9 +286,7 @@ void EpubReaderActivity::onEnter() {
     LOG_ERR("ERS", "Invalid saved spine index %d (valid 0..%d), resetting to start", currentSpineIndex,
             epub->getSpineItemsCount() > 0 ? epub->getSpineItemsCount() - 1 : 0);
     currentSpineIndex = 0;
-    nextPageNumber = 0;
-    cachedSpineIndex = 0;
-    cachedChapterTotalPageCount = 0;
+    navTarget = NavigationTarget::makePage(0);
   }
 
   if (currentSpineIndex == 0) {
@@ -512,14 +510,14 @@ void EpubReaderActivity::loop() {
           });
     } else {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
-      nextPageNumber = UINT16_MAX;
+      navTarget = NavigationTarget::makeLastPage();
       requestUpdate();
     }
     return;
   }
 
-  // Section not yet ready (build in progress). Record page turn intent in nextPageNumber
-  // so resolvePositionAfterSectionLoad() lands on the right page when the build completes.
+  // Section not yet ready — record navigation intent so resolvePositionAfterSectionLoad()
+  // lands on the right page once the build completes.
   if (!section || section->pageCount == 0) {
     if (nextTriggered) {
       // Forward from a not-yet-loaded section: go to page 0 of the next section if possible,
@@ -527,7 +525,7 @@ void EpubReaderActivity::loop() {
       if (currentSpineIndex + 1 < epub->getSpineItemsCount()) {
         RenderLock lock(*this);
         currentSpineIndex++;
-        nextPageNumber = 0;
+        navTarget = NavigationTarget::makePage(0);
         section.reset();
       }
     } else if (prevTriggered) {
@@ -535,7 +533,7 @@ void EpubReaderActivity::loop() {
       if (currentSpineIndex > 0) {
         RenderLock lock(*this);
         currentSpineIndex--;
-        nextPageNumber = UINT16_MAX;
+        navTarget = NavigationTarget::makeLastPage();
         section.reset();
       }
     }
@@ -594,21 +592,18 @@ void EpubReaderActivity::jumpToPercent(int percent) {
 
   const size_t cumulative = epub->getCumulativeSpineItemSize(targetSpineIndex);
   const size_t spineSize = (cumulative > prevCumulative) ? (cumulative - prevCumulative) : 0;
-  // Store a normalized position within the spine so it can be applied once loaded.
-  pendingSpineProgress =
+  float spineProgress =
       (spineSize == 0) ? 0.0f : static_cast<float>(targetSize - prevCumulative) / static_cast<float>(spineSize);
-  if (pendingSpineProgress < 0.0f) {
-    pendingSpineProgress = 0.0f;
-  } else if (pendingSpineProgress > 1.0f) {
-    pendingSpineProgress = 1.0f;
-  }
+  if (spineProgress < 0.0f)
+    spineProgress = 0.0f;
+  else if (spineProgress > 1.0f)
+    spineProgress = 1.0f;
 
-  // Reset state so render() reloads and repositions on the target spine.
+  // Reset state so loop reloads and repositions on the target spine.
   {
     RenderLock lock(*this);
     currentSpineIndex = targetSpineIndex;
-    nextPageNumber = 0;
-    pendingPercentJump = true;
+    navTarget = NavigationTarget::makePercent(spineProgress);
     section.reset();
   }
 }
@@ -632,9 +627,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
             if (resolvedPage) {
               section->currentPage = *resolvedPage;
             } else {
-              pendingTocIndex = chapter.tocIndex;
+              navTarget =
+                  chapter.tocIndex ? NavigationTarget::makeTocIndex(*chapter.tocIndex) : NavigationTarget::makePage(0);
               currentSpineIndex = chapter.spineIndex;
-              nextPageNumber = 0;
               section.reset();
             }
           });
@@ -711,7 +706,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
               if (currentSpineIndex != starred.spineIndex || !section || section->currentPage != starred.pageNumber) {
                 RenderLock lock(*this);
                 currentSpineIndex = starred.spineIndex;
-                nextPageNumber = starred.pageNumber;
+                navTarget = NavigationTarget::makePage(starred.pageNumber);
                 section.reset();
               }
             }
@@ -1160,55 +1155,52 @@ void EpubReaderActivity::applyPendingSyncSession() {
 
   int restoreSpineIndex = sync.spineIndex;
   int restorePage = sync.page;
-  pendingParagraphLookup = false;
-  pendingParagraphIndex = 0;
-  pendingListItemLookup = false;
-  pendingListItemIndex = 0;
 
   if (restoreSpineIndex < 0 || restoreSpineIndex >= epub->getSpineItemsCount()) {
     LOG_ERR("ERS", "Invalid sync restore spine index %d, resetting to 0", restoreSpineIndex);
     restoreSpineIndex = 0;
     restorePage = 0;
-    pendingParagraphLookup = false;
-    pendingParagraphIndex = 0;
-    pendingListItemLookup = false;
-    pendingListItemIndex = 0;
   }
 
+  // Build the navigation target from the sync result.
+  NavigationTarget restoreTarget;
   if (sync.outcome == KOReaderSyncOutcomeState::APPLIED_REMOTE) {
     restoreSpineIndex = sync.resultSpineIndex;
     restorePage = sync.resultPage;
-    pendingParagraphLookup = sync.resultHasParagraphIndex;
-    pendingParagraphIndex = sync.resultParagraphIndex;
-    pendingListItemLookup = sync.resultHasListItemIndex;
-    pendingListItemIndex = sync.resultListItemIndex;
-    LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d paragraph=%u hasParagraph=%s liIdx=%u hasLi=%s",
-            restoreSpineIndex, restorePage, pendingParagraphIndex, pendingParagraphLookup ? "yes" : "no",
-            pendingListItemIndex, pendingListItemLookup ? "yes" : "no");
+    if (sync.resultHasListItemIndex) {
+      restoreTarget = NavigationTarget::makeListItem(sync.resultListItemIndex);
+      LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d li[%u]", restoreSpineIndex, restorePage,
+              sync.resultListItemIndex);
+    } else if (sync.resultHasParagraphIndex) {
+      restoreTarget = NavigationTarget::makeParagraph(sync.resultParagraphIndex);
+      LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d p[%u]", restoreSpineIndex, restorePage,
+              sync.resultParagraphIndex);
+    } else {
+      restoreTarget = NavigationTarget::makePage(restorePage);
+      LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d (no LUT)", restoreSpineIndex, restorePage);
+    }
   } else {
+    restoreTarget = NavigationTarget::makePage(restorePage);
     LOG_DBG("ERS", "Restored local pre-sync position: spine=%d page=%d", restoreSpineIndex, restorePage);
   }
 
   // sync.totalPagesInSpine is the page count of the local spine at launch time.
-  // When the restore targets a different spine, that count is meaningless for the
-  // rescaling logic in render() and can cause out-of-bounds pages (the estimated
-  // page number may exceed the local spine's count, producing progress > 1.0).
-  // Store 0 to disable rescaling; the paragraph lookup handles precise positioning.
+  // When the restore targets a different spine, that count is meaningless for rescaling.
+  // Store 0 to disable rescaling; the LUT lookup handles precise positioning.
   const int restorePageCount = (restoreSpineIndex == sync.spineIndex) ? sync.totalPagesInSpine : 0;
+  restoreTarget.cachedPageCount = restorePageCount;
+  restoreTarget.cachedSpineIdx = restoreSpineIndex;
 
   // Transient write — the next render's saveProgress() supplies the real percent before the user
   // can return to the home screen, so a placeholder 0 here is harmless.
   if (writeReaderProgressCache(epub->getCachePath(), restoreSpineIndex, restorePage, restorePageCount, 0)) {
-    cachedSpineIndex = restoreSpineIndex;
-    cachedChapterTotalPageCount = restorePageCount;
+    navTarget = restoreTarget;
     LOG_DBG("ERS", "Prepared progress.bin for sync restore: spine=%d page=%d/%d", restoreSpineIndex, restorePage,
             sync.totalPagesInSpine);
   } else {
     // Fall back to directly seeding live state if cache write fails.
     currentSpineIndex = restoreSpineIndex;
-    nextPageNumber = restorePage;
-    cachedSpineIndex = restoreSpineIndex;
-    cachedChapterTotalPageCount = restorePageCount;
+    navTarget = restoreTarget;
   }
 
   sync.clear();
@@ -1229,13 +1221,12 @@ void EpubReaderActivity::applyPendingBookmarkJump() {
   }
   // Transient write before initializeReader; saveProgress() overwrites with the real percent.
   if (writeReaderProgressCache(epub->getCachePath(), jump.spineIndex, jump.pageNumber, 0, 0)) {
-    cachedSpineIndex = jump.spineIndex;
-    cachedChapterTotalPageCount = 0;
+    navTarget = NavigationTarget::makePage(jump.pageNumber);
+    navTarget.cachedSpineIdx = jump.spineIndex;
   } else {
     currentSpineIndex = jump.spineIndex;
-    nextPageNumber = jump.pageNumber;
-    cachedSpineIndex = jump.spineIndex;
-    cachedChapterTotalPageCount = 0;
+    navTarget = NavigationTarget::makePage(jump.pageNumber);
+    navTarget.cachedSpineIdx = jump.spineIndex;
   }
   jump.clear();
   APP_STATE.saveToFile();
@@ -1251,9 +1242,9 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
   {
     RenderLock lock(*this);
     if (section) {
-      cachedSpineIndex = currentSpineIndex;
-      cachedChapterTotalPageCount = section->pageCount;
-      nextPageNumber = section->currentPage;
+      navTarget = NavigationTarget::makePage(section->currentPage);
+      navTarget.cachedPageCount = section->pageCount;
+      navTarget.cachedSpineIdx = currentSpineIndex;
     }
 
     // Persist the selection so the reader keeps the new orientation on next launch.
@@ -1293,9 +1284,9 @@ void EpubReaderActivity::stopAutomaticPageTurn() {
   // Preserve current reading position so we can restore after reflow.
   RenderLock lock(*this);
   if (section) {
-    cachedSpineIndex = currentSpineIndex;
-    cachedChapterTotalPageCount = section->pageCount;
-    nextPageNumber = section->currentPage;
+    navTarget = NavigationTarget::makePage(section->currentPage);
+    navTarget.cachedPageCount = section->pageCount;
+    navTarget.cachedSpineIdx = currentSpineIndex;
   }
   section.reset();
 }
@@ -1316,9 +1307,9 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
     // Preserve current reading position so we can restore after reflow.
     RenderLock lock(*this);
     if (section) {
-      cachedSpineIndex = currentSpineIndex;
-      cachedChapterTotalPageCount = section->pageCount;
-      nextPageNumber = section->currentPage;
+      navTarget = NavigationTarget::makePage(section->currentPage);
+      navTarget.cachedPageCount = section->pageCount;
+      navTarget.cachedSpineIdx = currentSpineIndex;
     }
     section.reset();
   }
@@ -1363,9 +1354,9 @@ void EpubReaderActivity::applyBookReaderOverrides(const int8_t embeddedStyleOver
 
   RenderLock lock(*this);
   if (section) {
-    cachedSpineIndex = currentSpineIndex;
-    cachedChapterTotalPageCount = section->pageCount;
-    nextPageNumber = section->currentPage;
+    navTarget = NavigationTarget::makePage(section->currentPage);
+    navTarget.cachedPageCount = section->pageCount;
+    navTarget.cachedSpineIdx = currentSpineIndex;
   }
   section.reset();
 }
@@ -1453,14 +1444,18 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
   if (isForwardTurn) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
+    } else if (section->buildState() == BuildState::InProgress) {
+      // More pages are being indexed — advance optimistically into the unindexed range.
+      // The background pump will fire requestUpdate() once the target page is ready.
+      section->currentPage++;
     } else if (currentSpineIndex + 1 < epub->getSpineItemsCount()) {
       RenderLock lock(*this);
-      nextPageNumber = 0;
+      navTarget = NavigationTarget::makePage(0);
       currentSpineIndex++;
       section.reset();
     } else if (currentSpineIndex + 1 == epub->getSpineItemsCount()) {
       RenderLock lock(*this);
-      nextPageNumber = UINT16_MAX;
+      navTarget = NavigationTarget::makeLastPage();
       currentSpineIndex++;
       section.reset();
     } else {
@@ -1471,7 +1466,7 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
       section->currentPage--;
     } else if (currentSpineIndex > 0) {
       RenderLock lock(*this);
-      nextPageNumber = UINT16_MAX;
+      navTarget = NavigationTarget::makeLastPage();
       currentSpineIndex--;
       section.reset();
     } else {
@@ -1622,6 +1617,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 
   if (section->currentPage < 0 || section->currentPage >= section->pageCount) {
+    if (section->buildState() == BuildState::InProgress) {
+      // User navigated into pages not yet indexed — show loading screen.
+      // The background pump will call requestUpdate() once the page is ready.
+      renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_LOADING), true, EpdFontFamily::BOLD);
+      GUI.drawStatusBar(renderer, epub->calculateProgress(currentSpineIndex, 0.0f) * 100, 0, -1, epub->getTitle(), 0,
+                        false);
+      renderer.displayBuffer();
+      return;
+    }
     LOG_DBG("ERS", "Page out of bounds: %d (max %d)", section->currentPage, section->pageCount);
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_OUT_OF_BOUNDS), true, EpdFontFamily::BOLD);
     renderStatusBar();
@@ -1716,106 +1720,101 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   }
 }
 
-void EpubReaderActivity::resolvePositionAfterSectionLoad() {
-  if (!section) return;
-
-  if (nextPageNumber == UINT16_MAX) {
-    // Navigating to the last page. If still building, pump to completion first.
-    if (section->buildState() == BuildState::InProgress) {
-      const uint32_t pumpDeadline = millis() + 30000;
-      while (section->buildState() == BuildState::InProgress && millis() < pumpDeadline) {
+void EpubReaderActivity::NavigationTarget::resolveInto(Section& sec, int spineIndex) {
+  // ── LastPage: pump to Complete first, then land on last page ─────────────
+  if (kind == Kind::LastPage) {
+    if (sec.buildState() == BuildState::InProgress) {
+      const uint32_t deadline = millis() + 30000;
+      while (sec.buildState() == BuildState::InProgress && millis() < deadline) {
         if (RenderLock::peek()) {
           vTaskDelay(pdMS_TO_TICKS(5));
           continue;
         }
-        section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+        sec.pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
       }
-      if (section->buildState() == BuildState::InProgress) {
-        LOG_ERR("ERS", "Last-page pump timed out on spine %d", currentSpineIndex);
-      }
+      if (sec.buildState() == BuildState::InProgress) LOG_ERR("ERS", "LastPage pump timed out spine %d", spineIndex);
     }
-    section->currentPage = section->pageCount > 0 ? section->pageCount - 1 : 0;
-  } else {
-    section->currentPage = nextPageNumber;
+    sec.currentPage = (sec.pageCount > 0) ? sec.pageCount - 1 : 0;
+    return;
   }
 
-  if (pendingTocIndex) {
-    if (const auto resolvedPage = section->getPageForTocIndex(*pendingTocIndex)) {
-      section->currentPage = *resolvedPage;
-    }
-    pendingTocIndex.reset();
+  // ── TocIndex ──────────────────────────────────────────────────────────────
+  if (kind == Kind::TocIndex) {
+    if (const auto p = sec.getPageForTocIndex(tocIndex)) sec.currentPage = *p;
+    return;
   }
 
-  if (!pendingAnchor.empty()) {
-    if (const auto page = section->getPageForAnchor(pendingAnchor)) {
-      section->currentPage = *page;
-      LOG_DBG("ERS", "Resolved anchor '%s' to page %d", pendingAnchor.c_str(), *page);
+  // ── Anchor ────────────────────────────────────────────────────────────────
+  if (kind == Kind::Anchor) {
+    if (const auto p = sec.getPageForAnchor(anchorStr)) {
+      sec.currentPage = *p;
+      LOG_DBG("ERS", "Resolved anchor '%s' -> page %d", anchorStr.c_str(), *p);
     } else {
-      LOG_DBG("ERS", "Anchor '%s' not found in section %d", pendingAnchor.c_str(), currentSpineIndex);
+      LOG_DBG("ERS", "Anchor '%s' not found in spine %d", anchorStr.c_str(), spineIndex);
     }
-    pendingAnchor.clear();
+    anchorStr.clear();
+    return;
   }
 
-  // Resolve pending KOReader sync position via Section LUTs.
-  // <li>-anchored XPaths can't be expressed in the body-child <p> LUT, so try the
-  // li LUT first; fall back to the paragraph LUT on miss.
-  bool resolvedFromLut = false;
-  if (pendingListItemLookup) {
-    if (const auto page = section->getPageForListItemIndex(pendingListItemIndex)) {
-      section->currentPage = *page;
-      LOG_DBG("ERS", "Resolved li[%u] to page %d (was %d)", pendingListItemIndex, *page, nextPageNumber);
-      resolvedFromLut = true;
+  // ── LUT lookups (ListItem preferred; Paragraph fallback) ──────────────────
+  if (kind == Kind::ListItem) {
+    if (const auto p = sec.getPageForListItemIndex(lutIndex)) {
+      sec.currentPage = *p;
+      LOG_DBG("ERS", "Resolved li[%u] -> page %d", lutIndex, *p);
     } else {
-      LOG_DBG("ERS", "Li index %u not found in section LUT", pendingListItemIndex);
+      LOG_DBG("ERS", "Li index %u not found in LUT spine %d", lutIndex, spineIndex);
     }
-    pendingListItemLookup = false;
+    return;
   }
-  if (!resolvedFromLut && pendingParagraphLookup) {
-    if (const auto page = section->getPageForParagraphIndex(pendingParagraphIndex)) {
-      section->currentPage = *page;
-      LOG_DBG("ERS", "Resolved p[%u] to page %d (was %d)", pendingParagraphIndex, *page, nextPageNumber);
+  if (kind == Kind::Paragraph) {
+    if (const auto p = sec.getPageForParagraphIndex(lutIndex)) {
+      sec.currentPage = *p;
+      LOG_DBG("ERS", "Resolved p[%u] -> page %d", lutIndex, *p);
     } else {
-      LOG_DBG("ERS", "Paragraph LUT not available, using estimated page %d", nextPageNumber);
+      LOG_DBG("ERS", "Paragraph LUT miss spine %d, using page %d", spineIndex, sec.currentPage);
     }
-  }
-  pendingParagraphLookup = false;
-
-  if (cachedChapterTotalPageCount > 0) {
-    if (currentSpineIndex == cachedSpineIndex && section->pageCount != cachedChapterTotalPageCount) {
-      float progress = static_cast<float>(section->currentPage) / static_cast<float>(cachedChapterTotalPageCount);
-      section->currentPage = static_cast<int>(progress * section->pageCount);
-    }
-    cachedChapterTotalPageCount = 0;
+    return;
   }
 
-  // Outrun: if the target page isn't indexed yet, pump until it is.
-  if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
-    LOG_DBG("ERS", "Outrun: target page %d not yet indexed (have %d)", section->currentPage, section->pageCount);
-    const uint32_t pumpDeadline = millis() + 30000;
-    while (!section->hasPage(section->currentPage) && section->buildState() == BuildState::InProgress &&
-           millis() < pumpDeadline) {
+  // ── Percent ───────────────────────────────────────────────────────────────
+  if (kind == Kind::Percent) {
+    if (sec.pageCount > 0) {
+      int newPage = static_cast<int>(spineProgress * static_cast<float>(sec.pageCount));
+      if (newPage >= sec.pageCount) newPage = sec.pageCount - 1;
+      sec.currentPage = newPage;
+    }
+    return;
+  }
+
+  // ── Page: set baseline, apply cross-font rescaling, then outrun pump ──────
+  sec.currentPage = page;
+  if (cachedPageCount > 0) {
+    if (spineIndex == cachedSpineIdx && sec.pageCount != cachedPageCount) {
+      const float progress = static_cast<float>(sec.currentPage) / static_cast<float>(cachedPageCount);
+      sec.currentPage = static_cast<int>(progress * static_cast<float>(sec.pageCount));
+    }
+    cachedPageCount = 0;
+  }
+  if (sec.buildState() == BuildState::InProgress && !sec.hasPage(sec.currentPage)) {
+    LOG_DBG("ERS", "Outrun: page %d not indexed (have %d)", sec.currentPage, sec.pageCount);
+    const uint32_t deadline = millis() + 30000;
+    while (!sec.hasPage(sec.currentPage) && sec.buildState() == BuildState::InProgress && millis() < deadline) {
       if (RenderLock::peek()) {
         vTaskDelay(pdMS_TO_TICKS(5));
         continue;
       }
-      section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+      sec.pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
     }
-    if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
-      LOG_ERR("ERS", "Outrun pump timed out on spine %d page %d", currentSpineIndex, section->currentPage);
-    }
+    if (sec.buildState() == BuildState::InProgress && !sec.hasPage(sec.currentPage))
+      LOG_ERR("ERS", "Outrun timed out spine %d page %d", spineIndex, sec.currentPage);
   }
+  if (sec.pageCount > 0 && sec.currentPage >= sec.pageCount) sec.currentPage = sec.pageCount - 1;
+}
 
-  if (section->pageCount > 0 && section->currentPage >= section->pageCount) {
-    LOG_DBG("ERS", "Clamping page %d to last page %d", section->currentPage, section->pageCount - 1);
-    section->currentPage = section->pageCount - 1;
-  }
-
-  if (pendingPercentJump && section->pageCount > 0) {
-    int newPage = static_cast<int>(pendingSpineProgress * static_cast<float>(section->pageCount));
-    if (newPage >= section->pageCount) newPage = section->pageCount - 1;
-    section->currentPage = newPage;
-    pendingPercentJump = false;
-  }
+void EpubReaderActivity::resolvePositionAfterSectionLoad() {
+  if (!section) return;
+  navTarget.resolveInto(*section, currentSpineIndex);
+  navTarget = NavigationTarget::makePage(section->currentPage);
 }
 
 void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
@@ -1879,9 +1878,9 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
       return;
     }
     // beginIncrementalBuild's initial pump is done and the parser is suspended.
-    // For last-page nav (UINT16_MAX), defer until the build completes — the background
-    // pump will resolve and render once done. For normal nav, render as soon as page 0 exists.
-    if (nextPageNumber != UINT16_MAX && section->hasPage(0)) {
+    // Kinds that need the full LUT (LastPage/Anchor/Paragraph/ListItem) wait for Complete.
+    // All others render as soon as page 0 is available.
+    if (!navTarget.needsCompleteBuild() && section->hasPage(0)) {
       resolvePositionAfterSectionLoad();
       requestUpdate();
     }
@@ -1916,22 +1915,23 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
     return;
   }
 
-  const bool hadPage0Before = section->hasPage(0);
+  const int targetPage = section->currentPage;
+  const bool hadTargetBefore = section->hasPage(targetPage);
   const bool wasInProgress = (section->buildState() == BuildState::InProgress);
   section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS);
   const bool nowComplete = wasInProgress && (section->buildState() != BuildState::InProgress);
 
-  if (nextPageNumber == UINT16_MAX) {
-    // Targeting the last page: can't resolve position until the build is fully complete.
-    // Keep pumping silently; trigger render only when done.
+  if (navTarget.needsCompleteBuild()) {
+    // Kinds needing full LUT: can't resolve until build is complete.
     if (nowComplete) {
-      LOG_DBG("ERS", "loop: build complete for spine=%d (last-page nav), triggering render", currentSpineIndex);
+      LOG_DBG("ERS", "loop: build complete for spine=%d, triggering render", currentSpineIndex);
       resolvePositionAfterSectionLoad();
       requestUpdate();
     }
-  } else if (!hadPage0Before && section->hasPage(0)) {
-    // Page 0 just became available — resolve position and show first page.
-    LOG_DBG("ERS", "loop: page 0 ready for spine=%d, triggering render", currentSpineIndex);
+  } else if (!hadTargetBefore && section->hasPage(targetPage)) {
+    // Target page just became available — resolve and render.
+    // Covers both initial display (page 0) and forward turns into unindexed pages.
+    LOG_DBG("ERS", "loop: page %d ready for spine=%d, triggering render", targetPage, currentSpineIndex);
     resolvePositionAfterSectionLoad();
     requestUpdate();
   }
@@ -2305,9 +2305,8 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
 
   {
     RenderLock lock(*this);
-    pendingAnchor = std::move(anchor);
+    navTarget = anchor.empty() ? NavigationTarget::makePage(0) : NavigationTarget::makeAnchor(std::move(anchor));
     currentSpineIndex = targetSpineIndex;
-    nextPageNumber = 0;
     section.reset();
   }
   requestUpdate();
@@ -2323,7 +2322,7 @@ void EpubReaderActivity::restoreSavedPosition() {
   {
     RenderLock lock(*this);
     currentSpineIndex = pos.spineIndex;
-    nextPageNumber = pos.pageNumber;
+    navTarget = NavigationTarget::makePage(pos.pageNumber);
     section.reset();
   }
   requestUpdate();
@@ -2543,9 +2542,9 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
                                  if (resolvedPage) {
                                    section->currentPage = *resolvedPage;
                                  } else {
-                                   pendingTocIndex = chapter.tocIndex;
+                                   navTarget = chapter.tocIndex ? NavigationTarget::makeTocIndex(*chapter.tocIndex)
+                                                                : NavigationTarget::makePage(0);
                                    currentSpineIndex = chapter.spineIndex;
-                                   nextPageNumber = 0;
                                    section.reset();
                                  }
                                });
@@ -2560,7 +2559,7 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
           const int curTocIndex = section->getTocIndexForPage(section->currentPage);
           const int nextTocIndex = forward ? curTocIndex + 1 : curTocIndex - 1;
           if (curTocIndex < 0) {
-            nextPageNumber = 0;
+            navTarget = NavigationTarget::makePage(0);
             currentSpineIndex = forward ? currentSpineIndex + 1 : currentSpineIndex - 1;
             section.reset();
           } else if (nextTocIndex >= 0 && nextTocIndex < epub->getTocItemsCount()) {
@@ -2570,22 +2569,21 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
                 section->currentPage = *resolvedPage;
               }
             } else {
-              pendingTocIndex = nextTocIndex;
-              nextPageNumber = 0;
+              navTarget = NavigationTarget::makeTocIndex(nextTocIndex);
               currentSpineIndex = newSpineIndex;
               section.reset();
             }
           } else if (forward) {
-            nextPageNumber = 0;
+            navTarget = NavigationTarget::makePage(0);
             currentSpineIndex = epub->getSpineItemsCount();
             section.reset();
           } else {
-            nextPageNumber = 0;
+            navTarget = NavigationTarget::makePage(0);
             currentSpineIndex = epub->getTocItem(curTocIndex).spineIndex - 1;
             section.reset();
           }
         } else {
-          nextPageNumber = 0;
+          navTarget = NavigationTarget::makePage(0);
           currentSpineIndex = forward ? currentSpineIndex + 1 : currentSpineIndex - 1;
           section.reset();
         }
