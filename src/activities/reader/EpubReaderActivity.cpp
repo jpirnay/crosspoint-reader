@@ -366,6 +366,18 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // Deferred SD-card work posted by render() — execute here on the loop task.
+  if (pendingProgressSave.valid) {
+    pendingProgressSave.valid = false;
+    saveProgress(pendingProgressSave.spineIndex, pendingProgressSave.currentPage, pendingProgressSave.pageCount);
+  }
+  if (pendingCacheClear && section) {
+    pendingCacheClear = false;
+    section->clearCache();
+    section.reset();
+    requestUpdate();
+  }
+
   pumpIncrementalIndexIfNeeded();
 
   if (automaticPageTurnActive) {
@@ -1639,11 +1651,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     auto p = section->loadPageFromSectionFile();
     lastRenderStats.pageLoadMs = millis() - pageLoadStart;
     if (!p) {
-      LOG_ERR("ERS", "Failed to load page from SD - clearing section cache");
-      section->clearCache();
-      section.reset();
-      requestUpdate();  // Try again after clearing cache
-                        // TODO: prevent infinite loop if the page keeps failing to load for some reason
+      LOG_ERR("ERS", "Failed to load page from SD - flagging cache clear for loop task");
+      pendingCacheClear = true;
+      requestUpdate();
       automaticPageTurnActive = false;
       return;
     }
@@ -1665,7 +1675,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
     LOG_DBG("ERS", "Rendered page in %dms", lastRenderStats.requestRenderMs);
   }
-  saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  pendingProgressSave = {true, currentSpineIndex, section->currentPage, section->pageCount};
   lastRenderStats.freeHeapAfter = esp_get_free_heap_size();
   lastRenderStats.largestFreeBlockAfter = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   lastRenderStats.valid = true;

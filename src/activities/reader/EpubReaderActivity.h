@@ -194,6 +194,14 @@ class EpubReaderActivity final : public Activity {
     uint32_t maxFreeHeapAfter = 0;
   };
   LastRenderStats lastRenderStats;
+  // Deferred SD-card work: render() posts intent; loop() executes on next tick.
+  struct PendingProgressSave {
+    bool valid = false;
+    int spineIndex = 0;
+    int currentPage = 0;
+    int pageCount = 0;
+  } pendingProgressSave;
+  bool pendingCacheClear = false;  // render() detected corrupt page; loop() clears + rebuilds
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool finishedBookActivityStarted_ = false;
