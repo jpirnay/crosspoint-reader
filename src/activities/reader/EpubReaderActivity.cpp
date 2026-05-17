@@ -518,8 +518,27 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  // No current section, attempt to rerender the book
-  if (!section) {
+  // Section not yet ready (build in progress). Record page turn intent in nextPageNumber
+  // so resolvePositionAfterSectionLoad() lands on the right page when the build completes.
+  if (!section || section->pageCount == 0) {
+    if (nextTriggered) {
+      // Forward from a not-yet-loaded section: go to page 0 of the next section if possible,
+      // otherwise stay at page 0 of the current one.
+      if (currentSpineIndex + 1 < epub->getSpineItemsCount()) {
+        RenderLock lock(*this);
+        currentSpineIndex++;
+        nextPageNumber = 0;
+        section.reset();
+      }
+    } else if (prevTriggered) {
+      // Backward: go to last page of the previous section, or stay at page 0.
+      if (currentSpineIndex > 0) {
+        RenderLock lock(*this);
+        currentSpineIndex--;
+        nextPageNumber = UINT16_MAX;
+        section.reset();
+      }
+    }
     requestUpdate();
     return;
   }
@@ -1700,6 +1719,7 @@ void EpubReaderActivity::resolvePositionAfterSectionLoad() {
     if (section->buildState() == BuildState::InProgress) {
       const uint32_t pumpDeadline = millis() + 30000;
       while (section->buildState() == BuildState::InProgress && millis() < pumpDeadline) {
+        if (RenderLock::peek()) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
         section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
       }
       if (section->buildState() == BuildState::InProgress) {
@@ -1766,6 +1786,7 @@ void EpubReaderActivity::resolvePositionAfterSectionLoad() {
     const uint32_t pumpDeadline = millis() + 30000;
     while (!section->hasPage(section->currentPage) && section->buildState() == BuildState::InProgress &&
            millis() < pumpDeadline) {
+      if (RenderLock::peek()) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
       section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
     }
     if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
@@ -1811,18 +1832,26 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
                                  SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(), _lastViewportWidth,
                                  _lastViewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
                                  bookBionicReadingOverride, imageRendering)) {
-      lastRenderStats.sectionLoadMs = millis() - sectionStart;
-      LOG_DBG("ERS", "loop: loaded cached section for spine=%d", currentSpineIndex);
+      if (section->pageCount == 0) {
+        // Stale empty .bin from a previous incomplete build — delete and rebuild.
+        LOG_INF("ERS", "loop: cached section spine=%d has 0 pages, clearing for rebuild", currentSpineIndex);
+        section->clearCache();
+        section.reset();
+        section = std::make_unique<Section>(epub, currentSpineIndex, renderer);
+      } else {
+        lastRenderStats.sectionLoadMs = millis() - sectionStart;
+        LOG_DBG("ERS", "loop: loaded cached section for spine=%d", currentSpineIndex);
 
-      if (section->isTruncatedCache() && currentSpineIndex != lastWarnedTruncatedSpineIndex) {
-        lastWarnedTruncatedSpineIndex = currentSpineIndex;
-        truncatedSectionHintRendersRemaining = TRUNCATED_SECTION_HINT_RENDER_COUNT;
-        LOG_INF("ERS", "Section %d is truncated; showing mitigation hint", currentSpineIndex);
+        if (section->isTruncatedCache() && currentSpineIndex != lastWarnedTruncatedSpineIndex) {
+          lastWarnedTruncatedSpineIndex = currentSpineIndex;
+          truncatedSectionHintRendersRemaining = TRUNCATED_SECTION_HINT_RENDER_COUNT;
+          LOG_INF("ERS", "Section %d is truncated; showing mitigation hint", currentSpineIndex);
+        }
+
+        resolvePositionAfterSectionLoad();
+        requestUpdate();
+        return;
       }
-
-      resolvePositionAfterSectionLoad();
-      requestUpdate();
-      return;
     }
 
     LOG_DBG("ERS", "loop: starting incremental build for spine=%d", currentSpineIndex);
@@ -1839,9 +1868,12 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
       return;
     }
     // beginIncrementalBuild's initial pump is done and the parser is suspended.
-    // The renderer is free — resolve position and trigger first render.
-    resolvePositionAfterSectionLoad();
-    requestUpdate();
+    // For last-page nav (UINT16_MAX), defer until the build completes — the background
+    // pump will resolve and render once done. For normal nav, render as soon as page 0 exists.
+    if (nextPageNumber != UINT16_MAX && section->hasPage(0)) {
+      resolvePositionAfterSectionLoad();
+      requestUpdate();
+    }
     return;
   }
 
@@ -1873,7 +1905,25 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
     return;
   }
 
+  const bool hadPage0Before = section->hasPage(0);
+  const bool wasInProgress = (section->buildState() == BuildState::InProgress);
   section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS);
+  const bool nowComplete = wasInProgress && (section->buildState() != BuildState::InProgress);
+
+  if (nextPageNumber == UINT16_MAX) {
+    // Targeting the last page: can't resolve position until the build is fully complete.
+    // Keep pumping silently; trigger render only when done.
+    if (nowComplete) {
+      LOG_DBG("ERS", "loop: build complete for spine=%d (last-page nav), triggering render", currentSpineIndex);
+      resolvePositionAfterSectionLoad();
+      requestUpdate();
+    }
+  } else if (!hadPage0Before && section->hasPage(0)) {
+    // Page 0 just became available — resolve position and show first page.
+    LOG_DBG("ERS", "loop: page 0 ready for spine=%d, triggering render", currentSpineIndex);
+    resolvePositionAfterSectionLoad();
+    requestUpdate();
+  }
 }
 
 void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
@@ -1899,11 +1949,17 @@ void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
     const uint32_t now = millis();
     if (now - _lastPrewarmPumpMs < EpubIndexingPolicy::PREWARM_INTERVAL_MS) return;
     _lastPrewarmPumpMs = now;
+    if (RenderLock::peek()) return;
     _prewarmSection->pump(EpubIndexingPolicy::PREWARM_PAGES, EpubIndexingPolicy::PREWARM_MAX_MS);
     return;
   }
 
-  // No prewarm section — check if next chapter already has a cache
+  // No prewarm section — rate-limit the cache check to avoid calling loadSectionFile every tick.
+  const uint32_t nowPrewarm = millis();
+  if (nowPrewarm - _lastPrewarmPumpMs < EpubIndexingPolicy::PREWARM_INTERVAL_MS) return;
+  _lastPrewarmPumpMs = nowPrewarm;
+
+  // Check if next chapter already has a valid cache (skip prewarm if so).
   {
     Section testSection(epub, nextSpineIndex, renderer);
     const bool embeddedStyle = getEffectiveEmbeddedStyle();
@@ -1911,12 +1967,15 @@ void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
     if (testSection.loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
                                     SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(),
                                     _lastViewportWidth, _lastViewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
-                                    bookBionicReadingOverride, imageRendering)) {
-      return;  // Already cached
+                                    bookBionicReadingOverride, imageRendering) &&
+        testSection.pageCount > 0) {
+      return;  // Already cached with real pages
     }
   }
 
-  // Start prewarm incremental build
+  // Start prewarm incremental build — beginIncrementalBuild uses GfxRenderer for font prewarm scans,
+  // so must not run while render task is in flight.
+  if (RenderLock::peek()) return;
   const bool embeddedStyle = getEffectiveEmbeddedStyle();
   const uint8_t imageRendering = getEffectiveImageRendering();
   _prewarmSection = std::make_unique<Section>(epub, nextSpineIndex, renderer);
