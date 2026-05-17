@@ -20,7 +20,16 @@ Section::Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRen
 // Constructor and destructor are defined here (not in the header) so that
 // std::unique_ptr<ChapterHtmlSlimParser> can be deleted with the full type visible —
 // ChapterHtmlSlimParser is forward-declared in Section.h but fully defined in this TU.
-Section::~Section() = default;
+Section::~Section() {
+  // Close any open file handles and delete build-only temp files.
+  // The partial .bin is left intact so a future load can resume from it.
+  _parser.reset();
+  if (file.isOpen()) file.close();
+  if (_lutFile.isOpen()) _lutFile.close();
+  if (_rawFile.isOpen()) _rawFile.close();
+  if (!_lutPath.empty() && Storage.exists(_lutPath.c_str())) Storage.remove(_lutPath.c_str());
+  if (!_rawPath.empty() && Storage.exists(_rawPath.c_str())) Storage.remove(_rawPath.c_str());
+}
 
 namespace {
 constexpr uint8_t SECTION_FILE_VERSION = 28;
@@ -683,9 +692,17 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
                                     const uint16_t viewportHeight, const bool hyphenationEnabled,
                                     const bool embeddedStyle, const bool bionicReadingEnabled,
                                     const uint8_t imageRendering) {
+  LOG_INF("SCT", "beginIncrementalBuild ENTER spine=%d state=%d", spineIndex, static_cast<int>(_buildState));
   if (_buildState == BuildState::InProgress) {
+    LOG_INF("SCT", "beginIncrementalBuild already InProgress, returning early");
     return true;  // Already building
   }
+
+  // Mark InProgress immediately so that loop()-side checks (pumpIncrementalIndexIfNeeded /
+  // pumpNextChapterPrewarmIfNeeded) see the in-progress state and don't start a concurrent
+  // prewarm build that would share the CssParser singleton. render() and loop() run on
+  // separate FreeRTOS tasks and the loop CAN preempt render mid-way through beginIncrementalBuild.
+  _buildState = BuildState::InProgress;
 
   evictOldVariants();
 
@@ -784,6 +801,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   if (useEmbeddedStyle) {
     cssParser = epub->getCssParser();
     if (cssParser) {
+      LOG_INF("SCT", "beginIncrementalBuild spine=%d calling loadFromCache on cssParser=%p", spineIndex, cssParser);
       if (!cssParser->loadFromCache()) {
         LOG_ERR("SCT", "beginIncrementalBuild: failed to load CSS cache");
       }
@@ -824,7 +842,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   }
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
-  _buildState = BuildState::InProgress;
+  // _buildState was set to InProgress at the top of this function.
 
   // Fire the initial burst — page 0 available before returning.
   pump(EpubIndexingPolicy::INITIAL_PAGES, EpubIndexingPolicy::INITIAL_MAX_MS);

@@ -1571,167 +1571,19 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   showTruncatedSectionHintThisRender = false;
 
   if (!section) {
-    if (currentSpineIndex < 0 || currentSpineIndex >= spineCount) {
-      LOG_ERR("ERS", "Render rejected invalid spine index %d (valid 0..%d)", currentSpineIndex, spineCount - 1);
-      currentSpineIndex = 0;
-      nextPageNumber = 0;
-      automaticPageTurnActive = false;
-      requestUpdate();
-      return;
-    }
-
-    const bool embeddedStyle = lastRenderStats.embeddedStyle;
-    const uint8_t imageRendering = lastRenderStats.imageRendering;
-    const auto filepath = epub->getSpineItem(currentSpineIndex).href;
-    LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
-    section = std::make_unique<Section>(epub, currentSpineIndex, renderer);
-    const unsigned long sectionStart = millis();
-
-    if (!section->loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
-                                  SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(), viewportWidth,
-                                  viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle, bookBionicReadingOverride,
-                                  imageRendering)) {
-      if (currentSpineIndex == lastFailedBuildSpineIndex) {
-        // Build for this spine already failed this session — don't retry, show error instead.
-        section.reset();
-        renderer.clearScreen();
-        renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_CHAPTER), true, EpdFontFamily::BOLD);
-        renderStatusBar();
-        renderer.displayBuffer();
-        return;
-      }
-
-      LOG_DBG("ERS", "Cache not found, starting incremental build...");
-      lastRenderStats.cacheRebuilt = true;
-
-      // Reset cumulative SD font metadata cache so this section starts fresh.
-      renderer.clearSdCardFontAccumulation();
-      if (!section->beginIncrementalBuild(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
-                                          SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(),
-                                          viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
-                                          bookBionicReadingOverride, imageRendering)) {
-        LOG_ERR("ERS", "Failed to start incremental build for spine %d", currentSpineIndex);
-        lastFailedBuildSpineIndex = currentSpineIndex;
-        section.reset();
-        renderer.clearScreen();
-        renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_CHAPTER), true, EpdFontFamily::BOLD);
-        renderStatusBar();
-        renderer.displayBuffer();
-        return;
-      }
+    // Section not ready — loop() owns all file I/O (loadSectionFile + beginIncrementalBuild).
+    // render() must not do any SD card work: it runs on the render task whose stack is small.
+    // renderStatusBar() dereferences section, so skip it here and draw a minimal status bar.
+    renderer.clearScreen();
+    if (currentSpineIndex == lastFailedBuildSpineIndex) {
+      renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_CHAPTER), true, EpdFontFamily::BOLD);
     } else {
-      LOG_DBG("ERS", "Cache found, skipping build...");
+      renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_LOADING), true, EpdFontFamily::BOLD);
     }
-    lastRenderStats.sectionLoadMs = millis() - sectionStart;
-
-    if (section->isTruncatedCache() && currentSpineIndex != lastWarnedTruncatedSpineIndex) {
-      lastWarnedTruncatedSpineIndex = currentSpineIndex;
-      truncatedSectionHintRendersRemaining = TRUNCATED_SECTION_HINT_RENDER_COUNT;
-      LOG_INF("ERS", "Section %d is truncated; showing mitigation hint", currentSpineIndex);
-    }
-
-    if (nextPageNumber == UINT16_MAX) {
-      // Navigating to the last page of this chapter. If the build is still in progress,
-      // pump to completion first so we land on the true last page, not the last indexed one.
-      if (section->buildState() == BuildState::InProgress) {
-        const uint32_t pumpDeadline = millis() + 30000;
-        while (section->buildState() == BuildState::InProgress && millis() < pumpDeadline) {
-          section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
-        }
-        if (section->buildState() == BuildState::InProgress) {
-          LOG_ERR("ERS", "Last-page pump timed out on spine %d", currentSpineIndex);
-        }
-      }
-      section->currentPage = section->pageCount > 0 ? section->pageCount - 1 : 0;
-    } else {
-      section->currentPage = nextPageNumber;
-    }
-
-    if (pendingTocIndex) {
-      if (const auto resolvedPage = section->getPageForTocIndex(*pendingTocIndex)) {
-        section->currentPage = *resolvedPage;
-      }
-      pendingTocIndex.reset();
-    }
-
-    if (!pendingAnchor.empty()) {
-      if (const auto page = section->getPageForAnchor(pendingAnchor)) {
-        section->currentPage = *page;
-        LOG_DBG("ERS", "Resolved anchor '%s' to page %d", pendingAnchor.c_str(), *page);
-      } else {
-        LOG_DBG("ERS", "Anchor '%s' not found in section %d", pendingAnchor.c_str(), currentSpineIndex);
-      }
-      pendingAnchor.clear();
-    }
-
-    // Resolve pending KOReader sync position via Section LUTs.
-    // <li>-anchored XPaths can't be expressed in the body-child <p> LUT, so try the
-    // li LUT first when set; fall back to the paragraph LUT (which handles direct
-    // <p> children of <body>) on miss.
-    bool resolvedFromLut = false;
-    if (pendingListItemLookup) {
-      if (const auto page = section->getPageForListItemIndex(pendingListItemIndex)) {
-        section->currentPage = *page;
-        LOG_DBG("ERS", "Resolved li[%u] to page %d (was %d)", pendingListItemIndex, *page, nextPageNumber);
-        resolvedFromLut = true;
-      } else {
-        LOG_DBG("ERS", "Li index %u not found in section LUT", pendingListItemIndex);
-      }
-      pendingListItemLookup = false;
-    }
-    if (!resolvedFromLut && pendingParagraphLookup) {
-      if (const auto page = section->getPageForParagraphIndex(pendingParagraphIndex)) {
-        section->currentPage = *page;
-        LOG_DBG("ERS", "Resolved p[%u] to page %d (was %d)", pendingParagraphIndex, *page, nextPageNumber);
-      } else {
-        LOG_DBG("ERS", "Paragraph LUT not available, using estimated page %d", nextPageNumber);
-      }
-    }
-    pendingParagraphLookup = false;
-
-    // handles changes in reader settings and reset to approximate position based on cached progress
-    if (cachedChapterTotalPageCount > 0) {
-      // only goes to relative position if spine index matches cached value
-      if (currentSpineIndex == cachedSpineIndex && section->pageCount != cachedChapterTotalPageCount) {
-        float progress = static_cast<float>(section->currentPage) / static_cast<float>(cachedChapterTotalPageCount);
-        int newPage = static_cast<int>(progress * section->pageCount);
-        section->currentPage = newPage;
-      }
-      cachedChapterTotalPageCount = 0;  // resets to 0 to prevent reading cached progress again
-    }
-
-    // Incremental Outrun: if the target page isn't indexed yet, pump until it is.
-    // This fires when a resumed session opens a chapter mid-way (e.g. page 15 of 50)
-    // and only the initial 3 pages are built so far.
-    if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
-      LOG_DBG("ERS", "Outrun: target page %d not yet indexed (have %d)", section->currentPage, section->pageCount);
-      const uint32_t pumpDeadline = millis() + 30000;
-      while (!section->hasPage(section->currentPage) && section->buildState() == BuildState::InProgress &&
-             millis() < pumpDeadline) {
-        section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
-      }
-      if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
-        LOG_ERR("ERS", "Outrun pump timed out on spine %d page %d", currentSpineIndex, section->currentPage);
-      }
-    }
-
-    // Safety clamp: estimated page numbers from sync or progress.bin may exceed
-    // the actual page count when the section was built with different settings or
-    // the estimate was based on a different spine's density.
-    if (section->pageCount > 0 && section->currentPage >= section->pageCount) {
-      LOG_DBG("ERS", "Clamping page %d to last page %d", section->currentPage, section->pageCount - 1);
-      section->currentPage = section->pageCount - 1;
-    }
-
-    if (pendingPercentJump && section->pageCount > 0) {
-      // Apply the pending percent jump now that we know the new section's page count.
-      int newPage = static_cast<int>(pendingSpineProgress * static_cast<float>(section->pageCount));
-      if (newPage >= section->pageCount) {
-        newPage = section->pageCount - 1;
-      }
-      section->currentPage = newPage;
-      pendingPercentJump = false;
-    }
+    GUI.drawStatusBar(renderer, epub->calculateProgress(currentSpineIndex, 0.0f) * 100, 0, -1, epub->getTitle(), 0,
+                      false);
+    renderer.displayBuffer();
+    return;
   }
 
   renderer.clearScreen();
@@ -1840,8 +1692,158 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   }
 }
 
-void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
+void EpubReaderActivity::resolvePositionAfterSectionLoad() {
   if (!section) return;
+
+  if (nextPageNumber == UINT16_MAX) {
+    // Navigating to the last page. If still building, pump to completion first.
+    if (section->buildState() == BuildState::InProgress) {
+      const uint32_t pumpDeadline = millis() + 30000;
+      while (section->buildState() == BuildState::InProgress && millis() < pumpDeadline) {
+        section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+      }
+      if (section->buildState() == BuildState::InProgress) {
+        LOG_ERR("ERS", "Last-page pump timed out on spine %d", currentSpineIndex);
+      }
+    }
+    section->currentPage = section->pageCount > 0 ? section->pageCount - 1 : 0;
+  } else {
+    section->currentPage = nextPageNumber;
+  }
+
+  if (pendingTocIndex) {
+    if (const auto resolvedPage = section->getPageForTocIndex(*pendingTocIndex)) {
+      section->currentPage = *resolvedPage;
+    }
+    pendingTocIndex.reset();
+  }
+
+  if (!pendingAnchor.empty()) {
+    if (const auto page = section->getPageForAnchor(pendingAnchor)) {
+      section->currentPage = *page;
+      LOG_DBG("ERS", "Resolved anchor '%s' to page %d", pendingAnchor.c_str(), *page);
+    } else {
+      LOG_DBG("ERS", "Anchor '%s' not found in section %d", pendingAnchor.c_str(), currentSpineIndex);
+    }
+    pendingAnchor.clear();
+  }
+
+  // Resolve pending KOReader sync position via Section LUTs.
+  // <li>-anchored XPaths can't be expressed in the body-child <p> LUT, so try the
+  // li LUT first; fall back to the paragraph LUT on miss.
+  bool resolvedFromLut = false;
+  if (pendingListItemLookup) {
+    if (const auto page = section->getPageForListItemIndex(pendingListItemIndex)) {
+      section->currentPage = *page;
+      LOG_DBG("ERS", "Resolved li[%u] to page %d (was %d)", pendingListItemIndex, *page, nextPageNumber);
+      resolvedFromLut = true;
+    } else {
+      LOG_DBG("ERS", "Li index %u not found in section LUT", pendingListItemIndex);
+    }
+    pendingListItemLookup = false;
+  }
+  if (!resolvedFromLut && pendingParagraphLookup) {
+    if (const auto page = section->getPageForParagraphIndex(pendingParagraphIndex)) {
+      section->currentPage = *page;
+      LOG_DBG("ERS", "Resolved p[%u] to page %d (was %d)", pendingParagraphIndex, *page, nextPageNumber);
+    } else {
+      LOG_DBG("ERS", "Paragraph LUT not available, using estimated page %d", nextPageNumber);
+    }
+  }
+  pendingParagraphLookup = false;
+
+  if (cachedChapterTotalPageCount > 0) {
+    if (currentSpineIndex == cachedSpineIndex && section->pageCount != cachedChapterTotalPageCount) {
+      float progress = static_cast<float>(section->currentPage) / static_cast<float>(cachedChapterTotalPageCount);
+      section->currentPage = static_cast<int>(progress * section->pageCount);
+    }
+    cachedChapterTotalPageCount = 0;
+  }
+
+  // Outrun: if the target page isn't indexed yet, pump until it is.
+  if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
+    LOG_DBG("ERS", "Outrun: target page %d not yet indexed (have %d)", section->currentPage, section->pageCount);
+    const uint32_t pumpDeadline = millis() + 30000;
+    while (!section->hasPage(section->currentPage) && section->buildState() == BuildState::InProgress &&
+           millis() < pumpDeadline) {
+      section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+    }
+    if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
+      LOG_ERR("ERS", "Outrun pump timed out on spine %d page %d", currentSpineIndex, section->currentPage);
+    }
+  }
+
+  if (section->pageCount > 0 && section->currentPage >= section->pageCount) {
+    LOG_DBG("ERS", "Clamping page %d to last page %d", section->currentPage, section->pageCount - 1);
+    section->currentPage = section->pageCount - 1;
+  }
+
+  if (pendingPercentJump && section->pageCount > 0) {
+    int newPage = static_cast<int>(pendingSpineProgress * static_cast<float>(section->pageCount));
+    if (newPage >= section->pageCount) newPage = section->pageCount - 1;
+    section->currentPage = newPage;
+    pendingPercentJump = false;
+  }
+}
+
+void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
+  if (!epub) return;
+
+  // render() does no file I/O — all section loading happens here on the main loop task.
+  if (!section) {
+    if (currentSpineIndex < 0 || currentSpineIndex >= epub->getSpineItemsCount()) return;
+    if (currentSpineIndex == lastFailedBuildSpineIndex) return;
+
+    const bool embeddedStyle = getEffectiveEmbeddedStyle();
+    const uint8_t imageRendering = getEffectiveImageRendering();
+
+    // Stop any in-flight prewarm: both would share CssParser singleton + GfxRenderer.
+    if (_prewarmSection) {
+      LOG_INF("ERS", "loop: stopping prewarm spine=%d before main build spine=%d", _prewarmSection->getSpineIndex(),
+              currentSpineIndex);
+      _prewarmSection.reset();
+    }
+
+    section = std::make_unique<Section>(epub, currentSpineIndex, renderer);
+    const unsigned long sectionStart = millis();
+
+    if (section->loadSectionFile(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
+                                 SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(), _lastViewportWidth,
+                                 _lastViewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
+                                 bookBionicReadingOverride, imageRendering)) {
+      lastRenderStats.sectionLoadMs = millis() - sectionStart;
+      LOG_DBG("ERS", "loop: loaded cached section for spine=%d", currentSpineIndex);
+
+      if (section->isTruncatedCache() && currentSpineIndex != lastWarnedTruncatedSpineIndex) {
+        lastWarnedTruncatedSpineIndex = currentSpineIndex;
+        truncatedSectionHintRendersRemaining = TRUNCATED_SECTION_HINT_RENDER_COUNT;
+        LOG_INF("ERS", "Section %d is truncated; showing mitigation hint", currentSpineIndex);
+      }
+
+      resolvePositionAfterSectionLoad();
+      requestUpdate();
+      return;
+    }
+
+    LOG_DBG("ERS", "loop: starting incremental build for spine=%d", currentSpineIndex);
+    lastRenderStats.cacheRebuilt = true;
+    renderer.clearSdCardFontAccumulation();
+    if (!section->beginIncrementalBuild(getEffectiveReaderFontId(), getEffectiveReaderLineCompression(),
+                                        SETTINGS.extraParagraphSpacing, getEffectiveParagraphAlignment(),
+                                        _lastViewportWidth, _lastViewportHeight, SETTINGS.hyphenationEnabled,
+                                        embeddedStyle, bookBionicReadingOverride, imageRendering)) {
+      LOG_ERR("ERS", "loop: failed to start incremental build for spine=%d", currentSpineIndex);
+      lastFailedBuildSpineIndex = currentSpineIndex;
+      section.reset();
+      requestUpdate();
+      return;
+    }
+    // beginIncrementalBuild's initial pump is done and the parser is suspended.
+    // The renderer is free — resolve position and trigger first render.
+    resolvePositionAfterSectionLoad();
+    requestUpdate();
+    return;
+  }
 
   const auto state = section->buildState();
   if (state == BuildState::Complete || state == BuildState::Failed || state == BuildState::Idle) {
@@ -1849,7 +1851,18 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
     return;
   }
 
-  // Current chapter still building — rate-limited background pump
+  // Current chapter still building — drop any stale prewarm (shared CssParser/GfxRenderer).
+  if (_prewarmSection) {
+    LOG_INF("ERS", "Dropping stale prewarm spine=%d while main spine=%d still building",
+            _prewarmSection->getSpineIndex(), currentSpineIndex);
+    _prewarmSection.reset();
+  }
+
+  // Current chapter still building — rate-limited background pump.
+  // Skip while a render is in flight: the parser uses GfxRenderer for font prewarm scans,
+  // which would corrupt the frame buffer if render() is drawing at the same time.
+  if (RenderLock::peek()) return;
+
   const uint32_t now = millis();
   if (now - _lastCurrentPumpMs < EpubIndexingPolicy::CURRENT_BG_INTERVAL_MS) return;
   _lastCurrentPumpMs = now;

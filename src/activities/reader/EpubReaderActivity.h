@@ -177,6 +177,7 @@ class EpubReaderActivity final : public Activity {
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
+  void resolvePositionAfterSectionLoad();
   void pumpIncrementalIndexIfNeeded();
   void pumpNextChapterPrewarmIfNeeded();
   void saveProgress(int spineIndex, int currentPage, int pageCount);
