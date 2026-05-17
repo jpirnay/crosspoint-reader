@@ -1720,6 +1720,7 @@ bool ChapterHtmlSlimParser::setup(const size_t totalInflatedSize) {
   bytesStreamed = 0;
   lastReportedProgress = -1;
   streamFailed = false;
+  bomSkipped = false;
   layoutFailed = false;
   streamStartTimeMs = millis();
 
@@ -1758,6 +1759,31 @@ size_t ChapterHtmlSlimParser::write(const uint8_t* buffer, const size_t size) {
 
   size_t remaining = size;
   const uint8_t* cursor = buffer;
+
+  // Strip leading BOM and/or whitespace from the very first bytes of the stream.
+  // Expat rejects any bytes before <?xml, including UTF-8 BOM (0xEF 0xBB 0xBF),
+  // lone CR/LF, or null bytes — all cause XML_ERROR_MISPLACED_XML_PI.
+  if (!bomSkipped) {
+    bomSkipped = true;
+    // Strip UTF-8 BOM first
+    if (remaining >= 3 && cursor[0] == 0xEF && cursor[1] == 0xBB && cursor[2] == 0xBF) {
+      cursor += 3;
+      remaining -= 3;
+      LOG_DBG("EHP", "Stripped leading UTF-8 BOM from EPUB XHTML");
+    }
+    // Then strip any leading whitespace (CR, LF, space, tab, null)
+    size_t skipped = 0;
+    while (remaining > 0 && (cursor[0] == '\r' || cursor[0] == '\n' || cursor[0] == ' ' ||
+                              cursor[0] == '\t' || cursor[0] == '\0')) {
+      ++cursor;
+      --remaining;
+      ++skipped;
+    }
+    if (skipped > 0) {
+      LOG_DBG("EHP", "Stripped %u leading whitespace byte(s) from EPUB XHTML", static_cast<unsigned>(skipped));
+    }
+    if (remaining == 0) return size;
+  }
   while (remaining > 0) {
     const size_t chunk = remaining < PARSE_BUFFER_SIZE ? remaining : PARSE_BUFFER_SIZE;
     void* const buf = XML_GetBuffer(activeParser, static_cast<int>(chunk));
@@ -1819,7 +1845,11 @@ bool ChapterHtmlSlimParser::finalize() {
     }
   }
 
-  XML_StopParser(activeParser, XML_FALSE);
+  // Only stop an active (non-errored) parser; stopping an already-errored parser
+  // returns XML_ERROR_INVALID_ARGUMENT and can produce spurious error callbacks.
+  if (!streamFailed) {
+    XML_StopParser(activeParser, XML_FALSE);
+  }
   XML_SetElementHandler(activeParser, nullptr, nullptr);
   XML_SetCharacterDataHandler(activeParser, nullptr);
   XML_ParserFree(activeParser);

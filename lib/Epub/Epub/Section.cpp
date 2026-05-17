@@ -55,8 +55,6 @@ inline uint32_t paragraphLutEntryOffset(uint32_t lutStart, uint16_t page) {
 }
 }  // namespace
 
-#include <algorithm>
-
 namespace {
 constexpr uint32_t FNV_PRIME = 0x01000193;         // 16777619
 constexpr uint32_t FNV_OFFSET_BASIS = 0x811C9DC5;  // 2166136261
@@ -117,15 +115,9 @@ std::string Section::getSectionFilePath(uint32_t propertyHash) const {
   return epub->getCachePath() + "/sections/" + buf + ".bin";
 }
 
-// Incremental cache paths — share the stem with the legacy .bin but use separate extensions.
-static std::string getSecPath(const std::string& stem) { return stem + ".sec"; }
-static std::string getLutPath(const std::string& stem) { return stem + ".lut"; }
-static std::string getAncPath(const std::string& stem) { return stem + ".anc"; }
-
-std::string Section::getSectionStem(uint32_t propertyHash) const {
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%d_%08x", spineIndex, propertyHash);
-  return epub->getCachePath() + "/sections/" + buf;
+static std::string getLutSidecarPath(const std::string& binPath) {
+  // Replace .bin extension with .lut for the per-page offset sidecar
+  return binPath.substr(0, binPath.size() - 4) + ".lut";
 }
 
 std::string Section::getImageBasePath(uint32_t propertyHash) const {
@@ -149,15 +141,12 @@ void Section::evictOldVariants() const {
 
   std::vector<SectionVariant> variants;
 
-  // Find all cache variants belonging to this spineIndex — both .bin and .sec formats
+  // Find all .bin cache variants belonging to this spineIndex
   char prefix[16];
   snprintf(prefix, sizeof(prefix), "%d_", spineIndex);
 
   for (const auto& file : files) {
-    if (!file.startsWith(prefix)) continue;
-    const bool isBin = file.endsWith(".bin");
-    const bool isSec = file.endsWith(".sec");
-    if (!isBin && !isSec) continue;
+    if (!file.startsWith(prefix) || !file.endsWith(".bin")) continue;
 
     HalFile hf = Storage.open((sectionsDir + "/" + file.c_str()).c_str(), O_RDONLY);
     uint16_t md = 0, mt = 0;
@@ -176,34 +165,26 @@ void Section::evictOldVariants() const {
   // Delete everything after MAX_VARIANTS limit
   for (size_t i = MAX_VARIANTS; i < variants.size(); ++i) {
     const std::string& fname = variants[i].filename;
-    size_t dot = fname.rfind('.');
-    size_t underscore = fname.find('_');
+    const std::string binPath = sectionsDir + "/" + fname;
+    Storage.remove(binPath.c_str());
+    LOG_DBG("SCT", "Evicted old section cache: %s", fname.c_str());
 
-    const bool isBinVariant = (dot != std::string::npos && fname.substr(dot) == ".bin");
-
-    if (isBinVariant) {
-      Storage.remove((sectionsDir + "/" + fname).c_str());
-      LOG_DBG("SCT", "Evicted old section cache: %s", fname.c_str());
-    } else {
-      // .sec variant — remove the whole stem set (.sec, .lut, .anc, .raw)
-      std::string stem = sectionsDir + "/" + (dot != std::string::npos ? fname.substr(0, dot) : fname);
-      for (const char* ext : {".sec", ".lut", ".anc", ".raw"}) {
-        std::string p = stem + ext;
-        if (Storage.exists(p.c_str())) {
-          Storage.remove(p.c_str());
-          LOG_DBG("SCT", "Evicted old section cache: %s%s",
-                  (dot != std::string::npos ? fname.substr(0, dot) : fname).c_str(), ext);
-        }
-      }
+    // Also remove the .lut sidecar if it exists (in-progress build was interrupted)
+    const std::string lutPath = getLutSidecarPath(binPath);
+    if (Storage.exists(lutPath.c_str())) {
+      Storage.remove(lutPath.c_str());
     }
 
     // Extract the hash to also clean up associated images
-    // Filename format: spineIndex_hash.{bin,sec,...}
+    // Filename format: spineIndex_hash.bin
+    size_t underscore = fname.find('_');
+    size_t dot = fname.find('.');
     if (underscore != std::string::npos && dot != std::string::npos && dot > underscore) {
       std::string hashStr = fname.substr(underscore + 1, dot - underscore - 1);
       uint32_t parsedHash = strtoul(hashStr.c_str(), nullptr, 16);
       if (parsedHash != 0 || hashStr == "00000000") {
         std::string imgBasePath = getImageBasePath(parsedHash);
+        // Find and delete matching images
         auto rootFiles = Storage.listFiles(epub->getCachePath().c_str(), 100);
         size_t lastSlash = imgBasePath.find_last_of('/');
         std::string imgPrefix = (lastSlash != std::string::npos) ? imgBasePath.substr(lastSlash + 1) : imgBasePath;
@@ -279,107 +260,6 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
       calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                             viewportHeight, hyphenationEnabled, embeddedStyle, bionicReadingEnabled, imageRendering);
 
-  // --- Incremental cache format: try .sec/.lut first ---
-  {
-    const std::string stem = getSectionStem(propertyHash);
-    const std::string secPath = getSecPath(stem);
-    const std::string lutPath = getLutPath(stem);
-
-    FsFile secFile;
-    FsFile lutFile;
-    if (Storage.openFileForRead("SCT", secPath, secFile) && Storage.openFileForRead("SCT", lutPath, lutFile)) {
-      // Validate .sec header
-      uint8_t version;
-      serialization::readPod(secFile, version);
-      bool headerOk = (version == SECTION_FILE_VERSION);
-
-      if (headerOk) {
-        int fileFontId;
-        float fileLineCompression;
-        bool fileExtraParagraphSpacing;
-        uint8_t fileParagraphAlignment;
-        uint16_t fileViewportWidth, fileViewportHeight;
-        bool fileHyphenationEnabled, fileEmbeddedStyle, fileBionicReadingEnabled;
-        uint8_t fileImageRendering;
-        serialization::readPod(secFile, fileFontId);
-        serialization::readPod(secFile, fileLineCompression);
-        serialization::readPod(secFile, fileExtraParagraphSpacing);
-        serialization::readPod(secFile, fileParagraphAlignment);
-        serialization::readPod(secFile, fileViewportWidth);
-        serialization::readPod(secFile, fileViewportHeight);
-        serialization::readPod(secFile, fileHyphenationEnabled);
-        serialization::readPod(secFile, fileEmbeddedStyle);
-        serialization::readPod(secFile, fileBionicReadingEnabled);
-        serialization::readPod(secFile, fileImageRendering);
-
-        if (fontId != fileFontId || lineCompression != fileLineCompression ||
-            extraParagraphSpacing != fileExtraParagraphSpacing || paragraphAlignment != fileParagraphAlignment ||
-            viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight ||
-            hyphenationEnabled != fileHyphenationEnabled || embeddedStyle != fileEmbeddedStyle ||
-            bionicReadingEnabled != fileBionicReadingEnabled || imageRendering != fileImageRendering) {
-          headerOk = false;
-        }
-      }
-
-      if (headerOk) {
-        // Load LUT entries — each is a uint32_t page-data offset in .sec
-        const uint32_t lutFileSize = lutFile.size();
-        const uint32_t entryCount = lutFileSize / sizeof(uint32_t);
-        if (entryCount > 0 && entryCount <= 10000) {
-          lut.resize(entryCount);
-          for (uint32_t& pos : lut) {
-            serialization::readPod(lutFile, pos);
-          }
-          pageCount = static_cast<uint16_t>(entryCount);
-          secFile.close();
-          lutFile.close();
-
-          // Open .sec for reading (page loads seek into it)
-          _secPath = secPath;
-          _lutPath = getLutPath(stem);
-          if (!Storage.openFileForRead("SCT", _secPath, file)) {
-            lut.clear();
-            pageCount = 0;
-          } else {
-            // Check for .anc to build TOC boundaries; if absent, build is still in progress
-            const std::string ancPath = getAncPath(stem);
-            if (Storage.exists(ancPath.c_str())) {
-              _ancPath = ancPath;
-              FsFile ancFile;
-              if (Storage.openFileForRead("SCT", _ancPath, ancFile)) {
-                // .anc format: uint16_t anchorCount, then [string key + uint16_t page] entries.
-                // Load anchors into memory and resolve TOC boundaries.
-                uint16_t anchorCount = 0;
-                serialization::readPod(ancFile, anchorCount);
-                std::vector<std::pair<std::string, uint16_t>> anchors;
-                anchors.reserve(anchorCount);
-                for (uint16_t ai = 0; ai < anchorCount; ai++) {
-                  std::string key;
-                  uint16_t pg;
-                  serialization::readString(ancFile, key);
-                  serialization::readPod(ancFile, pg);
-                  anchors.emplace_back(std::move(key), pg);
-                }
-                ancFile.close();
-                buildTocBoundaries(anchors);
-              }
-              _buildState = BuildState::Complete;
-            } else {
-              _buildState = BuildState::InProgress;
-            }
-            LOG_DBG("SCT", "Loaded incremental cache: spine=%d pages=%u state=%s", spineIndex, pageCount,
-                    _buildState == BuildState::Complete ? "complete" : "partial");
-            return true;
-          }
-        }
-      }
-
-      secFile.close();
-      lutFile.close();
-    }
-  }
-  // --- End incremental cache ---
-
   filePath = getSectionFilePath(propertyHash);
 
   bool usingEmbeddedStyleFallback = false;
@@ -449,6 +329,35 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     truncatedCache = !fileParseComplete;
   }
 
+  // Incremental partial build: parseComplete=false + .lut sidecar present → resume-capable
+  if (truncatedCache) {
+    const std::string lutSidecarPath = getLutSidecarPath(filePath);
+    if (Storage.exists(lutSidecarPath.c_str())) {
+      FsFile lutFile;
+      if (Storage.openFileForRead("SCT", lutSidecarPath, lutFile)) {
+        const uint32_t lutFileSize = lutFile.size();
+        const uint32_t entryCount = lutFileSize / sizeof(uint32_t);
+        if (entryCount > 0 && entryCount <= 10000) {
+          lut.resize(entryCount);
+          for (uint32_t& pos : lut) {
+            serialization::readPod(lutFile, pos);
+          }
+          lutFile.close();
+          pageCount = static_cast<uint16_t>(entryCount);
+          _lutPath = lutSidecarPath;
+          truncatedCache = false;  // Not truncated — in-progress incremental build
+          _buildState = BuildState::InProgress;
+          // file stays open for page reads (already opened above)
+          LOG_DBG("SCT", "Loaded partial incremental cache: spine=%d pages=%u", spineIndex, pageCount);
+          return true;
+        }
+        lutFile.close();
+      }
+    }
+    // No sidecar — this is a legacy truncated .bin (from createSectionFile partial parse).
+    // Fall through: truncatedCache=true, LUT read from embedded offset below.
+  }
+
   serialization::readPod(file, pageCount);
 
   // Sanity check: same upper bound used by TextBlock::deserialize for word count
@@ -486,9 +395,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 }
 
 bool Section::clearCache() {
-  file.close();  // Must be closed before removal on FAT32
-  _lutFile.close();
-  _rawFile.close();
+  if (file.isOpen()) file.close();  // Must be closed before removal on FAT32
+  if (_lutFile.isOpen()) _lutFile.close();
+  if (_rawFile.isOpen()) _rawFile.close();
   _parser.reset();
   _buildState = BuildState::Idle;
   _rawRemaining = 0;
@@ -500,16 +409,14 @@ bool Section::clearCache() {
 
   bool anyRemoved = false;
 
-  // Remove incremental cache files if present
-  for (const std::string* path : {&_secPath, &_lutPath, &_ancPath, &_rawPath}) {
+  // Remove incremental build sidecar files if present
+  for (const std::string* path : {&_lutPath, &_rawPath}) {
     if (!path->empty() && Storage.exists(path->c_str())) {
       Storage.remove(path->c_str());
       anyRemoved = true;
     }
   }
-  _secPath.clear();
   _lutPath.clear();
-  _ancPath.clear();
   _rawPath.clear();
 
   if (!Storage.exists(filePath.c_str())) {
@@ -785,11 +692,9 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   const uint32_t propertyHash =
       calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                             viewportHeight, hyphenationEnabled, embeddedStyle, bionicReadingEnabled, imageRendering);
-  const std::string stem = getSectionStem(propertyHash);
-  _secPath = getSecPath(stem);
-  _lutPath = getLutPath(stem);
-  _ancPath = getAncPath(stem);
-  _rawPath = stem + ".raw";
+  filePath = getSectionFilePath(propertyHash);
+  _lutPath = getLutSidecarPath(filePath);
+  _rawPath = filePath.substr(0, filePath.size() - 4) + ".raw";
   _imagePath = getImageBasePath(propertyHash);
 
   // Ensure sections directory exists
@@ -842,9 +747,9 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   }
   _rawRemaining = inflatedSize;
 
-  // Open .sec for writing (page data)
-  if (!Storage.openFileForWrite("SCT", _secPath, file)) {
-    LOG_ERR("SCT", "beginIncrementalBuild: failed to open .sec for writing");
+  // Open .bin for writing (page data goes directly into the final cache file)
+  if (!Storage.openFileForWrite("SCT", filePath, file)) {
+    LOG_ERR("SCT", "beginIncrementalBuild: failed to open .bin for writing");
     _rawFile.close();
     _buildState = BuildState::Failed;
     return false;
@@ -852,9 +757,9 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                          viewportHeight, hyphenationEnabled, useEmbeddedStyle, bionicReadingEnabled, imageRendering);
 
-  // Open .lut for writing (page offsets, appended per page)
+  // Open .lut sidecar for writing (page offsets, appended per page; merged into .bin on completion)
   if (!Storage.openFileForWrite("SCT", _lutPath, _lutFile)) {
-    LOG_ERR("SCT", "beginIncrementalBuild: failed to open .lut for writing");
+    LOG_ERR("SCT", "beginIncrementalBuild: failed to open .lut sidecar for writing");
     file.close();
     _rawFile.close();
     _buildState = BuildState::Failed;
@@ -886,7 +791,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
     }
   }
 
-  // The page callback appends each page to .sec and its offset to .lut in real time.
+  // The page callback appends each page to .bin and its offset to the .lut sidecar in real time.
   _parser = std::make_unique<ChapterHtmlSlimParser>(
       epub, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth, viewportHeight,
       hyphenationEnabled, bionicReadingEnabled,
@@ -907,8 +812,13 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
     LOG_ERR("SCT", "beginIncrementalBuild: parser setup failed");
     _parser.reset();
     file.close();
+    Storage.remove(filePath.c_str());
     _lutFile.close();
+    Storage.remove(_lutPath.c_str());
+    _lutPath.clear();
     _rawFile.close();
+    Storage.remove(_rawPath.c_str());
+    _rawPath.clear();
     _buildState = BuildState::Failed;
     return false;
   }
@@ -962,63 +872,87 @@ bool Section::pump(const uint8_t maxPages, const uint32_t maxMs) {
     const bool streamOk = _parser->streamSucceeded();
     const bool success = finalizeOk && streamOk;
 
-    // Capture anchors before destroying parser
+    // Capture anchors and paragraph LUT before destroying parser (by value — parser is reset below)
     const auto anchors = _parser->getAnchors();
-    const auto& paragraphLut = _parser->getParagraphLutPerPage();
-
-    // Write .anc (anchor map + paragraph LUT)
-    bool ancOk = false;
-    {
-      FsFile ancFile;
-      if (Storage.openFileForWrite("SCT", _ancPath, ancFile)) {
-        serialization::writePod(ancFile, static_cast<uint16_t>(anchors.size()));
-        for (const auto& [anchor, page] : anchors) {
-          serialization::writeString(ancFile, anchor);
-          serialization::writePod(ancFile, page);
-        }
-        serialization::writePod(ancFile, static_cast<uint16_t>(paragraphLut.size()));
-        for (const auto& entry : paragraphLut) {
-          serialization::writePod(ancFile, entry.xhtmlByteOffset);
-          serialization::writePod(ancFile, entry.paragraphIndex);
-          serialization::writePod(ancFile, entry.listItemIndex);
-        }
-        ancFile.close();
-        ancOk = true;
-      } else {
-        LOG_ERR("SCT", "pump: failed to write .anc");
-      }
-    }
+    const auto paragraphLut = _parser->getParagraphLutPerPage();
 
     _lutFile.close();
     _parser.reset();
     _rawFile.close();
     Storage.remove(_rawPath.c_str());
 
-    // Patch .sec header (parseComplete + placeholders for unused offsets)
-    if (file.seek(header::kParseComplete)) {
-      serialization::writePod(file, success && ancOk);
-      serialization::writePod(file, pageCount);
-      serialization::writePod(file, static_cast<uint32_t>(0));
-      serialization::writePod(file, static_cast<uint32_t>(0));
-      serialization::writePod(file, static_cast<uint32_t>(0));
-      file.flush();
+    // Append LUT + anchor map + paragraph LUT to .bin, then patch header
+    bool finalizeWriteOk = false;
+    {
+      const uint32_t lutOffset = file.position();
+      bool hasFailedLutRecords = false;
+      for (const uint32_t& pos : lut) {
+        if (pos == 0) {
+          hasFailedLutRecords = true;
+          break;
+        }
+        serialization::writePod(file, pos);
+      }
+
+      if (!hasFailedLutRecords) {
+        const uint32_t anchorMapOffset = file.position();
+        serialization::writePod(file, static_cast<uint16_t>(anchors.size()));
+        for (const auto& [anchor, page] : anchors) {
+          serialization::writeString(file, anchor);
+          serialization::writePod(file, page);
+        }
+
+        const uint32_t paragraphLutOffset = file.position();
+        serialization::writePod(file, static_cast<uint16_t>(paragraphLut.size()));
+        for (const auto& entry : paragraphLut) {
+          serialization::writePod(file, entry.xhtmlByteOffset);
+          serialization::writePod(file, entry.paragraphIndex);
+          serialization::writePod(file, entry.listItemIndex);
+        }
+
+        if (file.seek(header::kParseComplete)) {
+          serialization::writePod(file, success);
+          serialization::writePod(file, pageCount);
+          serialization::writePod(file, lutOffset);
+          serialization::writePod(file, anchorMapOffset);
+          serialization::writePod(file, paragraphLutOffset);
+          file.flush();
+          finalizeWriteOk = true;
+        } else {
+          LOG_ERR("SCT", "pump: failed to seek to header patch offset");
+        }
+      } else {
+        LOG_ERR("SCT", "pump: invalid LUT entries during finalization");
+      }
     }
 
-    // Reopen .sec for reading
+    // Delete .lut sidecar — data is now embedded in .bin (or build failed)
+    if (Storage.exists(_lutPath.c_str())) {
+      Storage.remove(_lutPath.c_str());
+    }
+    _lutPath.clear();
+
+    if (!success || !finalizeWriteOk) {
+      // Build failed — delete the incomplete .bin so the next open triggers a fresh build
+      // rather than loading a zombie cache with parseComplete=false and 0 pages.
+      file.close();
+      Storage.remove(filePath.c_str());
+      _buildState = BuildState::Failed;
+      LOG_ERR("SCT", "pump: build failed (success=%d finalizeOk=%d), deleted cache", success, finalizeWriteOk);
+      return false;
+    }
+
+    // Reopen .bin for reading
     file.close();
-    if (!Storage.openFileForRead("SCT", _secPath, file)) {
-      LOG_ERR("SCT", "pump: failed to reopen .sec for reading");
+    if (!Storage.openFileForRead("SCT", filePath, file)) {
+      LOG_ERR("SCT", "pump: failed to reopen .bin for reading");
       _buildState = BuildState::Failed;
       return false;
     }
 
-    if (ancOk) {
-      buildTocBoundaries(anchors);
-    }
-
-    _buildState = (success && ancOk) ? BuildState::Complete : BuildState::Failed;
-    LOG_DBG("SCT", "pump complete: spine=%d pages=%u state=%s", spineIndex, pageCount,
-            _buildState == BuildState::Complete ? "complete" : "failed");
+    buildTocBoundaries(anchors);
+    _buildState = BuildState::Complete;
+    LOG_DBG("SCT", "pump complete: spine=%d pages=%u", spineIndex, pageCount);
   }
 
   return _buildState != BuildState::Failed;
@@ -1033,10 +967,8 @@ std::unique_ptr<Page> Section::loadPageFromSectionFile() {
 
   if (!file) {
     // Safety fallback: file was closed unexpectedly; reopen.
-    // Use _secPath when in incremental mode, filePath for legacy .bin format.
-    const std::string& openPath = _secPath.empty() ? filePath : _secPath;
-    LOG_ERR("SCT", "loadPageFromSectionFile: file not open, reopening %s", openPath.c_str());
-    if (!Storage.openFileForRead("SCT", openPath, file)) {
+    LOG_ERR("SCT", "loadPageFromSectionFile: file not open, reopening %s", filePath.c_str());
+    if (!Storage.openFileForRead("SCT", filePath, file)) {
       return nullptr;
     }
   }
@@ -1201,25 +1133,7 @@ std::optional<Section::TocPageRange> Section::getPageRangeForTocIndex(const int 
 }
 
 std::optional<uint16_t> Section::getPageForAnchor(const std::string& anchor) const {
-  // Incremental build: use .anc file which has same anchor map format at offset 0
-  if (!_ancPath.empty()) {
-    FsFile f;
-    if (!Storage.openFileForRead("SCT", _ancPath, f)) return std::nullopt;
-    uint16_t count;
-    serialization::readPod(f, count);
-    for (uint16_t i = 0; i < count; i++) {
-      std::string key;
-      uint16_t page;
-      serialization::readString(f, key);
-      serialization::readPod(f, page);
-      if (key == anchor) {
-        f.close();
-        return page;
-      }
-    }
-    f.close();
-    return std::nullopt;
-  }
+  if (_buildState == BuildState::InProgress) return std::nullopt;
 
   FsFile f;
   if (!Storage.openFileForRead("SCT", filePath, f)) {
@@ -1254,33 +1168,7 @@ std::optional<uint16_t> Section::getPageForAnchor(const std::string& anchor) con
 }
 
 bool Section::readParagraphLutHeader(FsFile& outFile, uint16_t& outCount, uint32_t& outLutStart) const {
-  // Incremental build: paragraph LUT is in .anc after the anchor section
-  if (!_ancPath.empty()) {
-    if (!Storage.openFileForRead("SCT", _ancPath, outFile)) return false;
-    uint16_t anchorCount;
-    serialization::readPod(outFile, anchorCount);
-    // Skip over anchor entries (string + uint16_t page each)
-    for (uint16_t i = 0; i < anchorCount; i++) {
-      std::string key;
-      uint16_t page;
-      serialization::readString(outFile, key);
-      serialization::readPod(outFile, page);
-    }
-    serialization::readPod(outFile, outCount);
-    if (outCount == 0) {
-      outFile.close();
-      return false;
-    }
-    const uint32_t fileSize = outFile.size();
-    const uint64_t requiredBytes = static_cast<uint64_t>(outCount) * PARAGRAPH_LUT_ENTRY_SIZE;
-    const uint32_t pos = outFile.position();
-    if (static_cast<uint64_t>(fileSize) - pos < requiredBytes) {
-      outFile.close();
-      return false;
-    }
-    outLutStart = pos;
-    return true;
-  }
+  if (_buildState == BuildState::InProgress) return false;
 
   if (!Storage.openFileForRead("SCT", filePath, outFile)) {
     return false;

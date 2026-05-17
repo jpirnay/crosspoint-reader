@@ -28,9 +28,7 @@ class Section {
   FsFile _lutFile;
   FsFile _rawFile;  // temp extracted XHTML — fed to parser in chunks across pumps
   size_t _rawRemaining = 0;
-  std::string _secPath;
   std::string _lutPath;
-  std::string _ancPath;
   std::string _rawPath;
   std::string _imagePath;
 
@@ -63,8 +61,6 @@ class Section {
 
   // Computes the active file path for this section based on rendering properties
   std::string getSectionFilePath(uint32_t propertyHash) const;
-  // Computes the stem (no extension) for the incremental cache files (.sec/.lut/.anc)
-  std::string getSectionStem(uint32_t propertyHash) const;
   // Computes the image base path for extract images related to this specific section variant
   std::string getImageBasePath(uint32_t propertyHash) const;
   // Garbage collection: Keep only the most recent N variants per chapter
@@ -73,6 +69,8 @@ class Section {
  public:
   uint16_t pageCount = 0;
   int currentPage = 0;
+
+  int getSpineIndex() const { return spineIndex; }
 
   explicit Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRenderer& renderer);
   ~Section();

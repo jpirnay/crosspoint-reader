@@ -47,6 +47,7 @@ class EpubReaderActivity final : public Activity {
   bool showTruncatedSectionHintThisRender = false;
   uint8_t truncatedSectionHintRendersRemaining = 0;
   int lastWarnedTruncatedSpineIndex = -1;
+  int lastFailedBuildSpineIndex = -1;  // Prevents infinite rebuild loop on parse-error spines
   struct RenderPhaseStats {
     unsigned long prewarmMs = 0UL;
     unsigned long bwRenderMs = 0UL;

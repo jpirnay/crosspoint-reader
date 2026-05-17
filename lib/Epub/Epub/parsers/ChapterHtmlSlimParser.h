@@ -143,6 +143,7 @@ class ChapterHtmlSlimParser final : public Print {
   int progressStepPercent = 0;
   bool progressUiEnabled = true;
   bool streamFailed = false;
+  bool bomSkipped = false;  // true after leading UTF-8 BOM stripped on first write()
   uint32_t streamStartTimeMs = 0;
 
   // Incremental pumping: suspend after this many completed pages (INT_MAX = no limit).
