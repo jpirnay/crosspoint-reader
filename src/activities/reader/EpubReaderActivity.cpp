@@ -1054,9 +1054,14 @@ void EpubReaderActivity::launchKOReaderSync(const SyncLaunchMode mode) {
   // Populate paragraph index and XHTML seek hint from section LUT.
   // If the section is still building, pump it to completion now — the user triggered
   // a sync so we need accurate LUT data, and paying the build cost here is correct.
+  // Yield during render frames to avoid GfxRenderer concurrent access.
   if (section) {
     const uint32_t pumpDeadline = millis() + 30000;
     while (section->buildState() == BuildState::InProgress && millis() < pumpDeadline) {
+      if (RenderLock::peek()) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+        continue;
+      }
       section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
     }
     if (const auto pIdx = section->getParagraphIndexForPage(static_cast<uint16_t>(currentPage))) {
@@ -1719,7 +1724,10 @@ void EpubReaderActivity::resolvePositionAfterSectionLoad() {
     if (section->buildState() == BuildState::InProgress) {
       const uint32_t pumpDeadline = millis() + 30000;
       while (section->buildState() == BuildState::InProgress && millis() < pumpDeadline) {
-        if (RenderLock::peek()) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+        if (RenderLock::peek()) {
+          vTaskDelay(pdMS_TO_TICKS(5));
+          continue;
+        }
         section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
       }
       if (section->buildState() == BuildState::InProgress) {
@@ -1786,7 +1794,10 @@ void EpubReaderActivity::resolvePositionAfterSectionLoad() {
     const uint32_t pumpDeadline = millis() + 30000;
     while (!section->hasPage(section->currentPage) && section->buildState() == BuildState::InProgress &&
            millis() < pumpDeadline) {
-      if (RenderLock::peek()) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+      if (RenderLock::peek()) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+        continue;
+      }
       section->pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
     }
     if (section->buildState() == BuildState::InProgress && !section->hasPage(section->currentPage)) {
