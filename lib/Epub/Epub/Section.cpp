@@ -875,7 +875,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   return _buildState != BuildState::Failed;
 }
 
-bool Section::pump(const uint8_t maxPages, const uint32_t maxMs) {
+bool Section::pump(const uint8_t maxPages, const uint32_t maxMs, const size_t chunkBytes) {
   if (_buildState != BuildState::InProgress || !_parser) {
     return false;
   }
@@ -884,8 +884,10 @@ bool Section::pump(const uint8_t maxPages, const uint32_t maxMs) {
   _parser->setPageLimit(static_cast<int>(lut.size()) + maxPages);
 
   // Feed chunks from the .raw file into the parser until suspended, time budget hit, or EOF.
-  constexpr size_t PUMP_CHUNK = 512;
-  uint8_t chunkBuf[PUMP_CHUNK];
+  // chunkBytes is capped to 512 to keep the stack buffer fixed-size.
+  constexpr size_t MAX_CHUNK = 512;
+  const size_t effectiveChunk = (chunkBytes == 0 || chunkBytes > MAX_CHUNK) ? MAX_CHUNK : chunkBytes;
+  uint8_t chunkBuf[MAX_CHUNK];
 
   if (_parser->isSuspended()) {
     // Resume — Expat will continue parsing from where it stopped within its current buffer.
@@ -896,7 +898,7 @@ bool Section::pump(const uint8_t maxPages, const uint32_t maxMs) {
   while (_rawRemaining > 0 && !_parser->isSuspended()) {
     if (millis() - startMs >= maxMs) break;
 
-    const size_t toRead = (_rawRemaining < PUMP_CHUNK) ? _rawRemaining : PUMP_CHUNK;
+    const size_t toRead = (_rawRemaining < effectiveChunk) ? _rawRemaining : effectiveChunk;
     const size_t bytesRead = _rawFile.read(chunkBuf, toRead);
     if (bytesRead == 0) {
       LOG_ERR("SCT", "pump: unexpected EOF in .raw after %u bytes remaining", static_cast<uint32_t>(_rawRemaining));

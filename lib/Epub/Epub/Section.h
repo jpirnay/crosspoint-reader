@@ -95,8 +95,10 @@ class Section {
                              uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
                              bool embeddedStyle, bool bionicReadingEnabled, uint8_t imageRendering);
   // Pump up to maxPages pages or maxMs milliseconds, whichever comes first.
+  // chunkBytes controls how many raw bytes are fed to the XML parser per SD read;
+  // smaller values make the time budget more precise at the cost of extra SD seeks.
   // Returns false on build failure. Check buildState() == Complete for completion.
-  bool pump(uint8_t maxPages, uint32_t maxMs);
+  bool pump(uint8_t maxPages, uint32_t maxMs, size_t chunkBytes = 512);
   BuildState buildState() const { return _buildState; }
   // True once the 0-based page index n has been indexed and can be loaded.
   bool hasPage(int n) const { return n >= 0 && n < static_cast<int>(lut.size()); }

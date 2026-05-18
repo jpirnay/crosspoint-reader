@@ -1752,7 +1752,7 @@ void EpubReaderActivity::NavigationTarget::resolveInto(Section& sec, int spineIn
           vTaskDelay(pdMS_TO_TICKS(5));
           continue;
         }
-        sec.pump(EpubIndexingPolicy::OUTRUN_PAGES, EpubIndexingPolicy::OUTRUN_MAX_MS);
+        sec.pump(EpubIndexingPolicy::FLUSH_PAGES, EpubIndexingPolicy::FLUSH_MAX_MS);
       }
       if (sec.buildState() == BuildState::InProgress) LOG_ERR("ERS", "LastPage pump timed out spine %d", spineIndex);
     }
@@ -1940,7 +1940,8 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
   const int targetPage = section->currentPage;
   const bool hadTargetBefore = section->hasPage(targetPage);
   const bool wasInProgress = (section->buildState() == BuildState::InProgress);
-  const bool pumpOk = section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS);
+  const bool pumpOk = section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS,
+                                    EpubIndexingPolicy::CURRENT_BG_CHUNK_BYTES);
   if (!pumpOk && section->buildState() == BuildState::Failed) {
     LOG_ERR("ERS", "loop: pump failed for spine=%d, marking as failed", currentSpineIndex);
     lastFailedBuildSpineIndex = currentSpineIndex;
@@ -1994,7 +1995,8 @@ void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
     if (now - _lastPrewarmPumpMs < EpubIndexingPolicy::PREWARM_INTERVAL_MS) return;
     _lastPrewarmPumpMs = now;
     if (RenderLock::peek()) return;
-    _prewarmSection->pump(EpubIndexingPolicy::PREWARM_PAGES, EpubIndexingPolicy::PREWARM_MAX_MS);
+    _prewarmSection->pump(EpubIndexingPolicy::PREWARM_PAGES, EpubIndexingPolicy::PREWARM_MAX_MS,
+                          EpubIndexingPolicy::PREWARM_CHUNK_BYTES);
     return;
   }
 
