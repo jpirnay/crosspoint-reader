@@ -117,6 +117,14 @@ bool KOReaderSyncActivity::calculateDocumentHash() {
 
 bool KOReaderSyncActivity::handleAutoPushPreflight() {
   KOReaderSyncClient::beginPersistentSession();
+
+  // AUTO_PUSH must not overwrite progress already ahead on the server, so it
+  // needs a GET to check. PUSH_LOCAL is an explicit user action — skip the GET
+  // and go straight to upload using the already-open session.
+  if (syncIntent == KOReaderSyncIntentState::PUSH_LOCAL) {
+    return true;
+  }
+
   KOReaderProgress warmupProgress;
   const auto warmupResult = KOReaderSyncClient::getProgress(documentHash, warmupProgress);
   if (warmupResult != KOReaderSyncClient::OK && warmupResult != KOReaderSyncClient::NOT_FOUND) {
@@ -134,9 +142,7 @@ bool KOReaderSyncActivity::handleAutoPushPreflight() {
     requestUpdate(true);
     return false;
   }
-  // Auto-push must not overwrite progress that is already further along on the server.
-  if (syncIntent == KOReaderSyncIntentState::AUTO_PUSH && warmupResult == KOReaderSyncClient::OK &&
-      warmupProgress.percentage > localProgress.percentage) {
+  if (warmupResult == KOReaderSyncClient::OK && warmupProgress.percentage > localProgress.percentage) {
     LOG_DBG("KOSync", "AUTO_PUSH skipped: remote %.4f >= local %.4f", warmupProgress.percentage,
             localProgress.percentage);
     KOReaderSyncClient::endPersistentSession();

@@ -336,6 +336,11 @@ void ChapterHtmlSlimParser::emitPage(uint32_t xhtmlByteOffset) {
   completedPageCount++;
   currentPage.reset(new Page());
   currentPageNextY = 0;
+
+  if (completedPageCount >= pageLimit && activeParser) {
+    XML_StopParser(activeParser, XML_TRUE);  // resumable suspend
+    suspended = true;
+  }
 }
 
 // start a new text block if needed
@@ -1720,6 +1725,7 @@ bool ChapterHtmlSlimParser::setup(const size_t totalInflatedSize) {
   bytesStreamed = 0;
   lastReportedProgress = -1;
   streamFailed = false;
+  bomSkipped = false;
   layoutFailed = false;
   streamStartTimeMs = millis();
 
@@ -1754,10 +1760,35 @@ size_t ChapterHtmlSlimParser::write(const uint8_t data) { return write(&data, 1)
 
 size_t ChapterHtmlSlimParser::write(const uint8_t* buffer, const size_t size) {
   if (size == 0) return 0;
-  if (!activeParser || streamFailed) return 0;
+  if (!activeParser || streamFailed || suspended) return 0;
 
   size_t remaining = size;
   const uint8_t* cursor = buffer;
+
+  // Strip leading BOM and/or whitespace from the very first bytes of the stream.
+  // Expat rejects any bytes before <?xml, including UTF-8 BOM (0xEF 0xBB 0xBF),
+  // lone CR/LF, or null bytes — all cause XML_ERROR_MISPLACED_XML_PI.
+  if (!bomSkipped) {
+    bomSkipped = true;
+    // Strip UTF-8 BOM first
+    if (remaining >= 3 && cursor[0] == 0xEF && cursor[1] == 0xBB && cursor[2] == 0xBF) {
+      cursor += 3;
+      remaining -= 3;
+      LOG_DBG("EHP", "Stripped leading UTF-8 BOM from EPUB XHTML");
+    }
+    // Then strip any leading whitespace (CR, LF, space, tab, null)
+    size_t skipped = 0;
+    while (remaining > 0 &&
+           (cursor[0] == '\r' || cursor[0] == '\n' || cursor[0] == ' ' || cursor[0] == '\t' || cursor[0] == '\0')) {
+      ++cursor;
+      --remaining;
+      ++skipped;
+    }
+    if (skipped > 0) {
+      LOG_DBG("EHP", "Stripped %u leading whitespace byte(s) from EPUB XHTML", static_cast<unsigned>(skipped));
+    }
+    if (remaining == 0) return size;
+  }
   while (remaining > 0) {
     const size_t chunk = remaining < PARSE_BUFFER_SIZE ? remaining : PARSE_BUFFER_SIZE;
     void* const buf = XML_GetBuffer(activeParser, static_cast<int>(chunk));
@@ -1771,7 +1802,8 @@ size_t ChapterHtmlSlimParser::write(const uint8_t* buffer, const size_t size) {
     bytesStreamed += chunk;
     // The streaming source doesn't know "this was the last chunk" — pass isFinal=false
     // here and let finalize() emit the terminating empty parse with isFinal=true.
-    if (XML_ParseBuffer(activeParser, static_cast<int>(chunk), 0) == XML_STATUS_ERROR) {
+    const XML_Status parseStatus = XML_ParseBuffer(activeParser, static_cast<int>(chunk), 0);
+    if (parseStatus == XML_STATUS_ERROR) {
       LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(activeParser),
               XML_ErrorString(XML_GetErrorCode(activeParser)));
       streamFailed = true;
@@ -1780,6 +1812,12 @@ size_t ChapterHtmlSlimParser::write(const uint8_t* buffer, const size_t size) {
 
     cursor += chunk;
     remaining -= chunk;
+
+    // Parser was suspended mid-chunk by emitPage() hitting pageLimit.
+    // Stop feeding more data; resume() will continue from here.
+    if (suspended) {
+      break;
+    }
   }
 
   // Report progress at the granularity chosen up-front (see progressStepPercent).
@@ -1812,7 +1850,11 @@ bool ChapterHtmlSlimParser::finalize() {
     }
   }
 
-  XML_StopParser(activeParser, XML_FALSE);
+  // Only stop an active (non-errored) parser; stopping an already-errored parser
+  // returns XML_ERROR_INVALID_ARGUMENT and can produce spurious error callbacks.
+  if (!streamFailed) {
+    XML_StopParser(activeParser, XML_FALSE);
+  }
   XML_SetElementHandler(activeParser, nullptr, nullptr);
   XML_SetCharacterDataHandler(activeParser, nullptr);
   XML_ParserFree(activeParser);
@@ -1837,6 +1879,19 @@ bool ChapterHtmlSlimParser::finalize() {
   }
 
   return success;
+}
+
+bool ChapterHtmlSlimParser::resume() {
+  if (!suspended || !activeParser) {
+    return false;
+  }
+  suspended = false;
+  if (XML_ResumeParser(activeParser) == XML_STATUS_ERROR) {
+    LOG_ERR("EHP", "Resume error: %s", XML_ErrorString(XML_GetErrorCode(activeParser)));
+    streamFailed = true;
+    return false;
+  }
+  return true;
 }
 
 ParsedText::LineProcessResult ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line,

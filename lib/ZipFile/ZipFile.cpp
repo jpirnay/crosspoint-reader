@@ -3,6 +3,8 @@
 #include <HalStorage.h>
 #include <InflateReader.h>
 #include <Logging.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <algorithm>
 
@@ -463,7 +465,12 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
     }
 
     size_t remaining = inflatedDataSize;
+    int storedYieldCounter = 0;
     while (remaining > 0) {
+      if (++storedYieldCounter >= 64) {
+        vTaskDelay(1);
+        storedYieldCounter = 0;
+      }
       const size_t dataRead = file.read(buffer, remaining < chunkSize ? remaining : chunkSize);
       if (dataRead == 0) {
         LOG_ERR("ZIP", "Could not read more bytes");
@@ -513,8 +520,13 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     bool success = false;
     size_t totalProduced = 0;
+    int yieldCounter = 0;
 
     while (true) {
+      if (++yieldCounter >= 64) {
+        vTaskDelay(1);  // yield to IDLE/watchdog every 64 chunks during long decompression
+        yieldCounter = 0;
+      }
       size_t produced;
       const InflateStatus status = ctx.reader.readAtMost(outputBuffer, chunkSize, &produced);
 

@@ -33,7 +33,7 @@
 
 void ActivityManager::begin() {
   xTaskCreate(&renderTaskTrampoline, "ActivityManagerRender",
-              8192,              // Stack size
+              8192,              // Stack size — render() does no file I/O (all SD work is in loop task)
               this,              // Parameters
               1,                 // Priority
               &renderTaskHandle  // Task handle

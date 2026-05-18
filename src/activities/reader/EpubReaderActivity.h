@@ -1,8 +1,10 @@
 #pragma once
 #include <Epub.h>
+#include <Epub/EpubIndexingPolicy.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
+#include <atomic>
 #include <optional>
 
 #include "BookmarkStore.h"
@@ -24,19 +26,94 @@ class EpubReaderActivity final : public Activity {
     AUTO_PUSH,
   };
 
+  // Encodes pending navigation intent — where to land once the target section is ready.
+  // Replaces the scattered nextPageNumber / pending* / cached* fields.
+  struct NavigationTarget {
+    enum class Kind : uint8_t {
+      Page,       // go to page n (0-based)
+      LastPage,   // go to last page of section (was UINT16_MAX sentinel)
+      Anchor,     // href fragment (e.g. "note1")
+      TocIndex,   // TOC entry index
+      Percent,    // normalised 0.0–1.0 within spine
+      Paragraph,  // KOReader paragraph LUT index
+      ListItem,   // KOReader li-anchored LUT index
+    };
+    Kind kind = Kind::Page;
+    union {
+      int page;             // Kind::Page
+      int tocIndex;         // Kind::TocIndex
+      float spineProgress;  // Kind::Percent
+      uint16_t lutIndex;    // Kind::Paragraph / Kind::ListItem
+    };
+    std::string anchorStr;  // Kind::Anchor; empty (SSO, no alloc) for all others
+    // Cross-font rescaling: page count of this spine at save time.
+    // Non-zero only for Kind::Page when loaded from progress.bin or written during reflow.
+    int cachedPageCount = 0;
+    int cachedSpineIdx = 0;
+
+    NavigationTarget() : kind(Kind::Page), page(0) {}
+
+    static NavigationTarget makePage(int n) {
+      NavigationTarget t;
+      t.kind = Kind::Page;
+      t.page = n;
+      return t;
+    }
+    static NavigationTarget makeLastPage() {
+      NavigationTarget t;
+      t.kind = Kind::LastPage;
+      t.page = 0;
+      return t;
+    }
+    static NavigationTarget makeAnchor(std::string a) {
+      NavigationTarget t;
+      t.kind = Kind::Anchor;
+      t.page = 0;
+      t.anchorStr = std::move(a);
+      return t;
+    }
+    static NavigationTarget makeTocIndex(int idx) {
+      NavigationTarget t;
+      t.kind = Kind::TocIndex;
+      t.tocIndex = idx;
+      return t;
+    }
+    static NavigationTarget makePercent(float sp) {
+      NavigationTarget t;
+      t.kind = Kind::Percent;
+      t.spineProgress = sp;
+      return t;
+    }
+    static NavigationTarget makeParagraph(uint16_t i) {
+      NavigationTarget t;
+      t.kind = Kind::Paragraph;
+      t.lutIndex = i;
+      return t;
+    }
+    static NavigationTarget makeListItem(uint16_t i) {
+      NavigationTarget t;
+      t.kind = Kind::ListItem;
+      t.lutIndex = i;
+      return t;
+    }
+
+    // True for kinds that require the build to be Complete before resolving.
+    // Kind::Page with cachedPageCount > 0 needs the final pageCount for proportional rescaling.
+    bool needsCompleteBuild() const {
+      if (kind == Kind::Page && cachedPageCount > 0) return true;
+      return kind == Kind::LastPage || kind == Kind::Anchor || kind == Kind::TocIndex || kind == Kind::Paragraph ||
+             kind == Kind::ListItem;
+    }
+
+    // Resolves the target into section.currentPage. Main-task only (may vTaskDelay).
+    void resolveInto(Section& section, int currentSpineIndex);
+  };
+
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
-  int nextPageNumber = 0;
-  // Set when navigating to a TOC entry in a different spine (chapter skip or chapter selector).
-  // Cleared on the next render after the new section loads and resolves it to a page.
-  std::optional<int> pendingTocIndex;
-  // Set when navigating to a footnote href with a fragment (e.g. #note1).
-  // Cleared on the next render after the new section loads and resolves it to a page.
-  std::string pendingAnchor;
+  NavigationTarget navTarget;
   int pagesUntilFullRefresh = 0;
-  int cachedSpineIndex = 0;
-  int cachedChapterTotalPageCount = 0;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   bool pendingHalfRefreshAfterImagePage = false;
@@ -46,6 +123,7 @@ class EpubReaderActivity final : public Activity {
   bool showTruncatedSectionHintThisRender = false;
   uint8_t truncatedSectionHintRendersRemaining = 0;
   int lastWarnedTruncatedSpineIndex = -1;
+  int lastFailedBuildSpineIndex = -1;  // Prevents infinite rebuild loop on parse-error spines
   struct RenderPhaseStats {
     unsigned long prewarmMs = 0UL;
     unsigned long bwRenderMs = 0UL;
@@ -120,23 +198,29 @@ class EpubReaderActivity final : public Activity {
     uint32_t maxFreeHeapAfter = 0;
   };
   LastRenderStats lastRenderStats;
-  // Signals that the next render should reposition within the newly loaded section
-  // based on a cross-book percentage jump.
-  bool pendingPercentJump = false;
-  // Normalized 0.0-1.0 progress within the target spine item, computed from book percentage.
-  float pendingSpineProgress = 0.0f;
-  // Pending paragraph index from KOReader sync (resolved to page via Section paragraph LUT)
-  bool pendingParagraphLookup = false;
-  uint16_t pendingParagraphIndex = 0;
-  // Pending list-item index for KOReader-supplied XPaths whose deepest element is /li[N].
-  // Preferred over pendingParagraphLookup when set because <li>-anchored XPaths are not
-  // representable in the body-child <p> LUT.
-  bool pendingListItemLookup = false;
-  uint16_t pendingListItemIndex = 0;
+  // Deferred SD-card work: render() posts intent; loop() executes on next tick.
+  // Fields are written before valid is set so loop() sees a consistent snapshot.
+  struct PendingProgressSave {
+    int spineIndex = 0;
+    int currentPage = 0;
+    int pageCount = 0;
+    std::atomic<bool> valid{false};
+  } pendingProgressSave;
+  std::atomic<bool> pendingCacheClear{false};  // render() detected corrupt page; loop() clears + rebuilds
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool finishedBookActivityStarted_ = false;
   ReaderUtils::InputDrainGuard inputDrainGuard;
+
+  // Incremental indexing pump timers and prewarm section
+  unsigned long _lastCurrentPumpMs = 0;
+  unsigned long _lastPrewarmPumpMs = 0;
+  std::unique_ptr<Section> _prewarmSection;
+  // Set to the next spine index once its cache is confirmed built; prevents repeated loadSectionFile checks.
+  // Reset to -1 whenever currentSpineIndex advances.
+  int _prewarmDoneForSpine = -1;
+  uint16_t _lastViewportWidth = 0;
+  uint16_t _lastViewportHeight = 0;
   bool automaticPageTurnActive = false;
   // Pages turned in the current reader session. Used to gate auto-push-on-close: a brief
   // inspection of a book should not trigger a network round-trip. Reset on every reader
@@ -167,7 +251,9 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
-  void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
+  void resolvePositionAfterSectionLoad();
+  void pumpIncrementalIndexIfNeeded();
+  void pumpNextChapterPrewarmIfNeeded();
   void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);

@@ -64,11 +64,15 @@ KOReaderPosition ProgressMapper::toKOReader(const std::shared_ptr<Epub>& epub, c
   // Calculate overall book progress (0.0-1.0)
   result.percentage = epub->calculateProgress(pos.spineIndex, intraSpineProgress);
 
-  // Generate XPath for the current position via byte-offset scan. Targeting the
-  // paragraph LUT entry instead would snap to the start of the paragraph the user
-  // is inside, which causes pulled positions to land at the start of the chapter
-  // when an opening paragraph spans many pages.
-  result.xpath = ChapterXPathIndexer::findXPathForProgress(epub, pos.spineIndex, intraSpineProgress);
+  // Use findXPathForParagraph with the XHTML seek hint: seeks directly to the hint
+  // offset and scans a short slice, avoiding the two-pass total-text-byte scan.
+  // The caller must ensure the section is fully indexed before building pos
+  // (i.e. pump InProgress sections to completion before calling toKOReader).
+  if (pos.hasParagraphIndex && pos.paragraphIndex > 0) {
+    const uint16_t startCount = pos.paragraphIndex - 1;
+    result.xpath = ChapterXPathIndexer::findXPathForParagraph(epub, pos.spineIndex, pos.paragraphIndex,
+                                                              pos.xhtmlSeekHint, startCount);
+  }
   if (result.xpath.empty()) {
     result.xpath = generateXPath(pos.spineIndex);
   }
