@@ -554,6 +554,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (!coverRendered) {
       std::string coverPath = book.coverBmpPath;
       bool hasCover = true;
+      bool coverPending = false;
       int tileX = LyraMetrics::values.contentSidePadding;
       if (coverPath.empty()) {
         hasCover = false;
@@ -572,6 +573,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
             hasCover = false;
           }
           file.close();
+        } else {
+          hasCover = false;
+          coverPending = true;  // path exists but BMP not ready yet
         }
       }
 
@@ -579,14 +583,27 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       renderer.drawRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection, coverWidth, coverHeight, true);
 
       if (!hasCover) {
-        // Render empty cover
-        renderer.fillRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection + (coverHeight / 3), coverWidth,
-                          2 * coverHeight / 3, true);
-        renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + 24, tileY + hPaddingInSelection + 24, 32, 32);
+        if (coverPending) {
+          // Cover is being generated — show a loading label centred in the cover area
+          const char* loadingText = tr(STR_LOADING);
+          const int textW = renderer.getTextWidth(SMALL_FONT_ID, loadingText);
+          const int textH = renderer.getLineHeight(SMALL_FONT_ID);
+          renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection + (coverWidth - textW) / 2,
+                            tileY + hPaddingInSelection + (coverHeight - textH) / 2, loadingText, true);
+        } else {
+          // No cover at all — render empty cover placeholder
+          renderer.fillRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection + (coverHeight / 3), coverWidth,
+                            2 * coverHeight / 3, true);
+          renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + 24, tileY + hPaddingInSelection + 24, 32, 32);
+        }
       }
 
-      coverBufferStored = storeCoverBuffer();
-      coverRendered = coverBufferStored;  // Only consider it rendered if we successfully stored the buffer
+      // Only cache the frame buffer once the cover is definitively resolved (loaded or confirmed absent).
+      // If a cover is still being generated we keep coverRendered=false so the next render will retry.
+      if (!coverPending) {
+        coverBufferStored = storeCoverBuffer();
+        coverRendered = coverBufferStored;
+      }
     }
 
     bool bookSelected = (selectorIndex == 0);

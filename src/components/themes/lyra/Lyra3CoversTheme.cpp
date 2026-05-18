@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <I18n.h>
 
 #include <cstdint>
 #include <string>
@@ -32,10 +33,12 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
   // Only load from SD on first render, then use stored buffer
   if (hasContinueReading) {
     if (!coverRendered) {
+      bool anyPending = false;
       for (int i = 0;
            i < std::min(static_cast<int>(recentBooks.size()), Lyra3CoversMetrics::values.homeRecentBooksCount); i++) {
         std::string coverPath = recentBooks[i].coverBmpPath;
         bool hasCover = true;
+        bool tilePending = false;
         int tileX = Lyra3CoversMetrics::values.contentSidePadding + tileWidth * i;
         if (coverPath.empty()) {
           hasCover = false;
@@ -62,6 +65,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
             file.close();
           } else {
             hasCover = false;
+            tilePending = true;  // path exists but BMP not ready yet
+            anyPending = true;
           }
         }
         // Draw either way
@@ -69,15 +74,29 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                           coverHeight, true);
 
         if (!hasCover) {
-          // Render empty cover
-          renderer.fillRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection + (coverHeight / 3),
-                            tileWidth - 2 * hPaddingInSelection, 2 * coverHeight / 3, true);
-          renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + 24, tileY + hPaddingInSelection + 24, 32, 32);
+          if (tilePending) {
+            // Cover is being generated — show a loading label centred in the tile
+            const char* loadingText = tr(STR_LOADING);
+            const int textW = renderer.getTextWidth(SMALL_FONT_ID, loadingText);
+            const int textH = renderer.getLineHeight(SMALL_FONT_ID);
+            renderer.drawText(SMALL_FONT_ID,
+                              tileX + hPaddingInSelection + (tileWidth - 2 * hPaddingInSelection - textW) / 2,
+                              tileY + hPaddingInSelection + (coverHeight - textH) / 2, loadingText, true);
+          } else {
+            // No cover at all — render empty cover placeholder
+            renderer.fillRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection + (coverHeight / 3),
+                              tileWidth - 2 * hPaddingInSelection, 2 * coverHeight / 3, true);
+            renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + 24, tileY + hPaddingInSelection + 24, 32, 32);
+          }
         }
       }
 
-      coverBufferStored = storeCoverBuffer();
-      coverRendered = coverBufferStored;  // Only consider it rendered if we successfully stored the buffer
+      // Only cache the frame buffer once all tiles are definitively resolved.
+      // If any cover is still being generated we keep coverRendered=false so the next render will retry.
+      if (!anyPending) {
+        coverBufferStored = storeCoverBuffer();
+        coverRendered = coverBufferStored;
+      }
     }
 
     for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), Lyra3CoversMetrics::values.homeRecentBooksCount);

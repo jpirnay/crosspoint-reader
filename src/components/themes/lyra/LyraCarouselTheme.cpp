@@ -317,6 +317,8 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
 
   // Returns true if a book exists at bookIdx (cover image or placeholder drawn).
   // Returns false only when the slot has no book — caller skips the border too.
+  // anyPending is set to true when a book has a coverBmpPath but the BMP isn't readable yet.
+  bool anyPending = false;
   auto drawCover = [&](int bookIdx, int x, int y, int maxW, int maxH) -> bool {
     if (bookIdx < 0 || bookIdx >= bookCount) return false;
     const RecentBook& book = recentBooks[bookIdx];
@@ -324,6 +326,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     const bool roundLeft = (x >= 0);
     const bool roundRight = (x + maxW <= screenW);
     bool hasCover = false;
+    bool tilePending = false;
     if (!book.coverBmpPath.empty()) {
       const std::string thumbPath = UITheme::getCoverThumbPath(book.coverBmpPath, maxW, maxH);
       FsFile file;
@@ -361,14 +364,25 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
           hasCover = true;
         }
         file.close();
+      } else {
+        tilePending = true;  // path exists but BMP not ready yet
+        anyPending = true;
       }
     }
     if (!hasCover) {
       renderer.drawRoundedRect(x, y, maxW, maxH, 1, kCornerRadius, roundLeft, roundRight, roundLeft, roundRight, true);
-      renderer.fillRoundedRect(x, y + maxH / 3, maxW, 2 * maxH / 3, kCornerRadius, /*roundTopLeft=*/false,
-                               /*roundTopRight=*/false, /*roundBottomLeft=*/roundLeft, /*roundBottomRight=*/roundRight,
-                               Color::Black);
-      renderer.drawIcon(CoverIcon, x + maxW / 2 - 16, y + 8, 32, 32);
+      if (tilePending) {
+        // Cover is being generated — show a loading label centred in the tile
+        const char* loadingText = tr(STR_LOADING);
+        const int textW = renderer.getTextWidth(SMALL_FONT_ID, loadingText);
+        const int textH = renderer.getLineHeight(SMALL_FONT_ID);
+        renderer.drawText(SMALL_FONT_ID, x + (maxW - textW) / 2, y + (maxH - textH) / 2, loadingText, true);
+      } else {
+        renderer.fillRoundedRect(x, y + maxH / 3, maxW, 2 * maxH / 3, kCornerRadius, /*roundTopLeft=*/false,
+                                 /*roundTopRight=*/false, /*roundBottomLeft=*/roundLeft,
+                                 /*roundBottomRight=*/roundRight, Color::Black);
+        renderer.drawIcon(CoverIcon, x + maxW / 2 - 16, y + 8, 32, 32);
+      }
     }
     return true;
   };
@@ -437,8 +451,12 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     const int titleW = renderer.getTextWidth(kTitleFontId, titleTrunc.c_str());
     renderer.drawText(kTitleFontId, centerX + (kCenterCoverMaxW - titleW) / 2, titleY, titleTrunc.c_str(), true);
 
-    coverBufferStored = storeCoverBuffer();
-    coverRendered = coverBufferStored;
+    // Only cache the frame buffer once all tiles are definitively resolved.
+    // If any cover is still being generated we keep coverRendered=false so the next render will retry.
+    if (!anyPending) {
+      coverBufferStored = storeCoverBuffer();
+      coverRendered = coverBufferStored;
+    }
   }
 
   // Always outline the centre cover at its own edge (white ring sits outside the black line);
