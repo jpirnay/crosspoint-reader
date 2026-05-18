@@ -1464,7 +1464,13 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
       RenderLock lock(*this);
       navTarget = NavigationTarget::makePage(0);
       currentSpineIndex++;
-      section.reset();
+      // Adopt in-flight prewarm for the next spine so the decompression/initial-burst cost is
+      // already paid. beginIncrementalBuild is not called again; pump continues from where it left off.
+      if (_prewarmSection && _prewarmSection->getSpineIndex() == currentSpineIndex) {
+        section = std::move(_prewarmSection);
+      } else {
+        section.reset();
+      }
     } else if (currentSpineIndex + 1 == epub->getSpineItemsCount()) {
       RenderLock lock(*this);
       navTarget = NavigationTarget::makeLastPage();

@@ -139,6 +139,7 @@ class CssParser {
   // Disk-backed CSS dictionary index: selector -> byte offset for serialized CssStyle payload.
   // Built from cache file once, then styles are loaded on demand into hotRuleCache_.
   mutable bool cacheIndexLoaded_ = false;
+  mutable bool cacheIndexAbsent_ = false;  // true after first failed load — avoids repeated disk retries
   mutable size_t cachedRuleCount_ = 0;
   mutable std::unordered_map<std::string, uint32_t> cacheRuleOffsets_;
   mutable uint32_t totalSelectorCandidates_ = 0;

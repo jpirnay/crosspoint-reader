@@ -28,6 +28,7 @@ class Section {
   FsFile _lutFile;
   FsFile _rawFile;  // temp extracted XHTML — fed to parser in chunks across pumps
   size_t _rawRemaining = 0;
+  uint32_t _binWritePos = 0;  // tracks append position in .bin; loadPageFromSectionFile may seek the handle
   std::string _lutPath;
   std::string _rawPath;
   std::string _imagePath;

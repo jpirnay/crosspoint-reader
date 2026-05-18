@@ -778,6 +778,7 @@ bool CssParser::endCacheCompile() {
   negativeRuleCache_.clear();
   cacheRuleOffsets_.clear();
   cacheIndexLoaded_ = false;
+  cacheIndexAbsent_ = false;
   cachedRuleCount_ = 0;
 
   return ensureCacheIndexLoaded();
@@ -1042,9 +1043,13 @@ bool CssParser::ensureCacheIndexLoaded() const {
   if (cacheIndexLoaded_) {
     return true;
   }
+  if (cacheIndexAbsent_) {
+    return false;
+  }
 
   FsFile file;
   if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) {
+    cacheIndexAbsent_ = true;
     return false;
   }
 
@@ -1287,6 +1292,7 @@ bool CssParser::loadFromCache() {
   negativeRuleCache_.clear();
   cacheRuleOffsets_.clear();
   cacheIndexLoaded_ = false;
+  cacheIndexAbsent_ = false;  // allow a fresh attempt
   cachedRuleCount_ = 0;
 
   if (!ensureCacheIndexLoaded()) {

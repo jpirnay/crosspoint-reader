@@ -410,6 +410,7 @@ bool Section::clearCache() {
   _parser.reset();
   _buildState = BuildState::Idle;
   _rawRemaining = 0;
+  _binWritePos = 0;
   lut.clear();
   tocBoundaries.clear();
   pageCount = 0;
@@ -773,6 +774,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   }
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                          viewportHeight, hyphenationEnabled, useEmbeddedStyle, bionicReadingEnabled, imageRendering);
+  _binWritePos = static_cast<uint32_t>(file.position());  // end of header = start of first page
 
   // Open .lut sidecar for writing (page offsets, appended per page; merged into .bin on completion)
   if (!Storage.openFileForWrite("SCT", _lutPath, _lutFile)) {
@@ -814,8 +816,10 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
       epub, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth, viewportHeight,
       hyphenationEnabled, bionicReadingEnabled,
       [this](std::unique_ptr<Page> page) {
-        const uint32_t position = file.position();
+        if (file.position() != _binWritePos) file.seek(_binWritePos);
+        const uint32_t position = _binWritePos;
         if (page->serialize(file)) {
+          _binWritePos = static_cast<uint32_t>(file.position());
           lut.push_back(position);
           pageCount = static_cast<uint16_t>(lut.size());
           serialization::writePod(_lutFile, position);
