@@ -711,7 +711,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
                                     const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                     const uint16_t viewportHeight, const bool hyphenationEnabled,
                                     const bool embeddedStyle, const bool bionicReadingEnabled,
-                                    const uint8_t imageRendering) {
+                                    const uint8_t imageRendering, const size_t initialChunkBytes) {
   LOG_INF("SCT", "beginIncrementalBuild ENTER spine=%d state=%d", spineIndex, static_cast<int>(_buildState));
   if (_buildState == BuildState::InProgress) {
     LOG_INF("SCT", "beginIncrementalBuild already InProgress, returning early");
@@ -874,7 +874,7 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
   // _buildState was set to InProgress at the top of this function.
 
   // Fire the initial burst — page 0 available before returning.
-  pump(EpubIndexingPolicy::INITIAL_PAGES, EpubIndexingPolicy::INITIAL_MAX_MS);
+  pump(EpubIndexingPolicy::INITIAL_PAGES, EpubIndexingPolicy::INITIAL_MAX_MS, initialChunkBytes);
   return _buildState != BuildState::Failed;
 }
 

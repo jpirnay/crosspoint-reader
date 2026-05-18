@@ -90,10 +90,13 @@ class Section {
 
   // Incremental build interface.
   // Start building the section incrementally; fires an initial burst of INITIAL_PAGES pages.
+  // initialChunkBytes controls the chunk size for the initial burst (default 512); pass a smaller
+  // value (e.g. PREWARM_CHUNK_BYTES) for background prewarming to keep the burst within budget.
   // Returns false if the build cannot start (file I/O failure, heap too low, etc.).
   bool beginIncrementalBuild(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                              uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
-                             bool embeddedStyle, bool bionicReadingEnabled, uint8_t imageRendering);
+                             bool embeddedStyle, bool bionicReadingEnabled, uint8_t imageRendering,
+                             size_t initialChunkBytes = 512);
   // Pump up to maxPages pages or maxMs milliseconds, whichever comes first.
   // chunkBytes controls how many raw bytes are fed to the XML parser per SD read;
   // smaller values make the time budget more precise at the cost of extra SD seeks.
