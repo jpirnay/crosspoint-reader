@@ -76,7 +76,7 @@ constexpr uint32_t FNV_OFFSET_BASIS = 0x811C9DC5;  // 2166136261
 #endif
 
 #ifndef SCT_EMBEDDED_STYLE_MIN_CONTIG_HEAP_BYTES
-#define SCT_EMBEDDED_STYLE_MIN_CONTIG_HEAP_BYTES (56 * 1024)
+#define SCT_EMBEDDED_STYLE_MIN_CONTIG_HEAP_BYTES (36 * 1024)
 #endif
 
 constexpr uint32_t EMBEDDED_STYLE_MIN_FREE_HEAP_BYTES = SCT_EMBEDDED_STYLE_MIN_FREE_HEAP_BYTES;
@@ -265,6 +265,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
                               const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                               const bool bionicReadingEnabled, const uint8_t imageRendering) {
   truncatedCache = false;
+  embeddedStyleFallback = false;
   uint32_t propertyHash =
       calculatePropertyHash(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                             viewportHeight, hyphenationEnabled, embeddedStyle, bionicReadingEnabled, imageRendering);
@@ -282,6 +283,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
       if (Storage.openFileForRead("SCT", fallbackPath, file)) {
         filePath = fallbackPath;
         usingEmbeddedStyleFallback = true;
+        embeddedStyleFallback = true;
         LOG_INF("SCT", "Using no-CSS section cache fallback: %s", filePath.c_str());
       } else {
         return false;
@@ -499,6 +501,13 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     LOG_ERR("SCT", "Failed to get inflated size for %s", localPath.c_str());
     return false;
   }
+
+  // Reset build state — createSectionFile may be called on a Section that previously
+  // loaded a cache (e.g. fallback no-CSS file). pageCount must start at 0 so that
+  // onPageComplete() numbering and paragraphLutPerPage stay in lockstep.
+  file.close();
+  pageCount = 0;
+  this->lut.clear();
 
   if (!Storage.openFileForWrite("SCT", filePath, file)) {
     return false;

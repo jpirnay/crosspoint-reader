@@ -21,6 +21,7 @@ class Section {
   FsFile file;
   std::vector<uint32_t> lut;  // Cached page byte-offsets; loaded once, avoids per-page LUT seek
   bool truncatedCache = false;
+  bool embeddedStyleFallback = false;
 
   // Incremental build state
   BuildState _buildState = BuildState::Idle;
@@ -85,6 +86,7 @@ class Section {
                          const std::function<void(int)>& progressFn = nullptr, bool skipEviction = false);
   std::unique_ptr<Page> loadPageFromSectionFile();
   bool isTruncatedCache() const { return truncatedCache; }
+  bool isEmbeddedStyleFallback() const { return embeddedStyleFallback; }
 
   // Incremental build interface.
   // Start building the section incrementally; fires an initial burst of INITIAL_PAGES pages.

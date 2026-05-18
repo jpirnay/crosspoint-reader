@@ -75,7 +75,7 @@ constexpr int NUM_UNDERLINE_TAGS = sizeof(UNDERLINE_TAGS) / sizeof(UNDERLINE_TAG
 const char* STRIKETHROUGH_TAGS[] = {"s", "del", "strike"};
 constexpr int NUM_STRIKETHROUGH_TAGS = sizeof(STRIKETHROUGH_TAGS) / sizeof(STRIKETHROUGH_TAGS[0]);
 
-const char* IMAGE_TAGS[] = {"img"};
+const char* IMAGE_TAGS[] = {"img", "image"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
 const char* SKIP_TAGS[] = {"head"};
@@ -525,8 +525,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     std::string alt;
     if (atts != nullptr) {
       for (int i = 0; atts[i]; i += 2) {
-        if (strcmp(atts[i], "src") == 0) {
-          src = atts[i + 1];
+        if (strcmp(atts[i], "src") == 0 || strcmp(atts[i], "href") == 0 || strcmp(atts[i], "xlink:href") == 0) {
+          if (src.empty()) {
+            src = atts[i + 1];
+            // Strip fragment anchors (e.g. "cover.jpg#xywh=0,0,100,100")
+            auto hash = src.find('#');
+            if (hash != std::string::npos) src.erase(hash);
+          }
         } else if (strcmp(atts[i], "alt") == 0) {
           alt = atts[i + 1];
         }
@@ -1773,8 +1778,8 @@ size_t ChapterHtmlSlimParser::write(const uint8_t* buffer, const size_t size) {
     }
     // Then strip any leading whitespace (CR, LF, space, tab, null)
     size_t skipped = 0;
-    while (remaining > 0 && (cursor[0] == '\r' || cursor[0] == '\n' || cursor[0] == ' ' ||
-                              cursor[0] == '\t' || cursor[0] == '\0')) {
+    while (remaining > 0 &&
+           (cursor[0] == '\r' || cursor[0] == '\n' || cursor[0] == ' ' || cursor[0] == '\t' || cursor[0] == '\0')) {
       ++cursor;
       --remaining;
       ++skipped;
