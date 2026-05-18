@@ -377,6 +377,7 @@ void RecentBooksActivity::renderGridCell(int index, bool selected, int cellX, in
   if (!book.coverBmpPath.empty()) {
     const std::string thumbPath = gridThumbPath(book.coverBmpPath, tw, th);
     FsFile file;
+    bool thumbDrawn = false;
     if (Storage.openFileForRead("RBA", thumbPath, file)) {
       Bitmap bmp(file);
       if (bmp.parseHeaders() == BmpReaderError::Ok) {
@@ -399,9 +400,18 @@ void RecentBooksActivity::renderGridCell(int index, bool selected, int cellX, in
           // shows through in the surrounding space.
           renderer.fillRect(cellX + offsetX, cellY + offsetY, rendW, rendH, false);
           renderer.drawBitmap1Bit(bmp, cellX + offsetX, cellY + offsetY, rendW, rendH);
+          thumbDrawn = true;
         }
       }
       file.close();
+    }
+    if (!thumbDrawn) {
+      // Thumbnail not yet generated — clear interior and show loading label
+      renderer.fillRect(cellX + 1, cellY + 1, tw - 2, th - 2, false);
+      const char* loadingText = tr(STR_LOADING);
+      const int textW = renderer.getTextWidth(SMALL_FONT_ID, loadingText);
+      const int textH = renderer.getLineHeight(SMALL_FONT_ID);
+      renderer.drawText(SMALL_FONT_ID, cellX + (tw - textW) / 2, cellY + (th - textH) / 2, loadingText, true);
     }
   } else {
     // No cover — clear the whole interior so the placeholder looks clean.
