@@ -783,6 +783,9 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
     return false;
   }
   _rawRemaining = inflatedSize;
+  // Pre-allocate LUT to avoid repeated reallocation as pages are indexed.
+  // 1500 bytes/page is a conservative lower bound; over-estimates are harmless.
+  lut.reserve(inflatedSize / 1500 + 1);
 
   // Close any handle left open by a prior loadSectionFile() before (re)opening for write.
   if (file.isOpen()) file.close();
@@ -918,12 +921,11 @@ bool Section::pump(const uint8_t maxPages, const uint32_t maxMs, const size_t ch
     const bool streamOk = _parser->streamSucceeded();
     const bool success = finalizeOk && streamOk;
 
-    // Capture anchors and paragraph LUT before destroying parser (by value — parser is reset below)
-    const auto anchors = _parser->getAnchors();
-    const auto paragraphLut = _parser->getParagraphLutPerPage();
+    // Serialize anchors and paragraph LUT directly from parser before destroying it — avoids copying.
+    const auto& anchors = _parser->getAnchors();
+    const auto& paragraphLut = _parser->getParagraphLutPerPage();
 
     _lutFile.close();
-    _parser.reset();
     _rawFile.close();
     Storage.remove(_rawPath.c_str());
 
@@ -997,6 +999,7 @@ bool Section::pump(const uint8_t maxPages, const uint32_t maxMs, const size_t ch
     }
 
     buildTocBoundaries(anchors);
+    _parser.reset();  // anchors/paragraphLut refs now dead — parser no longer needed
     _buildState = BuildState::Complete;
     LOG_DBG("SCT", "pump complete: spine=%d pages=%u", spineIndex, pageCount);
   }
