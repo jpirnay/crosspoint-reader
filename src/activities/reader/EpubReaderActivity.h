@@ -251,7 +251,6 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
-  void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void resolvePositionAfterSectionLoad();
   void pumpIncrementalIndexIfNeeded();
   void pumpNextChapterPrewarmIfNeeded();
