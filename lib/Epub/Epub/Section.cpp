@@ -419,7 +419,17 @@ bool Section::clearCache() {
 
   bool anyRemoved = false;
 
-  // Remove incremental build sidecar files if present
+  // Remove incremental build sidecar files if present.
+  // _lutPath may be empty when loadSectionFile() loaded from a sidecar but left _lutPath unset
+  // (non-resumable crash-resume branch). In that case derive the expected .lut from filePath so
+  // the orphaned sidecar is also removed.
+  if (_lutPath.empty() && !filePath.empty()) {
+    const std::string derivedLut = getLutSidecarPath(filePath);
+    if (Storage.exists(derivedLut.c_str())) {
+      Storage.remove(derivedLut.c_str());
+      anyRemoved = true;
+    }
+  }
   for (const std::string* path : {&_lutPath, &_rawPath}) {
     if (!path->empty() && Storage.exists(path->c_str())) {
       Storage.remove(path->c_str());
@@ -764,6 +774,9 @@ bool Section::beginIncrementalBuild(const int fontId, const float lineCompressio
     return false;
   }
   _rawRemaining = inflatedSize;
+
+  // Close any handle left open by a prior loadSectionFile() before (re)opening for write.
+  if (file.isOpen()) file.close();
 
   // Open .bin for writing (page data goes directly into the final cache file)
   if (!Storage.openFileForWrite("SCT", filePath, file)) {

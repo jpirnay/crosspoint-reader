@@ -1464,6 +1464,7 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
       RenderLock lock(*this);
       navTarget = NavigationTarget::makePage(0);
       currentSpineIndex++;
+      _prewarmDoneForSpine = -1;
       // Adopt in-flight prewarm for the next spine so the decompression/initial-burst cost is
       // already paid. beginIncrementalBuild is not called again; pump continues from where it left off.
       if (_prewarmSection && _prewarmSection->getSpineIndex() == currentSpineIndex) {
@@ -1475,6 +1476,7 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
       RenderLock lock(*this);
       navTarget = NavigationTarget::makeLastPage();
       currentSpineIndex++;
+      _prewarmDoneForSpine = -1;
       section.reset();
     } else {
       return false;
@@ -1486,6 +1488,7 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
       RenderLock lock(*this);
       navTarget = NavigationTarget::makeLastPage();
       currentSpineIndex--;
+      _prewarmDoneForSpine = -1;
       section.reset();
     } else {
       return false;
@@ -1967,18 +1970,22 @@ void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
   if (!epub || !section) return;
   if (_lastViewportWidth == 0 || _lastViewportHeight == 0) return;
 
+  const int nextSpineIndex = currentSpineIndex + 1;
+  if (nextSpineIndex < 0 || nextSpineIndex >= epub->getSpineItemsCount()) return;
+
+  // Cache confirmed built for this spine — skip all further checks.
+  if (_prewarmDoneForSpine == nextSpineIndex) return;
+
   const uint32_t freeHeap = esp_get_free_heap_size();
   const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   if (freeHeap < SILENT_INDEX_MIN_FREE_HEAP_BYTES || contigHeap < SILENT_INDEX_MIN_CONTIG_HEAP_BYTES) return;
-
-  const int nextSpineIndex = currentSpineIndex + 1;
-  if (nextSpineIndex < 0 || nextSpineIndex >= epub->getSpineItemsCount()) return;
 
   // Discard prewarm if it's for a different spine (user navigated away) or already done/failed
   if (_prewarmSection) {
     const auto prewarmState = _prewarmSection->buildState();
     if (prewarmState == BuildState::Complete || prewarmState == BuildState::Failed ||
         _prewarmSection->getSpineIndex() != nextSpineIndex) {
+      if (prewarmState == BuildState::Complete) _prewarmDoneForSpine = nextSpineIndex;
       _prewarmSection.reset();
       return;
     }
@@ -2006,6 +2013,7 @@ void EpubReaderActivity::pumpNextChapterPrewarmIfNeeded() {
                                     _lastViewportWidth, _lastViewportHeight, SETTINGS.hyphenationEnabled, embeddedStyle,
                                     bookBionicReadingOverride, imageRendering) &&
         testSection.pageCount > 0) {
+      _prewarmDoneForSpine = nextSpineIndex;
       return;  // Already cached with real pages
     }
   }

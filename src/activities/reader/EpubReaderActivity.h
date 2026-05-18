@@ -216,6 +216,9 @@ class EpubReaderActivity final : public Activity {
   unsigned long _lastCurrentPumpMs = 0;
   unsigned long _lastPrewarmPumpMs = 0;
   std::unique_ptr<Section> _prewarmSection;
+  // Set to the next spine index once its cache is confirmed built; prevents repeated loadSectionFile checks.
+  // Reset to -1 whenever currentSpineIndex advances.
+  int _prewarmDoneForSpine = -1;
   uint16_t _lastViewportWidth = 0;
   uint16_t _lastViewportHeight = 0;
   bool automaticPageTurnActive = false;

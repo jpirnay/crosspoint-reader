@@ -811,6 +811,7 @@ void CssParser::clear() {
   hotRuleLru_.clear();
   negativeRuleCache_.clear();
   cacheIndexLoaded_ = false;
+  cacheIndexAbsent_ = false;
   cachedRuleCount_ = 0;
   resolveStats_ = {};
   compileModeActive_ = false;
