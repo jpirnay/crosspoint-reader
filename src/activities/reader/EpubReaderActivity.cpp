@@ -358,8 +358,8 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  if (pendingProgressSave.pending) {
-    pendingProgressSave.pending = false;
+  if (pendingProgressSave.pending.load(std::memory_order_acquire)) {
+    pendingProgressSave.pending.store(false, std::memory_order_relaxed);
     saveProgress(pendingProgressSave.spineIndex, pendingProgressSave.page, pendingProgressSave.pageCount);
   }
 
@@ -1135,8 +1135,15 @@ void EpubReaderActivity::applyPendingSyncSession() {
   // Build the navigation target from the sync result.
   NavigationTarget restoreTarget;
   if (sync.outcome == KOReaderSyncOutcomeState::APPLIED_REMOTE) {
-    restoreSpineIndex = sync.resultSpineIndex;
-    restorePage = sync.resultPage;
+    const int spineCount = epub->getSpineItemsCount();
+    if (sync.resultSpineIndex < 0 || sync.resultSpineIndex >= spineCount) {
+      LOG_ERR("ERS", "Sync resultSpineIndex %d out of range [0,%d), clamping to previous %d", sync.resultSpineIndex,
+              spineCount, restoreSpineIndex);
+      // Keep restoreSpineIndex / restorePage from the pre-validation block above.
+    } else {
+      restoreSpineIndex = sync.resultSpineIndex;
+      restorePage = sync.resultPage;
+    }
     if (sync.resultHasListItemIndex) {
       restoreTarget = NavigationTarget::makeListItem(sync.resultListItemIndex);
       LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d li[%u]", restoreSpineIndex, restorePage,
@@ -1459,6 +1466,11 @@ void EpubReaderActivity::NavigationTarget::resolveInto(Section& sec, int spineIn
     }
   }
   // Safety clamp.
+  if (sec.currentPage < 0) {
+    LOG_DBG("ERS", "Clamping negative page %d to 0 (spine=%d cachedPageCount=%d)", sec.currentPage, spineIndex,
+            cachedPageCount);
+    sec.currentPage = 0;
+  }
   if (sec.pageCount > 0 && sec.currentPage >= sec.pageCount) {
     LOG_DBG("ERS", "Clamping page %d to last page %d", sec.currentPage, sec.pageCount - 1);
     sec.currentPage = sec.pageCount - 1;
@@ -1750,7 +1762,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     LOG_DBG("ERS", "Rendered page in %dms", lastRenderStats.requestRenderMs);
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
-  pendingProgressSave = {true, currentSpineIndex, section->currentPage, section->pageCount};
+  pendingProgressSave.spineIndex = currentSpineIndex;
+  pendingProgressSave.page = section->currentPage;
+  pendingProgressSave.pageCount = section->pageCount;
+  pendingProgressSave.pending.store(true, std::memory_order_release);
   lastRenderStats.freeHeapAfter = esp_get_free_heap_size();
   lastRenderStats.largestFreeBlockAfter = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   lastRenderStats.valid = true;

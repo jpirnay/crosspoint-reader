@@ -3,6 +3,8 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
+#include <atomic>
+
 #include "BookmarkStore.h"
 #include "EpubReaderMenuActivity.h"
 #include "ReaderUtils.h"
@@ -188,8 +190,10 @@ class EpubReaderActivity final : public Activity {
   };
   LastRenderStats lastRenderStats;
   // Progress save is posted by render() and consumed by loop() to keep SD I/O off the render task.
+  // render() writes spineIndex/page/pageCount then sets pending with release semantics so loop()
+  // sees a coherent snapshot when it observes pending==true via acquire.
   struct PendingProgressSave {
-    bool pending = false;
+    std::atomic<bool> pending{false};
     int spineIndex = 0;
     int page = 0;
     int pageCount = 0;
