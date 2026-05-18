@@ -4,6 +4,7 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
+#include <atomic>
 #include <optional>
 
 #include "BookmarkStore.h"
@@ -96,9 +97,12 @@ class EpubReaderActivity final : public Activity {
       return t;
     }
 
-    // True for kinds that require the build to be Complete before LUT lookups are valid.
+    // True for kinds that require the build to be Complete before resolving.
+    // Kind::Page with cachedPageCount > 0 needs the final pageCount for proportional rescaling.
     bool needsCompleteBuild() const {
-      return kind == Kind::LastPage || kind == Kind::Anchor || kind == Kind::Paragraph || kind == Kind::ListItem;
+      if (kind == Kind::Page && cachedPageCount > 0) return true;
+      return kind == Kind::LastPage || kind == Kind::Anchor || kind == Kind::TocIndex || kind == Kind::Paragraph ||
+             kind == Kind::ListItem;
     }
 
     // Resolves the target into section.currentPage. Main-task only (may vTaskDelay).
@@ -195,13 +199,14 @@ class EpubReaderActivity final : public Activity {
   };
   LastRenderStats lastRenderStats;
   // Deferred SD-card work: render() posts intent; loop() executes on next tick.
+  // Fields are written before valid is set so loop() sees a consistent snapshot.
   struct PendingProgressSave {
-    bool valid = false;
     int spineIndex = 0;
     int currentPage = 0;
     int pageCount = 0;
+    std::atomic<bool> valid{false};
   } pendingProgressSave;
-  bool pendingCacheClear = false;  // render() detected corrupt page; loop() clears + rebuilds
+  std::atomic<bool> pendingCacheClear{false};  // render() detected corrupt page; loop() clears + rebuilds
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool finishedBookActivityStarted_ = false;

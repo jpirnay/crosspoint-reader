@@ -367,12 +367,12 @@ void EpubReaderActivity::loop() {
   }
 
   // Deferred SD-card work posted by render() — execute here on the loop task.
-  if (pendingProgressSave.valid) {
-    pendingProgressSave.valid = false;
+  if (pendingProgressSave.valid.load(std::memory_order_acquire)) {
+    pendingProgressSave.valid.store(false, std::memory_order_relaxed);
     saveProgress(pendingProgressSave.spineIndex, pendingProgressSave.currentPage, pendingProgressSave.pageCount);
   }
-  if (pendingCacheClear && section) {
-    pendingCacheClear = false;
+  if (pendingCacheClear.load(std::memory_order_acquire) && section) {
+    pendingCacheClear.store(false, std::memory_order_relaxed);
     section->clearCache();
     section.reset();
     requestUpdate();
@@ -1658,7 +1658,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     lastRenderStats.pageLoadMs = millis() - pageLoadStart;
     if (!p) {
       LOG_ERR("ERS", "Failed to load page from SD - flagging cache clear for loop task");
-      pendingCacheClear = true;
+      pendingCacheClear.store(true, std::memory_order_release);
       requestUpdate();
       automaticPageTurnActive = false;
       return;
@@ -1681,7 +1681,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
     LOG_DBG("ERS", "Rendered page in %dms", lastRenderStats.requestRenderMs);
   }
-  pendingProgressSave = {true, currentSpineIndex, section->currentPage, section->pageCount};
+  pendingProgressSave.spineIndex = currentSpineIndex;
+  pendingProgressSave.currentPage = section->currentPage;
+  pendingProgressSave.pageCount = section->pageCount;
+  pendingProgressSave.valid.store(true, std::memory_order_release);
   lastRenderStats.freeHeapAfter = esp_get_free_heap_size();
   lastRenderStats.largestFreeBlockAfter = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   lastRenderStats.valid = true;
@@ -1934,7 +1937,14 @@ void EpubReaderActivity::pumpIncrementalIndexIfNeeded() {
   const int targetPage = section->currentPage;
   const bool hadTargetBefore = section->hasPage(targetPage);
   const bool wasInProgress = (section->buildState() == BuildState::InProgress);
-  section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS);
+  const bool pumpOk = section->pump(EpubIndexingPolicy::CURRENT_BG_PAGES, EpubIndexingPolicy::CURRENT_BG_MAX_MS);
+  if (!pumpOk && section->buildState() == BuildState::Failed) {
+    LOG_ERR("ERS", "loop: pump failed for spine=%d, marking as failed", currentSpineIndex);
+    lastFailedBuildSpineIndex = currentSpineIndex;
+    section.reset();
+    requestUpdate();
+    return;
+  }
   const bool nowComplete = wasInProgress && (section->buildState() != BuildState::InProgress);
 
   if (navTarget.needsCompleteBuild()) {

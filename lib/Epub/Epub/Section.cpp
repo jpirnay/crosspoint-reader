@@ -353,11 +353,11 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
           }
           lutFile.close();
           pageCount = static_cast<uint16_t>(entryCount);
-          _lutPath = lutSidecarPath;
-          truncatedCache = false;  // Not truncated — in-progress incremental build
-          _buildState = BuildState::InProgress;
-          // file stays open for page reads (already opened above)
-          LOG_DBG("SCT", "Loaded partial incremental cache: spine=%d pages=%u", spineIndex, pageCount);
+          // _lutPath intentionally not set: we loaded the sidecar for the LUT but we cannot
+          // reconstruct _parser/_rawFile/_rawRemaining here, so pump() cannot resume.
+          // Leave truncatedCache=true and BuildState::Idle so the activity rebuilds from scratch
+          // via beginIncrementalBuild(), which will overwrite .bin + .lut cleanly.
+          LOG_DBG("SCT", "Loaded partial incremental cache (non-resumable): spine=%d pages=%u", spineIndex, pageCount);
           return true;
         }
         lutFile.close();
