@@ -1516,12 +1516,25 @@ bool EpubReaderActivity::stepPageState(const bool isForwardTurn) {
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+  if (isForwardTurn && section && preRenderedPage.ready && preRenderedPage.spineIndex == currentSpineIndex &&
+      preRenderedPage.pageIndex == section->currentPage + 1) {
+    // Fast path: the frame buffer already holds the next page content. Advance state here on the
+    // loop task, then hand off to render() via usePreRenderedBuffer — all display work (status
+    // bar, flush, AA pass) stays on the render task where it belongs. No RenderLock acquired here.
+    section->currentPage = preRenderedPage.pageIndex;
+    preRenderedPage.ready = false;
+    usePreRenderedBuffer = true;
+    sessionPagesAdvanced++;
+    lastPageTurnTime = millis();
+    requestUpdate();
+    return;
+  }
+
   if (!stepPageState(isForwardTurn)) {
     return;
   }
-  // Track real progress within this session so auto-push-on-close can ignore brief
-  // book inspections. Counts both directions — the user is engaging with the book either way.
   sessionPagesAdvanced++;
+  preRenderedPage.ready = false;
   requestUpdate();
 }
 
@@ -1623,6 +1636,67 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   lastRenderStats.freeHeapBefore = esp_get_free_heap_size();
   lastRenderStats.largestFreeBlockBefore = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   showTruncatedSectionHintThisRender = false;
+
+  // Capture and clear all pre-render flags before any state checks.
+  // - isPreRenderPass:     render next page content only (no status bar, no flush).
+  // - isBufferDisplayPass: frame buffer already has content; just add status bar and flush.
+  // - anything else:       normal full render; discard any stale pre-render state.
+  const bool isPreRenderPass = pendingPreRender;
+  const bool isBufferDisplayPass = usePreRenderedBuffer;
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  if (!isPreRenderPass && !isBufferDisplayPass) {
+    preRenderedPage.ready = false;
+  }
+
+  // Fast-display pass: frame buffer holds pre-rendered content; superimpose live status bar,
+  // flush to display, and run the AA pass — all on the render task with no SD font re-read.
+  if (isBufferDisplayPass) {
+    if (section) {
+      auto p = section->loadPageFromSectionFile();
+      if (p && !p->hasImages()) {
+        currentPageFootnotes = std::move(p->footnotes);
+        displayPreRenderedPage(*p, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+
+        pendingProgressSave.spineIndex = currentSpineIndex;
+        pendingProgressSave.page = section->currentPage;
+        pendingProgressSave.pageCount = section->pageCount;
+        pendingProgressSave.pending.store(true, std::memory_order_release);
+
+        if (section->currentPage + 1 < section->pageCount) {
+          pendingPreRender = true;
+          requestUpdate();
+        }
+        return;
+      }
+      // Page load failed or was an image page — fall through to full render.
+    }
+  }
+
+  // Pre-render pass: render next page content into the frame buffer (no status bar, no flush).
+  if (isPreRenderPass) {
+    if (section && !preRenderedPage.ready) {
+      const int nextPage = section->currentPage + 1;
+      if (nextPage < section->pageCount) {
+        const uint32_t freeHeap = esp_get_free_heap_size();
+        const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+        if (freeHeap >= SILENT_INDEX_MIN_FREE_HEAP_BYTES && contigHeap >= SILENT_INDEX_MIN_CONTIG_HEAP_BYTES) {
+          const int savedPage = section->currentPage;
+          section->currentPage = nextPage;
+          auto p = section->loadPageFromSectionFile();
+          section->currentPage = savedPage;
+          if (p && !p->hasImages()) {
+            section->currentPage = nextPage;
+            renderPageContentOnly(*p, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+            section->currentPage = savedPage;
+            preRenderedPage = {true, currentSpineIndex, nextPage};
+            LOG_DBG("ERS", "Pre-rendered page %d/%d", nextPage, section->pageCount - 1);
+          }
+        }
+      }
+    }
+    return;
+  }
 
   if (!section) {
     if (currentSpineIndex < 0 || currentSpineIndex >= spineCount) {
@@ -1773,6 +1847,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (pendingScreenshot) {
     pendingScreenshot = false;
     ScreenshotUtil::takeScreenshot(renderer);
+  }
+
+  // Schedule a pre-render of the next page into the frame buffer so the next forward
+  // page turn can skip the render pass and go straight to displayBuffer().
+  if (!preRenderedPage.ready && section->currentPage + 1 < section->pageCount) {
+    pendingPreRender = true;
+    requestUpdate();
   }
 }
 
@@ -2051,6 +2132,77 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       lastRenderStats.fontPeakTempBytes = stats.peakTempBytes;
       lastRenderStats.fontGetBitmapTimeUs = stats.getBitmapTimeUs;
       lastRenderStats.fontGetBitmapCalls = stats.getBitmapCalls;
+    }
+  }
+}
+
+void EpubReaderActivity::renderPageContentOnly(Page& page, const int orientedMarginTop, const int orientedMarginRight,
+                                               const int orientedMarginBottom, const int orientedMarginLeft) {
+  auto* fcm = renderer.getFontCacheManager();
+  fcm->resetStats();
+
+  const int viewportHeight = std::max(0, renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom);
+  const int contentTop = orientedMarginTop + getImageOnlyPageYOffset(page, viewportHeight);
+
+  auto scope = fcm->createPrewarmScope();
+  page.renderTextOnly(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
+  scope.endScanAndPrewarm();
+
+  renderer.clearScreen();
+  page.render(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
+  // Status bar intentionally omitted — superimposed at display time with live values.
+}
+
+void EpubReaderActivity::displayPreRenderedPage(Page& page, const int orientedMarginTop, const int orientedMarginRight,
+                                                const int orientedMarginBottom, const int orientedMarginLeft) {
+  const int viewportHeight = std::max(0, renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom);
+  const int contentTop = orientedMarginTop + getImageOnlyPageYOffset(page, viewportHeight);
+
+  renderStatusBar();
+
+  // Pre-rendered pages are text-only (image pages are excluded from pre-rendering), so we
+  // always go through the normal refresh cycle — no imagePageWithAA or forceHalfRefresh paths.
+  const bool forceHalfRefreshThisPage = pendingHalfRefreshAfterImagePage && SETTINGS.halfRefreshAfterImagePage;
+  pendingHalfRefreshAfterImagePage = false;
+  if (forceHalfRefreshThisPage) {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+  } else {
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  }
+
+  // Grayscale AA pass (same as normal render — BW snapshot, gray LSB+MSB, restore).
+  const bool aaConfigured = SETTINGS.textAntiAliasing && !antiAliasingSuspendedLowMemory;
+  if (aaConfigured) {
+    const uint32_t freeHeap = esp_get_free_heap_size();
+    const uint32_t contigHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+    if (freeHeap >= BW_SNAPSHOT_MIN_FREE_HEAP_BYTES && contigHeap >= BW_SNAPSHOT_MIN_CONTIG_HEAP_BYTES) {
+      const int contentLeft = orientedMarginLeft;
+      const int contentRight = std::max(contentLeft, renderer.getScreenWidth() - orientedMarginRight);
+      const int contentBottom = std::max(contentTop, renderer.getScreenHeight() - orientedMarginBottom);
+      int bandTop = 0;
+      int bandBottom = std::max(0, contentBottom - contentTop);
+      if (!computePageDynamicYBand(page, renderer, getEffectiveReaderFontId(), bandBottom, &bandTop, &bandBottom)) {
+        bandTop = 0;
+        bandBottom = std::max(0, contentBottom - contentTop);
+      }
+      const int snapshotTop = contentTop + bandTop;
+      const int snapshotHeight = std::max(0, bandBottom - bandTop);
+      if (renderer.storeBwBufferRect(contentLeft, snapshotTop, contentRight - contentLeft, snapshotHeight)) {
+        renderer.clearScreen(0x00);
+        renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+        page.renderTextOnly(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
+        renderer.copyGrayscaleLsbBuffers();
+
+        renderer.clearScreen(0x00);
+        renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+        page.renderTextOnly(renderer, getEffectiveReaderFontId(), orientedMarginLeft, contentTop);
+        renderer.copyGrayscaleMsbBuffers();
+
+        renderer.displayGrayBuffer();
+        renderer.setRenderMode(GfxRenderer::BW);
+        renderer.restoreBwBuffer();
+      }
     }
   }
 }

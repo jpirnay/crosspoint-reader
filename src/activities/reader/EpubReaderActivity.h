@@ -189,6 +189,20 @@ class EpubReaderActivity final : public Activity {
     uint32_t maxFreeHeapAfter = 0;
   };
   LastRenderStats lastRenderStats;
+  // Pre-rendered next page: frame buffer holds page content (no status bar) ready to display.
+  // Set by the pre-render pass in render(); consumed and cleared by the fast path in pageTurn().
+  // Invalidated (ready=false) on any navigation that is not a simple forward page turn.
+  struct PreRenderedPage {
+    bool ready = false;
+    int spineIndex = -1;
+    int pageIndex = -1;
+  };
+  PreRenderedPage preRenderedPage;
+  // Set by render() after a normal page render to request a pre-render of the next page.
+  bool pendingPreRender = false;
+  // Set by pageTurn() fast path to tell render() the frame buffer already holds the next page
+  // content and only the status bar + display flush are needed.
+  bool usePreRenderedBuffer = false;
   // Progress save is posted by render() and consumed by loop() to keep SD I/O off the render task.
   // render() writes spineIndex/page/pageCount then sets pending with release semantics so loop()
   // sees a coherent snapshot when it observes pending==true via acquire.
@@ -232,6 +246,16 @@ class EpubReaderActivity final : public Activity {
 
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
+  // Renders page content into the frame buffer (prewarm + BW pass) without drawing the status bar
+  // or flushing to the display. Used by the pre-render pass so the status bar can be superimposed
+  // at display time with live values (clock, battery).
+  void renderPageContentOnly(Page& page, int orientedMarginTop, int orientedMarginRight, int orientedMarginBottom,
+                             int orientedMarginLeft);
+  // Draws the status bar over the current frame buffer and flushes to the display.
+  // Handles the refresh cycle and grayscale AA pass. page must be the same page
+  // that was last rendered into the buffer (needed for image AA re-render).
+  void displayPreRenderedPage(Page& page, int orientedMarginTop, int orientedMarginRight, int orientedMarginBottom,
+                              int orientedMarginLeft);
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void saveProgress(int spineIndex, int currentPage, int pageCount);
