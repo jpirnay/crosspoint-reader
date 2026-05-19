@@ -4,23 +4,38 @@
 #include <string>
 #include <vector>
 
+// Day buckets are keyed by an ordinal day count (days since 1970-01-01 in
+// LOCAL time, computed by localDayIndex() below). A "reading day" is the
+// calendar day the session ENDED in — phase 2 keeps this simple and doesn't
+// model the KOReader "day shift" / hour cutoff setting yet.
+struct DayBucket {
+  uint16_t dayIndex = 0;
+  uint32_t seconds = 0;
+};
+
+// Helpers — both return 0 when HalClock is unsynced (caller should skip).
+uint16_t localDayIndexFromEpoch(time_t epoch);
+uint16_t currentLocalDayIndex();
+
 // Per-book reading statistics. Keyed by KOReader document hash (or filename
 // hash fallback) so a renamed/moved file keeps its history.
-//
-// Phase-1 schema is intentionally narrow: aggregate counters plus first/last
-// timestamps. Day-bucket history for sparklines/heatmaps lands in phase 2.
 struct BookReadingStats {
   std::string docId;
   std::string title;
   std::string author;
-  uint32_t totalSeconds = 0;      // idle-clamped, sum across all sessions
-  uint32_t pagesTurned = 0;       // forward + backward
-  uint32_t sessions = 0;          // session-open count
+  uint32_t totalSeconds = 0;  // idle-clamped, sum across all sessions
+  uint32_t pagesTurned = 0;   // forward + backward
+  uint32_t sessions = 0;      // session-open count
   // 0 if HalClock was never synced when the session ran. Treat as "unknown".
   time_t firstReadEpoch = 0;
   time_t lastReadEpoch = 0;
-  uint8_t progress = 0;           // 0-100, snapshot of last known progress
-  bool finished = false;          // user-marked finished (Phase 1: always false)
+  uint8_t progress = 0;   // 0-100, snapshot of last known progress
+  bool finished = false;  // user-marked finished (Phase 1: always false)
+  // Sparse day buckets, sorted ascending by dayIndex. Only days with reading
+  // are stored — the typical case is a few dozen entries. Bucket with
+  // dayIndex == 0 is reserved for "clock-unknown" sessions and is excluded
+  // from sparklines/streaks but kept so totals remain consistent.
+  std::vector<DayBucket> days;
 };
 
 class ReadingStatsStore;
@@ -45,6 +60,9 @@ class ReadingStatsStore {
   uint32_t globalTotalSeconds = 0;
   uint32_t globalTotalSessions = 0;
   uint32_t globalTotalPagesTurned = 0;
+  // Global per-day reading time, sorted ascending. Same shape as per-book.
+  // Used to compute streaks and the sparkline on the stats screen.
+  std::vector<DayBucket> globalDays;
 
   friend bool JsonSettingsIO::loadReadingStats(ReadingStatsStore&, const char*);
 
@@ -53,8 +71,10 @@ class ReadingStatsStore {
 
   // Apply a finished session to the store. Creates a per-book entry on first
   // use. Increments aggregate counters. Updates first/last epoch when
-  // walltimeEpoch != 0 (HalClock was synced). Caller is responsible for
-  // calling saveToFile() — we don't auto-persist on every page turn.
+  // walltimeEpoch != 0 (HalClock was synced). When walltimeEpoch != 0, also
+  // credits the session into a local-day bucket on both the book and the
+  // global map. Caller is responsible for calling saveToFile() — we don't
+  // auto-persist on every page turn.
   void recordSession(const std::string& docId, const std::string& title, const std::string& author,
                      uint32_t sessionSeconds, uint32_t sessionPagesTurned, uint8_t progress, time_t walltimeEpoch);
 
@@ -66,6 +86,21 @@ class ReadingStatsStore {
   uint32_t getGlobalTotalSessions() const { return globalTotalSessions; }
   uint32_t getGlobalTotalPagesTurned() const { return globalTotalPagesTurned; }
   size_t getBookCount() const { return books.size(); }
+
+  // Read-only view of the global day map.
+  const std::vector<DayBucket>& getGlobalDays() const { return globalDays; }
+
+  // Seconds read on a specific local-day index. 0 if unknown.
+  uint32_t getSecondsForDay(uint16_t dayIndex) const;
+
+  // Current streak in days, ending at `today` (or `today-1` for a 1-day grace
+  // so a session that ended just past midnight still extends yesterday's
+  // streak when you check this morning). Returns 0 if globalDays is empty or
+  // if HalClock is unsynced (so `today == 0`).
+  uint16_t computeCurrentStreak(uint16_t today) const;
+
+  // Longest run of consecutive days with any reading.
+  uint16_t computeLongestStreak() const;
 
   bool saveToFile() const;
   bool loadFromFile();

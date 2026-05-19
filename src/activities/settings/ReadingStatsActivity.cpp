@@ -11,6 +11,7 @@
 #include "MappedInputManager.h"
 #include "ReadingSessionTracker.h"
 #include "ReadingStats.h"
+#include "ReadingStatsBookListActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -43,6 +44,13 @@ void ReadingStatsActivity::onEnter() {
 void ReadingStatsActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finish();
+    return;
+  }
+  // Confirm opens the all-books list when there's anything to drill into.
+  // Suppressed when the store is empty so the button hint never lies.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) && !READING_STATS.getBooks().empty()) {
+    startActivityForResult(std::make_unique<ReadingStatsBookListActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { requestUpdate(); });
     return;
   }
   // If a reading session happens to be live (e.g. a future entry point lets
@@ -103,6 +111,61 @@ void ReadingStatsActivity::render(RenderLock&&) {
     drawRow(tr(STR_READING_STATS_SESSIONS), std::to_string(store.getGlobalTotalSessions()));
     drawRow(tr(STR_READING_STATS_PAGES), std::to_string(store.getGlobalTotalPagesTurned()));
     drawRow(tr(STR_READING_STATS_BOOKS), std::to_string(store.getBookCount()));
+
+    // Streaks: only meaningful when at least one wall-clocked session exists.
+    if (!store.getGlobalDays().empty()) {
+      const uint16_t today = currentLocalDayIndex();
+      const uint16_t current = store.computeCurrentStreak(today);
+      const uint16_t longest = store.computeLongestStreak();
+      char buf[24];
+      snprintf(buf, sizeof(buf), "%u%s / %u%s", current, tr(STR_READING_STATS_DAYS_UNIT), longest,
+               tr(STR_READING_STATS_DAYS_UNIT));
+      drawRow(tr(STR_READING_STATS_STREAK), buf);
+    }
+  }
+
+  // ---- 30-day sparkline ----
+  // Renders one bar per day for the last 30 local days ending at "today".
+  // Height of each bar is proportional to that day's seconds vs. the maximum
+  // seen in the window. Days with no reading get a flat 1px baseline so the
+  // gap pattern stays visible. Drawn only when the clock is synced — without
+  // it we have no "today" to anchor the window against.
+  const uint16_t today = currentLocalDayIndex();
+  if (today != 0 && !store.getGlobalDays().empty()) {
+    drawSection(tr(STR_READING_STATS_LAST_30D));
+    constexpr int kSparkDays = 30;
+    constexpr int kSparkHeight = 38;
+    constexpr int kBarGap = 1;
+    const int sparkLeft = leftX;
+    const int sparkRight = contentRect.x + contentRect.width - metrics.verticalSpacing * 3;
+    const int sparkWidth = std::max(0, sparkRight - sparkLeft);
+    const int barWidth = std::max(2, (sparkWidth - (kSparkDays - 1) * kBarGap) / kSparkDays);
+    const int totalSpan = barWidth * kSparkDays + kBarGap * (kSparkDays - 1);
+    const int sparkOriginX = sparkLeft + (sparkWidth - totalSpan) / 2;
+    const int sparkOriginY = y;
+
+    uint32_t maxSeconds = 1;
+    for (int i = 0; i < kSparkDays; ++i) {
+      const uint16_t d =
+          (today > static_cast<uint16_t>(kSparkDays - 1 - i)) ? static_cast<uint16_t>(today - (kSparkDays - 1 - i)) : 0;
+      const uint32_t s = store.getSecondsForDay(d);
+      if (s > maxSeconds) maxSeconds = s;
+    }
+
+    // Baseline (axis) — 1px line under the bars so the visual grouping reads
+    // as a chart even when most days are empty.
+    renderer.drawLine(sparkOriginX, sparkOriginY + kSparkHeight, sparkOriginX + totalSpan, sparkOriginY + kSparkHeight,
+                      true);
+    for (int i = 0; i < kSparkDays; ++i) {
+      const uint16_t d =
+          (today > static_cast<uint16_t>(kSparkDays - 1 - i)) ? static_cast<uint16_t>(today - (kSparkDays - 1 - i)) : 0;
+      const uint32_t s = store.getSecondsForDay(d);
+      const int barX = sparkOriginX + i * (barWidth + kBarGap);
+      // 1px minimum so empty days still tick on the axis.
+      const int h = s == 0 ? 1 : std::max<int>(2, (s * kSparkHeight) / maxSeconds);
+      renderer.fillRect(barX, sparkOriginY + kSparkHeight - h, barWidth, h, true);
+    }
+    y += kSparkHeight + 6;
   }
 
   // ---- Top books (up to 3 by total time) ----
@@ -129,7 +192,8 @@ void ReadingStatsActivity::render(RenderLock&&) {
     }
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  const char* btn2 = store.getBooks().empty() ? "" : tr(STR_READING_STATS_BOOK_LIST);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), btn2, "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

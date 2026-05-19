@@ -599,6 +599,19 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
   doc["totalSessions"] = store.getGlobalTotalSessions();
   doc["totalPagesTurned"] = store.getGlobalTotalPagesTurned();
 
+  // Day buckets are serialised as a flat array of [dayIndex, seconds] pairs
+  // to keep the file compact when many days are populated. The C++ side
+  // already keeps days sorted, so we preserve that on disk too.
+  auto writeDays = [](JsonArray out, const std::vector<DayBucket>& days) {
+    for (const auto& d : days) {
+      JsonArray pair = out.add<JsonArray>();
+      pair.add(d.dayIndex);
+      pair.add(d.seconds);
+    }
+  };
+
+  writeDays(doc["globalDays"].to<JsonArray>(), store.getGlobalDays());
+
   JsonArray arr = doc["books"].to<JsonArray>();
   for (const auto& book : store.getBooks()) {
     JsonObject obj = arr.add<JsonObject>();
@@ -612,6 +625,7 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
     obj["lastReadEpoch"] = static_cast<int64_t>(book.lastReadEpoch);
     obj["progress"] = book.progress;
     obj["finished"] = book.finished;
+    writeDays(obj["days"].to<JsonArray>(), book.days);
   }
 
   String json;
@@ -628,9 +642,27 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
   }
 
   store.books.clear();
+  store.globalDays.clear();
   store.globalTotalSeconds = doc["totalSeconds"] | (uint32_t)0;
   store.globalTotalSessions = doc["totalSessions"] | (uint32_t)0;
   store.globalTotalPagesTurned = doc["totalPagesTurned"] | (uint32_t)0;
+
+  // Reads [dayIndex, seconds] pairs into a DayBucket vector, dropping
+  // malformed entries. We don't re-sort because saver writes in order; the
+  // result of accidentally hand-edited unsorted input is just degraded
+  // streak/sparkline accuracy, not a crash.
+  auto readDays = [](JsonArray in, std::vector<DayBucket>& out) {
+    for (JsonArray pair : in) {
+      if (pair.size() < 2) continue;
+      DayBucket b;
+      b.dayIndex = pair[0] | (uint16_t)0;
+      b.seconds = pair[1] | (uint32_t)0;
+      if (b.dayIndex == 0 || b.seconds == 0) continue;
+      out.push_back(b);
+    }
+  };
+
+  readDays(doc["globalDays"].as<JsonArray>(), store.globalDays);
 
   JsonArray arr = doc["books"].as<JsonArray>();
   for (JsonObject obj : arr) {
@@ -646,6 +678,7 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
     book.lastReadEpoch = static_cast<time_t>(obj["lastReadEpoch"] | (int64_t)0);
     book.progress = obj["progress"] | (uint8_t)0;
     book.finished = obj["finished"] | false;
+    readDays(obj["days"].as<JsonArray>(), book.days);
     store.books.push_back(std::move(book));
   }
 
