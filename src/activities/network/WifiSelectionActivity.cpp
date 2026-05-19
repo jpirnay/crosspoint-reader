@@ -17,6 +17,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
+#include "util/StringUtils.h"
 
 namespace {
 
@@ -205,7 +206,7 @@ void WifiSelectionActivity::tryNextAutoCycleCandidate() {
 
   uint8_t baseMac[6];
   readDeviceBaseMac(baseMac);
-  String hostname = String(SETTINGS.deviceName) + "-" + formatMacCompact(baseMac);
+  String hostname = String(StringUtils::makeHostname(SETTINGS.deviceName).c_str()) + "-" + formatMacCompact(baseMac);
   WiFi.setHostname(hostname.c_str());
 
   if (selectedRequiresPassword && !enteredPassword.empty()) {
@@ -345,7 +346,7 @@ void WifiSelectionActivity::attemptConnection() {
   // Use stable base MAC so hostname suffix is deterministic across WiFi states.
   uint8_t baseMac[6];
   readDeviceBaseMac(baseMac);
-  String hostname = String(SETTINGS.deviceName) + "-" + formatMacCompact(baseMac);
+  String hostname = String(StringUtils::makeHostname(SETTINGS.deviceName).c_str()) + "-" + formatMacCompact(baseMac);
   WiFi.setHostname(hostname.c_str());
 
   if (selectedRequiresPassword && !enteredPassword.empty()) {

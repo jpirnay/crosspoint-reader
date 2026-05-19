@@ -6,31 +6,13 @@
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 
-#include <cctype>
-
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "WifiSelectionActivity.h"
 #include "activities/network/SignalStrengthWidget.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-
-namespace {
-std::string makeHostname(const char* name) {
-  std::string h;
-  h.reserve(32);
-  for (const char* p = name; *p; ++p) {
-    char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
-    if (std::isalnum(static_cast<unsigned char>(c))) {
-      h += c;
-    } else if (!h.empty() && h.back() != '-') {
-      h += '-';
-    }
-  }
-  while (!h.empty() && h.back() == '-') h.pop_back();
-  return h.empty() ? std::string("crosspoint") : h;
-}
-}  // namespace
+#include "util/StringUtils.h"
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
@@ -94,7 +76,7 @@ void CalibreConnectActivity::startWebServer() {
   requestUpdate();
 
   {
-    const std::string hostname = makeHostname(SETTINGS.deviceName);
+    const std::string hostname = StringUtils::makeHostname(SETTINGS.deviceName);
     if (MDNS.begin(hostname.c_str())) {
       // mDNS is optional for the Calibre plugin but still helpful for users.
       LOG_DBG("CAL", "mDNS started: http://%s.local/", hostname.c_str());

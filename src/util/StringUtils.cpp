@@ -2,6 +2,8 @@
 
 #include <Utf8.h>
 
+#include <cctype>
+
 namespace StringUtils {
 
 std::string sanitizeFilename(const std::string& name, size_t maxBytes) {
@@ -41,6 +43,21 @@ std::string sanitizeFilename(const std::string& name, size_t maxBytes) {
   }
 
   return result.empty() ? "book" : result;
+}
+
+std::string makeHostname(const char* name) {
+  std::string h;
+  h.reserve(32);
+  for (const char* p = name; *p; ++p) {
+    char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
+    if (std::isalnum(static_cast<unsigned char>(c))) {
+      h += c;
+    } else if (!h.empty() && h.back() != '-') {
+      h += '-';
+    }
+  }
+  while (!h.empty() && h.back() == '-') h.pop_back();
+  return h.empty() ? std::string("crosspoint") : h;
 }
 
 }  // namespace StringUtils

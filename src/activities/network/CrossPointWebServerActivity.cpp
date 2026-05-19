@@ -8,7 +8,6 @@
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 
-#include <cctype>
 #include <cstddef>
 
 #include "CrossPointSettings.h"
@@ -20,6 +19,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
+#include "util/StringUtils.h"
 
 namespace {
 // AP Mode configuration
@@ -27,21 +27,10 @@ constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 2;  // reduce from default 4 to save resources
 
-// Lowercase-sanitize device name for use as mDNS hostname.
-std::string makeHostname(const char* name) {
-  std::string h;
-  h.reserve(32);
-  for (const char* p = name; *p; ++p) {
-    char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
-    if (std::isalnum(static_cast<unsigned char>(c))) {
-      h += c;
-    } else if (!h.empty() && h.back() != '-') {
-      h += '-';
-    }
-  }
-  while (!h.empty() && h.back() == '-') h.pop_back();
-  return h.empty() ? std::string("crosspoint") : h;
-}
+// IEEE 802.11 caps SSID at 32 octets; the AP suffix and any deviceName beyond that
+// must be truncated to keep WiFi.softAP from rejecting the SSID.
+constexpr size_t MAX_SSID_LEN = 32;
+
 constexpr int QR_CODE_WIDTH = 198;
 constexpr int QR_CODE_HEIGHT = 198;
 
@@ -184,7 +173,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
 
     // Start mDNS for hostname resolution
     {
-      const std::string hostname = makeHostname(SETTINGS.deviceName);
+      const std::string hostname = StringUtils::makeHostname(SETTINGS.deviceName);
       if (MDNS.begin(hostname.c_str())) {
         LOG_DBG("WEBACT", "mDNS started: http://%s.local/", hostname.c_str());
       }
@@ -211,8 +200,11 @@ void CrossPointWebServerActivity::startAccessPoint() {
   LOG_DBG("WEBACT", "Starting Access Point mode...");
   LOG_DBG("WEBACT", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
 
-  const std::string hostname = makeHostname(SETTINGS.deviceName);
-  const std::string apSsid = std::string(SETTINGS.deviceName) + "-Reader";
+  const std::string hostname = StringUtils::makeHostname(SETTINGS.deviceName);
+  std::string apSsid = std::string(SETTINGS.deviceName) + "-Reader";
+  if (apSsid.size() > MAX_SSID_LEN) {
+    apSsid.resize(MAX_SSID_LEN);
+  }
 
   // Configure and start the AP
   WiFi.mode(WIFI_AP);
@@ -444,7 +436,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
                       EpdFontFamily::BOLD);
     startY += height10 + metrics.verticalSpacing * 2;
 
-    std::string hostnameUrl = std::string("http://") + makeHostname(SETTINGS.deviceName) + ".local/";
+    std::string hostnameUrl = std::string("http://") + StringUtils::makeHostname(SETTINGS.deviceName) + ".local/";
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
 
     // Show QR code for URL
@@ -483,7 +475,8 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     startY += height10 + 5;
 
     // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + makeHostname(SETTINGS.deviceName) + ".local/";
+    std::string hostnameUrl =
+        std::string(tr(STR_OR_HTTP_PREFIX)) + StringUtils::makeHostname(SETTINGS.deviceName) + ".local/";
     renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
 
     // AP mode: no external RSSI metric available, but keep UI spacing consistent.

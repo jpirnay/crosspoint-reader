@@ -9,12 +9,14 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
+#include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/StringUtils.h"
 
 namespace {
 constexpr time_t NTP_RESYNC_MIN_INTERVAL_SEC = 15 * 60;
@@ -411,6 +413,8 @@ void KOReaderSyncActivity::performUpload() {
   progress.document = documentHash;
   progress.progress = localProgress.xpath;
   progress.percentage = localProgress.percentage;
+  progress.device = SETTINGS.deviceName;
+  progress.deviceId = StringUtils::makeHostname(SETTINGS.deviceName);
   progress.metadata = localDocumentMetadata;
 
   const auto result = KOReaderSyncClient::updateProgress(progress);

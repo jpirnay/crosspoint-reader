@@ -15,7 +15,6 @@
 #include <cstring>
 #include <ctime>
 
-#include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 
 int KOReaderSyncClient::lastHttpCode = 0;
@@ -88,23 +87,6 @@ const char* skipBomAndWhitespace(const char* p) {
     p++;
   }
   return p;
-}
-
-// Build a lowercase-hyphenated device ID from the user-configured device name.
-// e.g. "My Reader" -> "my-reader"
-static std::string makeDeviceId(const char* name) {
-  std::string id;
-  id.reserve(32);
-  for (const char* p = name; *p; ++p) {
-    char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
-    if (std::isalnum(static_cast<unsigned char>(c))) {
-      id += c;
-    } else if (!id.empty() && id.back() != '-') {
-      id += '-';
-    }
-  }
-  while (!id.empty() && id.back() == '-') id.pop_back();
-  return id.empty() ? std::string("crosspoint") : id;
 }
 
 // Use small HTTP/TLS buffers to reduce peak handshake memory on ESP32-C3.
@@ -566,8 +548,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   doc["document"] = progress.document;
   doc["progress"] = progress.progress;
   doc["percentage"] = progress.percentage;
-  doc["device"] = SETTINGS.deviceName;
-  doc["device_id"] = makeDeviceId(SETTINGS.deviceName);
+  doc["device"] = progress.device;
+  doc["device_id"] = progress.deviceId;
 
   if (progress.metadata) {
     JsonObject meta = doc["metadata"].to<JsonObject>();
