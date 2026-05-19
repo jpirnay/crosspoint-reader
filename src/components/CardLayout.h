@@ -37,19 +37,24 @@ class GfxRenderer;
 //   - All values use UI_10 font; grid values use UI_12 bold. This is
 //     consistent across stats screens; if a future caller needs another
 //     font scale we'll add an optional config struct.
+// Card visual / spacing configuration. Lives outside CardLayout so it can
+// be default-constructed by callers (GCC won't synthesize a default ctor
+// for a class-nested aggregate inside its own class's default-arg list).
+struct CardLayoutConfig {
+  int radius = 4;
+  int innerPadX = 10;
+  int innerPadY = 6;
+  int titleGap = 4;
+  int cardSpacing = 6;
+  // Horizontal margin between the content rect and the card's outer
+  // bounds. Defaults to 0; pass theme.verticalSpacing * 2 to line up
+  // with the rest of the system UI on a given theme.
+  int outerMarginX = 0;
+};
+
 class CardLayout {
  public:
-  struct Config {
-    int radius = 4;
-    int innerPadX = 10;
-    int innerPadY = 6;
-    int titleGap = 4;
-    int cardSpacing = 6;
-    // Horizontal margin between the content rect and the card's outer
-    // bounds. Defaults to 0; pass theme.verticalSpacing * 2 to line up
-    // with the rest of the system UI on a given theme.
-    int outerMarginX = 0;
-  };
+  using Config = CardLayoutConfig;  // backwards-compat alias for call sites.
 
   // Inner-card drawing context handed to card body lambdas. Tracks the
   // running y cursor inside the card and exposes the same content geometry
@@ -80,7 +85,7 @@ class CardLayout {
     void centeredMessage(const char* msg);
   };
 
-  CardLayout(GfxRenderer& renderer, Rect contentRect, int startY, Config cfg = Config());
+  CardLayout(GfxRenderer& renderer, Rect contentRect, int startY, CardLayoutConfig cfg = {});
 
   // Render a single card. `bodyFn` receives a `Body&` and may call its
   // helpers in any order; the card auto-sizes to whatever the body draws.
@@ -95,7 +100,7 @@ class CardLayout {
  private:
   GfxRenderer& renderer_;
   Rect contentRect_;
-  Config cfg_;
+  CardLayoutConfig cfg_;
 
   int cardLeft_;
   int cardWidth_;

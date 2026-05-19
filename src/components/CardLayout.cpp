@@ -4,7 +4,7 @@
 
 #include "fontIds.h"
 
-CardLayout::CardLayout(GfxRenderer& renderer, Rect contentRect, int startY, Config cfg)
+CardLayout::CardLayout(GfxRenderer& renderer, Rect contentRect, int startY, CardLayoutConfig cfg)
     : renderer_(renderer), contentRect_(contentRect), cfg_(cfg), y_(startY) {
   cardLeft_ = contentRect.x + cfg_.outerMarginX;
   cardWidth_ = contentRect.width - cfg_.outerMarginX * 2;
