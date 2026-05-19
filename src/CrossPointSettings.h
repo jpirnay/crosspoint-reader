@@ -290,6 +290,8 @@ class CrossPointSettings {
   uint8_t moveFinishedBooksToCompleted = 0;
   // Remove finished book from Recent Books when the end-of-book screen action is selected.
   uint8_t removeFinishedBooksFromRecents = 0;
+  // User-defined device name (used for AP SSID, mDNS hostname, KOReader device identifier)
+  char deviceName[32] = "CrossPoint";
   // Show clock in the reader status bar
   uint8_t statusBarClock = 0;
   // Clock format: 0 = 24h (14:00), 1 = 12h (2:00pm)

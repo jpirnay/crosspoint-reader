@@ -8,8 +8,10 @@
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 
+#include <cctype>
 #include <cstddef>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "WifiSelectionActivity.h"
@@ -21,11 +23,25 @@
 
 namespace {
 // AP Mode configuration
-constexpr const char* AP_SSID = "CrossPoint-Reader";
 constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
-constexpr const char* AP_HOSTNAME = "crosspoint";
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 2;  // reduce from default 4 to save resources
+
+// Lowercase-sanitize device name for use as mDNS hostname.
+std::string makeHostname(const char* name) {
+  std::string h;
+  h.reserve(32);
+  for (const char* p = name; *p; ++p) {
+    char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
+    if (std::isalnum(static_cast<unsigned char>(c))) {
+      h += c;
+    } else if (!h.empty() && h.back() != '-') {
+      h += '-';
+    }
+  }
+  while (!h.empty() && h.back() == '-') h.pop_back();
+  return h.empty() ? std::string("crosspoint") : h;
+}
 constexpr int QR_CODE_WIDTH = 198;
 constexpr int QR_CODE_HEIGHT = 198;
 
@@ -167,8 +183,11 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
     isApMode = false;
 
     // Start mDNS for hostname resolution
-    if (MDNS.begin(AP_HOSTNAME)) {
-      LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
+    {
+      const std::string hostname = makeHostname(SETTINGS.deviceName);
+      if (MDNS.begin(hostname.c_str())) {
+        LOG_DBG("WEBACT", "mDNS started: http://%s.local/", hostname.c_str());
+      }
     }
 
     // Start the web server
@@ -192,6 +211,9 @@ void CrossPointWebServerActivity::startAccessPoint() {
   LOG_DBG("WEBACT", "Starting Access Point mode...");
   LOG_DBG("WEBACT", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
 
+  const std::string hostname = makeHostname(SETTINGS.deviceName);
+  const std::string apSsid = std::string(SETTINGS.deviceName) + "-Reader";
+
   // Configure and start the AP
   WiFi.mode(WIFI_AP);
   delay(100);
@@ -199,10 +221,10 @@ void CrossPointWebServerActivity::startAccessPoint() {
   // Start soft AP
   bool apStarted;
   if (AP_PASSWORD && strlen(AP_PASSWORD) >= 8) {
-    apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
+    apStarted = WiFi.softAP(apSsid.c_str(), AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
   } else {
     // Open network (no password)
-    apStarted = WiFi.softAP(AP_SSID, nullptr, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
+    apStarted = WiFi.softAP(apSsid.c_str(), nullptr, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
   }
 
   if (!apStarted) {
@@ -218,15 +240,15 @@ void CrossPointWebServerActivity::startAccessPoint() {
   char ipStr[16];
   snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", apIP[0], apIP[1], apIP[2], apIP[3]);
   connectedIP = ipStr;
-  connectedSSID = AP_SSID;
+  connectedSSID = apSsid;
 
   LOG_DBG("WEBACT", "Access Point started!");
-  LOG_DBG("WEBACT", "SSID: %s", AP_SSID);
+  LOG_DBG("WEBACT", "SSID: %s", apSsid.c_str());
   LOG_DBG("WEBACT", "IP: %s", connectedIP.c_str());
 
   // Start mDNS for hostname resolution
-  if (MDNS.begin(AP_HOSTNAME)) {
-    LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
+  if (MDNS.begin(hostname.c_str())) {
+    LOG_DBG("WEBACT", "mDNS started: http://%s.local/", hostname.c_str());
   } else {
     LOG_DBG("WEBACT", "WARNING: mDNS failed to start");
   }
@@ -422,7 +444,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
                       EpdFontFamily::BOLD);
     startY += height10 + metrics.verticalSpacing * 2;
 
-    std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
+    std::string hostnameUrl = std::string("http://") + makeHostname(SETTINGS.deviceName) + ".local/";
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
 
     // Show QR code for URL
@@ -461,7 +483,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     startY += height10 + 5;
 
     // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + makeHostname(SETTINGS.deviceName) + ".local/";
     renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
 
     // AP mode: no external RSSI metric available, but keep UI spacing consistent.

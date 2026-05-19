@@ -10,6 +10,7 @@
 
 #include <map>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -204,7 +205,7 @@ void WifiSelectionActivity::tryNextAutoCycleCandidate() {
 
   uint8_t baseMac[6];
   readDeviceBaseMac(baseMac);
-  String hostname = "CrossPoint-Reader-" + formatMacCompact(baseMac);
+  String hostname = String(SETTINGS.deviceName) + "-" + formatMacCompact(baseMac);
   WiFi.setHostname(hostname.c_str());
 
   if (selectedRequiresPassword && !enteredPassword.empty()) {
@@ -344,7 +345,7 @@ void WifiSelectionActivity::attemptConnection() {
   // Use stable base MAC so hostname suffix is deterministic across WiFi states.
   uint8_t baseMac[6];
   readDeviceBaseMac(baseMac);
-  String hostname = "CrossPoint-Reader-" + formatMacCompact(baseMac);
+  String hostname = String(SETTINGS.deviceName) + "-" + formatMacCompact(baseMac);
   WiFi.setHostname(hostname.c_str());
 
   if (selectedRequiresPassword && !enteredPassword.empty()) {

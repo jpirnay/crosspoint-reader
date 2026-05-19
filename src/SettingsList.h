@@ -259,6 +259,8 @@ inline const std::vector<SettingInfo> list = {
 #undef BTN_ACT_OPTIONS
 
     // --- System ---
+    SettingInfo::String(StrId::STR_DEVICE_NAME, SETTINGS.deviceName, sizeof(SETTINGS.deviceName), "deviceName",
+                        StrId::STR_CAT_SYSTEM),
     SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                         StrId::STR_CAT_SYSTEM),
     SettingInfo::Toggle(StrId::STR_SHOW_FILE_EXTENSIONS, &CrossPointSettings::showFileExtensions, "showFileExtensions",
