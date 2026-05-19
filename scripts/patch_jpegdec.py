@@ -16,13 +16,13 @@ Patches live in `scripts/jpegdec_patches/` as one-commit-per-fix files
 (see the file headers for context). Applied in lexical order.
 """
 
-Import("env")
+Import("env")  # noqa: F821 (SCons-injected global)
 import os
 import subprocess
 import sys
 
 
-PATCH_DIR = os.path.join(env["PROJECT_DIR"], "scripts", "jpegdec_patches")
+PATCH_DIR = os.path.join(env["PROJECT_DIR"], "scripts", "jpegdec_patches")  # noqa: F821
 
 
 def patch_jpegdec(env):
@@ -82,4 +82,4 @@ def _git_apply_succeeds(jpeg_dir, patch_path, *, reverse):
     ).returncode == 0
 
 
-patch_jpegdec(env)
+patch_jpegdec(env)  # noqa: F821
