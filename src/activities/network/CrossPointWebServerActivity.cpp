@@ -29,7 +29,9 @@ constexpr uint8_t AP_MAX_CONNECTIONS = 2;  // reduce from default 4 to save reso
 
 // IEEE 802.11 caps SSID at 32 octets; the AP suffix and any deviceName beyond that
 // must be truncated to keep WiFi.softAP from rejecting the SSID.
-constexpr size_t MAX_SSID_LEN = 32;
+// Note: ESP-IDF's esp_wifi_types_generic.h defines MAX_SSID_LEN as a macro, so we
+// can't reuse that name here.
+constexpr size_t AP_SSID_MAX_LEN = 32;
 
 constexpr int QR_CODE_WIDTH = 198;
 constexpr int QR_CODE_HEIGHT = 198;
@@ -202,8 +204,8 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
   const std::string hostname = StringUtils::makeHostname(SETTINGS.deviceName);
   std::string apSsid = std::string(SETTINGS.deviceName) + "-Reader";
-  if (apSsid.size() > MAX_SSID_LEN) {
-    apSsid.resize(MAX_SSID_LEN);
+  if (apSsid.size() > AP_SSID_MAX_LEN) {
+    apSsid.resize(AP_SSID_MAX_LEN);
   }
 
   // Configure and start the AP
