@@ -1294,8 +1294,6 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 
   s.epdFont.data = &s.miniData;
   s.miniMode = metadataOnly ? PerStyle::MiniMode::METADATA : PerStyle::MiniMode::FULL;
-  LOG_DBG("SDCF", "prewarmStyle %u: mode→%s glyphs=%u bitmap=%p", styleIdx, metadataOnly ? "METADATA" : "FULL",
-          validCount, s.miniBitmap);
 
   // Accumulate stats
   stats_.sdReadTimeMs += sdTime;
