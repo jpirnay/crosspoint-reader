@@ -58,18 +58,15 @@ void ReadingStatsBookListActivity::loop() {
   }
 
   if (!sortedBooks.empty()) {
-    buttonNavigator.onNextList(selectedIndex, static_cast<int>(sortedBooks.size()),
-                               [this]() { requestUpdate(); });
-    buttonNavigator.onPreviousList(selectedIndex, static_cast<int>(sortedBooks.size()),
-                                   [this]() { requestUpdate(); });
+    buttonNavigator.onNextList(selectedIndex, static_cast<int>(sortedBooks.size()), [this]() { requestUpdate(); });
+    buttonNavigator.onPreviousList(selectedIndex, static_cast<int>(sortedBooks.size()), [this]() { requestUpdate(); });
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       const BookReadingStats* book = sortedBooks[selectedIndex];
-      startActivityForResult(
-          std::make_unique<ReadingStatsBookDetailActivity>(renderer, mappedInput, book->docId),
-          // After detail closes the underlying store hasn't changed (it's
-          // read-only), so just redraw — selectedIndex is preserved.
-          [this](const ActivityResult&) { requestUpdate(); });
+      startActivityForResult(std::make_unique<ReadingStatsBookDetailActivity>(renderer, mappedInput, book->docId),
+                             // After detail closes the underlying store hasn't changed (it's
+                             // read-only), so just redraw — selectedIndex is preserved.
+                             [this](const ActivityResult&) { requestUpdate(); });
     }
   }
 }
@@ -105,8 +102,7 @@ void ReadingStatsBookListActivity::render(RenderLock&&) {
           // theme as "no subtitle" and the row collapses to a single line.
           return sortedBooks[index]->author;
         },
-        nullptr,
-        [this](int index) { return formatDuration(sortedBooks[index]->totalSeconds); }, true);
+        nullptr, [this](int index) { return formatDuration(sortedBooks[index]->totalSeconds); }, true);
   }
 
   const auto labels =

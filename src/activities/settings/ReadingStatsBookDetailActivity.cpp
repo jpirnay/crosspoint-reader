@@ -55,7 +55,7 @@ std::string formatDateOrRelative(time_t epoch) {
     return buf;
   }
   // Past a month, the relative form ("60d ago") is noisier than a date.
-  struct tm t {};
+  struct tm t{};
   localtime_r(&epoch, &t);
   snprintf(buf, sizeof(buf), "%04d-%02d-%02d", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
   return buf;
