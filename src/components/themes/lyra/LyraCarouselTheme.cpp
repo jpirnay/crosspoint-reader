@@ -586,14 +586,15 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
   int textX = rect.x + LyraCarouselMetrics::values.contentSidePadding + hPad;
   int textWidth = contentWidth - LyraCarouselMetrics::values.contentSidePadding * 2 - hPad * 2;
   int iconSize = 0;
+  int iconY = 0;
   if (rowIcon != nullptr) {
     iconSize = (rowSubtitle != nullptr) ? mainMenuIconSz : listIconSz;
+    iconY = (rowHeight - iconSize) / 2;
     textX += iconSize + hPad;
     textWidth -= iconSize + hPad;
   }
 
   const auto pageStartIndex = selectedIndex / pageItems * pageItems;
-  const int iconY = (rowSubtitle != nullptr) ? 16 : 10;
   for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
     const int itemY = rect.y + (i % pageItems) * rowHeight;
     const bool sel = (i == selectedIndex);
