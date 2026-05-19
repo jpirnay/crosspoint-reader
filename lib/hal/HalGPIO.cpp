@@ -351,11 +351,19 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   }
 
   const bool usbConnected = isUsbConnected();
-  LOG_DBG("GPIO", "getWakeupReason: wakeupCause=%d, resetReason=%d, usbConnected=%d", static_cast<int>(wakeupCause),
-          static_cast<int>(resetReason), usbConnected);
+  // X4: USB plug-in alone CAN cold-boot the MCU, so POWERON + usbConnected is
+  // ambiguous between "USB inserted" and "button pressed while USB was already
+  // attached". Disambiguate by checking the raw power-button pin — a deliberate
+  // power-on press is held for several hundred ms, well beyond the time it takes
+  // to reach this point in setup(). LOW = pressed.
+  const bool powerButtonHeld =
+      (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && usbConnected) &&
+      digitalRead(InputManager::POWER_BUTTON_PIN) == LOW;
+  LOG_DBG("GPIO", "getWakeupReason: wakeupCause=%d, resetReason=%d, usbConnected=%d, btnHeld=%d",
+          static_cast<int>(wakeupCause), static_cast<int>(resetReason), usbConnected, powerButtonHeld);
 
   if ((wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected) ||
-      (wakeupCause == ESP_SLEEP_WAKEUP_GPIO && resetReason == ESP_RST_DEEPSLEEP && usbConnected)) {
+      (wakeupCause == ESP_SLEEP_WAKEUP_GPIO && resetReason == ESP_RST_DEEPSLEEP && usbConnected) || powerButtonHeld) {
     return WakeupReason::PowerButton;
   }
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_UNKNOWN && usbConnected) {

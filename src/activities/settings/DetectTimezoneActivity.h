@@ -20,6 +20,10 @@ class DetectTimezoneActivity final : public Activity {
   std::string detectedTimezone;
   bool dstKnown = false;
   bool dstActive = false;
+  // Set true once WiFi is activated; gates the silent reboot in onExit. Needed
+  // because we drop the radio early via esp_wifi_stop() to save power while the
+  // result screen is displayed.
+  bool wifiActivated = false;
 
   void onWifiSelectionComplete(bool success);
   void onWifiSelectionCancelled();

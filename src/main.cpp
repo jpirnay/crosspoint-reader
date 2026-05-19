@@ -29,6 +29,7 @@
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "WeatherSettingsStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
@@ -123,6 +124,29 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 EpdFont ui12RegularFont(&inter_ui_12_regular);
 EpdFont ui12BoldFont(&inter_ui_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+// SilentRestart.h definitions. RTC_NOINIT survives ESP.restart() but not power loss.
+RTC_NOINIT_ATTR uint32_t silentRebootMagic;
+RTC_NOINIT_ATTR uint32_t silentRebootTarget;
+constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
+constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
+constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
+
+void silentRestart() {
+  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_DBG("MAIN", "Silent restart (target=home)");
+  delay(50);
+  ESP.restart();
+}
+
+void silentRestartToReader() {
+  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_DBG("MAIN", "Silent restart (target=reader)");
+  delay(50);
+  ESP.restart();
+}
 
 // Enter deep sleep mode
 void enterDeepSleep() {
@@ -233,22 +257,21 @@ void setup() {
       esp_ota_mark_app_valid_cancel_rollback();
     }
   }
-#ifdef ENABLE_SERIAL_LOG
-  // Earliest possible Serial setup. The 250 ms stall before begin() lets the
-  // USB Serial/JTAG peripheral finish power-on and lets the host complete USB
-  // enumeration before we touch the CDC state — otherwise cold boot races
-  // and the host has to be physically replugged for logs to flow. Warm reboot
-  // worked without the delay because USB was already enumerated.
-  //
-  // setTxTimeoutMs(0) makes writes non-blocking — the HWCDC TX FIFO drops
-  // bytes harmlessly if the host isn't actively draining, instead of blocking
-  // for the default 250 ms per write and chaining into a firmware hang.
-  delay(250);
-  Serial.begin(115200);
-  logSerial.setTxTimeoutMs(0);
-#endif
 
+  // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
+  // Bound the target range too — RTC_NOINIT memory is uninitialized on cold boot.
+  const bool isSilentReboot = (silentRebootMagic == SILENT_REBOOT_MAGIC);
+  const uint32_t silentRebootTargetSnapshot =
+      (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_READER) ? silentRebootTarget : 0;
+  silentRebootMagic = 0;
+  silentRebootTarget = 0;
+
+  // Classify the boot reason *before* the USB CDC delay below. Starting USB
+  // serial early disturbs the GPIO/USB state that getWakeupReason() reads, which
+  // can misclassify a power-button press (while USB happens to be attached) as
+  // AfterUSBPower and send the device straight back to sleep.
   HalSystem::begin();
+
   gpio.begin();
   powerManager.begin();
   halTiltSensor.begin();
@@ -258,11 +281,27 @@ void setup() {
 
   if (wakeupReason == HalGPIO::WakeupReason::AfterUSBPower) {
     // If USB power caused a cold boot, go back to sleep immediately without initializing subsystems
-    LOG_DBG("MAIN", "Wakeup reason: After USB Power => Deep sleep");
     halTiltSensor.deepSleep();
     powerManager.startDeepSleep(gpio);
     return;
   }
+
+#ifdef ENABLE_SERIAL_LOG
+  // The 250 ms stall before Serial.begin() lets the USB Serial/JTAG peripheral
+  // finish power-on and lets the host complete USB enumeration before we touch
+  // the CDC state — otherwise cold boot races and the host has to be physically
+  // replugged for logs to flow. Warm reboot worked without the delay because
+  // USB was already enumerated, so silent reboot skips it.
+  //
+  // setTxTimeoutMs(0) makes writes non-blocking — the HWCDC TX FIFO drops
+  // bytes harmlessly if the host isn't actively draining, instead of blocking
+  // for the default 250 ms per write and chaining into a firmware hang.
+  if (!isSilentReboot) {
+    delay(250);
+  }
+  Serial.begin(115200);
+  logSerial.setTxTimeoutMs(0);
+#endif
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
   LOG_DBG("MAIN", "Wakeup reason: %d, millis=%lu, rawPowerPin=%d", static_cast<int>(wakeupReason), millis(),
@@ -335,7 +374,12 @@ void setup() {
 
   setupDisplayAndFonts();
 
-  activityManager.goToBoot();
+  // First paint after silent reboot is HALF_REFRESH (SDK forces it after begin()'s
+  // panel reset); subsequent paints FAST. Skipping the boot splash means the
+  // reboot visually looks like a screen refresh, not a power cycle.
+  if (!isSilentReboot) {
+    activityManager.goToBoot();
+  }
 
   APP_STATE.loadFromFile();
   HalClock::restore();
@@ -346,6 +390,14 @@ void setup() {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
         std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
+  } else if (isSilentReboot && silentRebootTargetSnapshot == SILENT_REBOOT_TARGET_READER &&
+             !APP_STATE.openEpubPath.empty()) {
+    activityManager.goToReader(APP_STATE.openEpubPath);
+  } else if (isSilentReboot) {
+    // target == home (or reader with no open book): land on home — don't fall
+    // through to the sleep-wake "resume reader" logic, which fires on stale
+    // openEpubPath + lastSleepFromReader from a prior session.
+    activityManager.goHome();
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     activityManager.goHome();
@@ -358,9 +410,12 @@ void setup() {
     activityManager.goToReader(path);
   }
 
-  // Ensure we're not still holding the power button before leaving setup
+  // Ensure we're not still holding the power button before leaving setup.
   // waitForStablePowerRelease protects against switch bounce that might register as a false double-press.
-  gpio.waitForStablePowerRelease();
+  // Skip on silent reboot: the firmware triggered the restart, so the button isn't held.
+  if (!isSilentReboot) {
+    gpio.waitForStablePowerRelease();
+  }
   // Flush any pin state transitions that occurred during boot before entering the main loop
   mappedInputManager.update();
   buttonEventManager.drain();

@@ -5,12 +5,14 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include <cstdlib>
 #include <string>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -52,6 +54,8 @@ static void formatElapsed(char* buf, size_t bufSize, int32_t totalSeconds) {
 void SyncTimeActivity::onEnter() {
   Activity::onEnter();
 
+  wifiActivated = true;
+
   if (WiFi.status() == WL_CONNECTED) {
     onWifiSelectionComplete(true);
     return;
@@ -69,7 +73,12 @@ void SyncTimeActivity::onEnter() {
 
 void SyncTimeActivity::onExit() {
   Activity::onExit();
-  HalClock::wifiOff(true);
+
+  if (wifiActivated) {
+    WiFi.disconnect(false);
+    delay(30);
+    silentRestart();
+  }
 }
 
 void SyncTimeActivity::onWifiSelectionComplete(bool success) {
@@ -102,7 +111,8 @@ void SyncTimeActivity::performSync() {
     driftSeconds = (int32_t)(time(nullptr) - preSyncTime);
   }
 
-  HalClock::wifiOff(true);
+  // Drop the radio while the result screen is displayed; full teardown happens at silent reboot.
+  esp_wifi_stop();
 
   state = ok ? SUCCESS : FAILED;
   requestUpdate();

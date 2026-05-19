@@ -6,11 +6,13 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include <string>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -205,6 +207,8 @@ bool detectTimezoneSetting(uint8_t& outSetting, std::string& outIana, bool& outD
 void DetectTimezoneActivity::onEnter() {
   Activity::onEnter();
 
+  wifiActivated = true;
+
   if (WiFi.status() == WL_CONNECTED) {
     onWifiSelectionComplete(true);
     return;
@@ -222,7 +226,12 @@ void DetectTimezoneActivity::onEnter() {
 
 void DetectTimezoneActivity::onExit() {
   Activity::onExit();
-  HalClock::wifiOff();
+
+  if (wifiActivated) {
+    WiFi.disconnect(false);
+    delay(30);
+    silentRestart();
+  }
 }
 
 void DetectTimezoneActivity::onWifiSelectionComplete(bool success) {
@@ -257,7 +266,8 @@ void DetectTimezoneActivity::performDetect() {
     state = FAILED;
   }
 
-  HalClock::wifiOff();
+  // Drop the radio while the result screen is displayed; full teardown happens at silent reboot.
+  esp_wifi_stop();
   requestUpdate();
 }
 
