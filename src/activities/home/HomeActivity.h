@@ -41,6 +41,11 @@ class HomeActivity final : public Activity {
   bool coverBufferStored = false;
   size_t nextRecentCoverIndex = 0;
   uint8_t* coverBuffer = nullptr;
+  size_t coverBufferSize = 0;
+  int coverRectX = 0;
+  int coverRectY = 0;
+  int coverRectW = 0;
+  int coverRectH = 0;
 
   std::vector<RecentBook> recentBooks;
   std::vector<MenuEntry> menuEntries;

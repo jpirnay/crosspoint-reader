@@ -2020,6 +2020,69 @@ int GfxRenderer::getScreenHeight() const {
   return panelWidth;
 }
 
+static bool logicalRectToPhysicalBounds(GfxRenderer::Orientation orientation, int lx, int ly, int lw, int lh,
+                                        uint16_t panelWidth, uint16_t panelHeight, int* outX0, int* outY0, int* outX1,
+                                        int* outY1) {
+  if (lw <= 0 || lh <= 0) return false;
+  int minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
+  const int corners[4][2] = {{lx, ly}, {lx + lw - 1, ly}, {lx, ly + lh - 1}, {lx + lw - 1, ly + lh - 1}};
+  for (auto& c : corners) {
+    int phyX, phyY;
+    rotateCoordinates(orientation, c[0], c[1], &phyX, &phyY, panelWidth, panelHeight);
+    if (phyX < minX) minX = phyX;
+    if (phyY < minY) minY = phyY;
+    if (phyX > maxX) maxX = phyX;
+    if (phyY > maxY) maxY = phyY;
+  }
+  if (minX < 0) minX = 0;
+  if (minY < 0) minY = 0;
+  if (maxX >= panelWidth) maxX = panelWidth - 1;
+  if (maxY >= panelHeight) maxY = panelHeight - 1;
+  if (minX > maxX || minY > maxY) return false;
+  *outX0 = minX;
+  *outY0 = minY;
+  *outX1 = maxX;
+  *outY1 = maxY;
+  return true;
+}
+
+size_t GfxRenderer::getRegionByteSize(int lx, int ly, int lw, int lh) const {
+  int x0, y0, x1, y1;
+  if (!logicalRectToPhysicalBounds(getOrientation(), lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1))
+    return 0;
+  const int byteX0 = x0 / 8;
+  const int byteX1 = x1 / 8;
+  return static_cast<size_t>(byteX1 - byteX0 + 1) * static_cast<size_t>(y1 - y0 + 1);
+}
+
+bool GfxRenderer::copyRegionToBuffer(int lx, int ly, int lw, int lh, uint8_t* buf, size_t bufSize) const {
+  int x0, y0, x1, y1;
+  if (!logicalRectToPhysicalBounds(getOrientation(), lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1))
+    return false;
+  const int byteX0 = x0 / 8;
+  const int bytesPerRow = x1 / 8 - byteX0 + 1;
+  const int rowCount = y1 - y0 + 1;
+  const size_t needed = static_cast<size_t>(bytesPerRow) * static_cast<size_t>(rowCount);
+  if (bufSize < needed || !frameBuffer || !buf) return false;
+  for (int row = 0; row < rowCount; row++)
+    memcpy(buf + row * bytesPerRow, frameBuffer + (y0 + row) * panelWidthBytes + byteX0, bytesPerRow);
+  return true;
+}
+
+bool GfxRenderer::copyBufferToRegion(int lx, int ly, int lw, int lh, const uint8_t* buf, size_t bufSize) const {
+  int x0, y0, x1, y1;
+  if (!logicalRectToPhysicalBounds(getOrientation(), lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1))
+    return false;
+  const int byteX0 = x0 / 8;
+  const int bytesPerRow = x1 / 8 - byteX0 + 1;
+  const int rowCount = y1 - y0 + 1;
+  const size_t needed = static_cast<size_t>(bytesPerRow) * static_cast<size_t>(rowCount);
+  if (bufSize < needed || !frameBuffer || !buf) return false;
+  for (int row = 0; row < rowCount; row++)
+    memcpy(frameBuffer + (y0 + row) * panelWidthBytes + byteX0, buf + row * bytesPerRow, bytesPerRow);
+  return true;
+}
+
 int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style style) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
