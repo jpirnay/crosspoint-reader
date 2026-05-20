@@ -40,6 +40,14 @@ bool FontInstaller::isValidFontFileName(const char* name) {
   if (name[0] == '/') return false;
   if (strchr(name, '\\') != nullptr) return false;
   if (strstr(name, "..") != nullptr) return false;
+  // Reject multiple slashes or trailing slash to limit directory depth
+  int slashCount = 0;
+  for (const char* p = name; *p; ++p) {
+    if (*p == '/') {
+      ++slashCount;
+      if (slashCount > 1 || *(p + 1) == '\0' || *(p + 1) == '/') return false;
+    }
+  }
   return true;
 }
 
