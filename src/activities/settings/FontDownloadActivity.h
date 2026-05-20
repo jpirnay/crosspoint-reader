@@ -6,6 +6,7 @@
 
 #include "../Activity.h"
 #include "FontInstaller.h"
+#include "network/HttpDownloader.h"
 #include "util/ButtonNavigator.h"
 
 #ifndef FONT_MANIFEST_URL
@@ -44,7 +45,9 @@ class FontDownloadActivity : public Activity {
   struct ManifestFamily {
     std::string name;
     std::string description;
-    std::vector<std::string> styles;
+    // `styles` was once parsed here but never rendered — dropped to avoid
+    // ArduinoJson string allocations that fragmented the heap before the
+    // first TLS download. Resurrect if a UI surfaces style names.
     std::vector<ManifestFile> files;
     size_t totalSize = 0;
     bool installed = false;
@@ -58,6 +61,14 @@ class FontDownloadActivity : public Activity {
   State state_ = WIFI_SELECTION;
   FontInstaller fontInstaller_;
   ButtonNavigator buttonNavigator_;
+
+  // HTTP/TLS session shared across all files of a single downloadFamily()
+  // call. Each family install pays the TLS handshake once (on its first
+  // file); subsequent files reuse the open keep-alive connection.
+  // NOT shared with the manifest fetch — holding the TLS context open
+  // through the JSON parse aborts on the ~36 KB contiguous allocation
+  // collision with ArduinoJson's working memory.
+  HttpDownloader::Session httpSession_;
 
   std::string baseUrl_;
   std::vector<ManifestFamily> families_;
@@ -74,6 +85,11 @@ class FontDownloadActivity : public Activity {
   size_t fileProgress_ = 0;
   size_t fileTotal_ = 0;
   int downloadingFamilyIndex_ = 0;
+  // Cached during downloadFamily() before families_ is stashed to SD, so the
+  // render path can show the family name and decide the Retry/Resume label
+  // without touching families_ (which is empty during the download).
+  std::string downloadingFamilyName_;
+  bool downloadingFamilyHasResumable_ = false;
   PendingFontAction pendingErrorAction_ = PendingFontAction::None;
   std::string errorMessage_;
   bool cancelRequested_ = false;
@@ -83,9 +99,24 @@ class FontDownloadActivity : public Activity {
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
-  void downloadFamily(ManifestFamily& family);
+  // Download a single family by its index into families_. Internally stashes
+  // families_ to SD so the TLS handshake runs on a defragmented heap; the
+  // selected family's state mutations (installed/hasUpdate/hasResumableDownload)
+  // are merged back into families_ on return.
+  void downloadFamily(int familyIdx);
+  // Internal: the body of downloadFamily after the stash. Operates only on
+  // the local family copy and constants like familyIdx; never touches
+  // families_ (which is empty during this call).
+  void downloadFamilyImpl(ManifestFamily& family, int familyIdx);
   void downloadAll();
   void updateAll();
+
+  // Persist families_ to /fonts_families.bin and clear the in-memory vector.
+  // Used to free the ~10 KB of scattered std::string allocations that fragment
+  // the heap enough to break the TLS handshake during font downloads.
+  bool stashFamiliesToSd();
+  // Read /fonts_families.bin back into families_. Returns true on success.
+  bool restoreFamiliesFromSd();
   bool isDownloadAllSelected() const { return hasDownloadCandidates() && selectedIndex_ == 0; }
   bool isUpdateAllSelected() const {
     if (!hasUpdateCandidates()) return false;

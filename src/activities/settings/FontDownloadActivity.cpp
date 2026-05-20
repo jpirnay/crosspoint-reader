@@ -34,11 +34,16 @@ void FontDownloadActivity::onEnter() {
 void FontDownloadActivity::onExit() {
   Activity::onExit();
 
+  // Always silentRestart on exit, regardless of WiFi state. Even if a deep
+  // error path turned WiFi off, we still did expensive network/TLS work and
+  // the heap is fragmented past the point a normal session can recover (see
+  // [project-font-download-heap-stash]). A reboot here gives the next
+  // activity a pristine heap.
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
-    silentRestart();
   }
+  silentRestart();
 }
 
 void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
@@ -72,6 +77,10 @@ void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
 bool FontDownloadActivity::fetchAndParseManifest() {
   static constexpr const char* MANIFEST_TMP = "/fonts_manifest.tmp";
 
+  // Standalone manifest fetch: closes the TLS connection before the JSON
+  // parse so the parser has full heap headroom. The Session is opened later
+  // for the per-file download loop, on a heap that's been slimmed by
+  // trimManifestForDownload().
   auto result = HttpDownloader::downloadToFile(FONT_MANIFEST_URL, MANIFEST_TMP, nullptr);
   if (result != HttpDownloader::OK) {
     LOG_ERR("FONT", "Failed to fetch manifest from %s", FONT_MANIFEST_URL);
@@ -119,10 +128,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     ManifestFamily family;
     family.name = fObj["name"] | "";
     family.description = fObj["description"] | "";
-
-    for (JsonVariant s : fObj["styles"].as<JsonArray>()) {
-      family.styles.push_back(s.as<std::string>());
-    }
+    // styles[] in the JSON is intentionally ignored — see ManifestFamily.
 
     family.totalSize = 0;
     for (JsonObject fileObj : fObj["files"].as<JsonArray>()) {
@@ -177,13 +183,167 @@ bool FontDownloadActivity::fetchAndParseManifest() {
   return true;
 }
 
+// --- Stash/Restore ---
+//
+// Persist families_ to a small binary file on SD so we can free the
+// ~10 KB of scattered std::string allocations it holds. mbedtls's TLS
+// handshake needs many small allocations from a defragmented heap; with
+// families_ resident, the heap stays fragmented at ~36 KB largest contiguous
+// and the handshake fails with -0x2700 / flags=0 (internal alloc failure).
+//
+// Format (little-endian):
+//   u32 magic    = 'CPFM' (0x4D465043)
+//   u32 count    = number of families
+//   for each family:
+//     u8 name_len, name bytes
+//     u8 desc_len, desc bytes
+//     u32 totalSize
+//     u8 flags  bit0 installed, bit1 hasUpdate, bit2 hasResumableDownload
+//     u8 file_count
+//     for each file:
+//       u8 name_len, name bytes
+//       u32 size
+//       u32 crc32
+//       u8 hasCrc32
+
+static constexpr const char* FAMILIES_STASH_PATH = "/fonts_families.bin";
+static constexpr uint32_t FAMILIES_STASH_MAGIC = 0x4D465043;  // 'CPFM'
+
+namespace {
+bool writeU8(FsFile& f, uint8_t v) { return f.write(&v, 1) == 1; }
+bool writeU32(FsFile& f, uint32_t v) {
+  uint8_t buf[4] = {static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v >> 16),
+                    static_cast<uint8_t>(v >> 24)};
+  return f.write(buf, 4) == 4;
+}
+bool writeStr(FsFile& f, const std::string& s) {
+  if (s.size() > 255) return false;
+  if (!writeU8(f, static_cast<uint8_t>(s.size()))) return false;
+  return s.empty() || f.write(reinterpret_cast<const uint8_t*>(s.data()), s.size()) == s.size();
+}
+bool readU8(FsFile& f, uint8_t& v) { return f.read(&v, 1) == 1; }
+bool readU32(FsFile& f, uint32_t& v) {
+  uint8_t buf[4];
+  if (f.read(buf, 4) != 4) return false;
+  v = buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24);
+  return true;
+}
+bool readStr(FsFile& f, std::string& s) {
+  uint8_t len = 0;
+  if (!readU8(f, len)) return false;
+  s.resize(len);
+  if (len == 0) return true;
+  return f.read(reinterpret_cast<uint8_t*>(&s[0]), len) == len;
+}
+}  // namespace
+
+bool FontDownloadActivity::stashFamiliesToSd() {
+  Storage.remove(FAMILIES_STASH_PATH);
+  FsFile file;
+  if (!Storage.openFileForWrite("FONT", FAMILIES_STASH_PATH, file)) {
+    LOG_ERR("FONT", "Stash open failed");
+    return false;
+  }
+
+  bool ok = writeU32(file, FAMILIES_STASH_MAGIC);
+  ok = ok && writeU32(file, static_cast<uint32_t>(families_.size()));
+  for (const auto& fam : families_) {
+    if (!ok) break;
+    ok = ok && writeStr(file, fam.name);
+    ok = ok && writeStr(file, fam.description);
+    ok = ok && writeU32(file, static_cast<uint32_t>(fam.totalSize));
+    uint8_t flags = (fam.installed ? 1 : 0) | (fam.hasUpdate ? 2 : 0) | (fam.hasResumableDownload ? 4 : 0);
+    ok = ok && writeU8(file, flags);
+    ok = ok && writeU8(file, static_cast<uint8_t>(fam.files.size()));
+    for (const auto& fl : fam.files) {
+      ok = ok && writeStr(file, fl.name);
+      ok = ok && writeU32(file, static_cast<uint32_t>(fl.size));
+      ok = ok && writeU32(file, fl.crc32);
+      ok = ok && writeU8(file, fl.hasCrc32 ? 1 : 0);
+    }
+  }
+
+  file.flush();
+  file.close();
+  if (!ok) {
+    LOG_ERR("FONT", "Stash write failed");
+    Storage.remove(FAMILIES_STASH_PATH);
+    return false;
+  }
+  // Free the in-memory representation now that it's safely on disk.
+  families_.clear();
+  families_.shrink_to_fit();
+  LOG_DBG("FONT", "Stashed families_ to %s and cleared in-memory copy", FAMILIES_STASH_PATH);
+  return true;
+}
+
+bool FontDownloadActivity::restoreFamiliesFromSd() {
+  FsFile file;
+  if (!Storage.openFileForRead("FONT", FAMILIES_STASH_PATH, file)) {
+    LOG_ERR("FONT", "Stash file missing");
+    return false;
+  }
+
+  uint32_t magic = 0;
+  uint32_t count = 0;
+  bool ok = readU32(file, magic) && magic == FAMILIES_STASH_MAGIC && readU32(file, count);
+  if (ok) {
+    families_.clear();
+    families_.reserve(count);
+    for (uint32_t i = 0; i < count && ok; i++) {
+      ManifestFamily fam;
+      ok = ok && readStr(file, fam.name);
+      ok = ok && readStr(file, fam.description);
+      uint32_t totalSize = 0;
+      ok = ok && readU32(file, totalSize);
+      fam.totalSize = totalSize;
+      uint8_t flags = 0;
+      ok = ok && readU8(file, flags);
+      fam.installed = (flags & 1) != 0;
+      fam.hasUpdate = (flags & 2) != 0;
+      fam.hasResumableDownload = (flags & 4) != 0;
+      uint8_t fileCount = 0;
+      ok = ok && readU8(file, fileCount);
+      fam.files.reserve(fileCount);
+      for (uint8_t j = 0; j < fileCount && ok; j++) {
+        ManifestFile fl;
+        ok = ok && readStr(file, fl.name);
+        uint32_t fsize = 0, fcrc = 0;
+        ok = ok && readU32(file, fsize);
+        fl.size = fsize;
+        ok = ok && readU32(file, fcrc);
+        fl.crc32 = fcrc;
+        uint8_t hasCrc = 0;
+        ok = ok && readU8(file, hasCrc);
+        fl.hasCrc32 = hasCrc != 0;
+        fam.files.push_back(std::move(fl));
+      }
+      if (ok) families_.push_back(std::move(fam));
+    }
+  }
+  file.close();
+  if (!ok) {
+    LOG_ERR("FONT", "Stash read failed (magic=%08x count=%u)", magic, count);
+    return false;
+  }
+  // Keep the stash file around so a crash mid-download can still recover.
+  // It gets overwritten on next stash and is harmless if stale.
+  LOG_DBG("FONT", "Restored %zu families from stash", families_.size());
+  return true;
+}
+
 // --- Download ---
 
 void FontDownloadActivity::downloadAll() {
   cancelRequested_ = false;
+  // Snapshot indices upfront because downloadFamily() stashes/restores
+  // families_ — indices remain valid as long as we don't sort or splice it.
+  std::vector<int> targetIndices;
   for (size_t i = 0; i < families_.size(); i++) {
-    if (families_[i].installed) continue;
-    downloadFamily(families_[i]);
+    if (!families_[i].installed) targetIndices.push_back(static_cast<int>(i));
+  }
+  for (int idx : targetIndices) {
+    downloadFamily(idx);
     if (state_ == ERROR || cancelRequested_) return;
   }
 
@@ -193,9 +353,12 @@ void FontDownloadActivity::downloadAll() {
 
 void FontDownloadActivity::updateAll() {
   cancelRequested_ = false;
+  std::vector<int> targetIndices;
   for (size_t i = 0; i < families_.size(); i++) {
-    if (!families_[i].installed || !families_[i].hasUpdate) continue;
-    downloadFamily(families_[i]);
+    if (families_[i].installed && families_[i].hasUpdate) targetIndices.push_back(static_cast<int>(i));
+  }
+  for (int idx : targetIndices) {
+    downloadFamily(idx);
     if (state_ == ERROR || cancelRequested_) return;
   }
 
@@ -255,12 +418,26 @@ bool FontDownloadActivity::hasUpdateCandidates() const {
   return false;
 }
 
-void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
+void FontDownloadActivity::downloadFamily(int familyIdx) {
+  if (familyIdx < 0 || familyIdx >= static_cast<int>(families_.size())) {
+    LOG_ERR("FONT", "downloadFamily: invalid index %d (size %zu)", familyIdx, families_.size());
+    return;
+  }
+
+  // Snapshot the target family by value, then stash + free families_ so the
+  // ~10 KB of scattered std::string allocations don't fragment the heap
+  // during the TLS handshake. Render-path caches (downloadingFamilyName_,
+  // downloadingFamilyHasResumable_) cover the family-name and Resume-label
+  // accesses that previously read families_ during DOWNLOADING/ERROR.
+  ManifestFamily family = families_[familyIdx];
+  downloadingFamilyName_ = family.name;
+  downloadingFamilyHasResumable_ = family.hasResumableDownload;
+
   cancelRequested_ = false;
   {
     RenderLock lock(*this);
     state_ = DOWNLOADING;
-    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+    downloadingFamilyIndex_ = familyIdx;
     currentFileIndex_ = 0;
     currentFileTotal_ = family.files.size();
     fileProgress_ = 0;
@@ -268,6 +445,35 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   }
   requestUpdateAndWait();
 
+  if (!stashFamiliesToSd()) {
+    RenderLock lock(*this);
+    state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    errorMessage_ = "Failed to stash manifest";
+    return;
+  }
+
+  // Run the actual download with families_ empty (defragmented heap).
+  downloadFamilyImpl(family, familyIdx);
+
+  // Update cached render state from the impl's mutations.
+  downloadingFamilyHasResumable_ = family.hasResumableDownload;
+
+  // Restore families_ regardless of success/error/abort outcome, then merge
+  // back the mutations the impl made on the local family copy.
+  if (restoreFamiliesFromSd() && familyIdx >= 0 && familyIdx < static_cast<int>(families_.size())) {
+    families_[familyIdx].installed = family.installed;
+    families_[familyIdx].hasUpdate = family.hasUpdate;
+    families_[familyIdx].hasResumableDownload = family.hasResumableDownload;
+  }
+  syncSelectedIndexForNewActionCount();
+}
+
+void FontDownloadActivity::downloadFamilyImpl(ManifestFamily& family, int familyIdx) {
+  // httpSession_ does the TLS handshake on its first downloadToFile call;
+  // subsequent files reuse the open keep-alive connection. If the server
+  // dropped the connection during the idle gap (user browsing the family
+  // list), the Session layer transparently reinitialises and retries once.
   char liveDir[128];
   char stagingDir[128];
   char backupDir[128];
@@ -284,7 +490,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     RenderLock lock(*this);
     state_ = ERROR;
     pendingErrorAction_ = PendingFontAction::Download;
-    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+    downloadingFamilyIndex_ = familyIdx;
     errorMessage_ = "Failed to create staging area";
     return;
   }
@@ -348,33 +554,27 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     std::string url = baseUrl_ + file.name;
 
-    // Give the previous TLS connection (manifest fetch on first iteration, or
-    // the previous file otherwise) time to fully release its socket and TLS
-    // buffers. Without this, http.GET() can fail immediately with -1
-    // (HTTPC_ERROR_CONNECTION_REFUSED) on the next request — same workaround
-    // the browser-driven install path uses in CrossPointWebServer.
-    delay(500);
+    auto result = HttpDownloader::downloadToFile(
+        httpSession_, url, stagedPath, [this](unsigned int downloaded, unsigned int total) {
+          mappedInput.update();
+          fileProgress_ = downloaded;
+          fileTotal_ = total;
 
-    auto result = HttpDownloader::downloadToFile(url, stagedPath, [this](unsigned int downloaded, unsigned int total) {
-      mappedInput.update();
-      fileProgress_ = downloaded;
-      fileTotal_ = total;
+          const unsigned long now = millis();
+          int percent = 0;
+          if (total > 0) {
+            percent = static_cast<int>((static_cast<unsigned long long>(downloaded) * 100ULL + total / 2) / total);
+          }
+          const bool percentChanged = percent != lastProgressPercent_;
+          const bool timeElapsed = lastProgressUpdateMs_ == 0 || now - lastProgressUpdateMs_ > 2000;
+          if ((percentChanged && timeElapsed) || downloaded == total) {
+            requestUpdate(true);
+            lastProgressPercent_ = percent;
+            lastProgressUpdateMs_ = now;
+          }
 
-      const unsigned long now = millis();
-      int percent = 0;
-      if (total > 0) {
-        percent = static_cast<int>((static_cast<unsigned long long>(downloaded) * 100ULL + total / 2) / total);
-      }
-      const bool percentChanged = percent != lastProgressPercent_;
-      const bool timeElapsed = lastProgressUpdateMs_ == 0 || now - lastProgressUpdateMs_ > 2000;
-      if ((percentChanged && timeElapsed) || downloaded == total) {
-        requestUpdate(true);
-        lastProgressPercent_ = percent;
-        lastProgressUpdateMs_ = now;
-      }
-
-      return !mappedInput.wasPressed(MappedInputManager::Button::Back);
-    });
+          return !mappedInput.wasPressed(MappedInputManager::Button::Back);
+        });
 
     if (result == HttpDownloader::ABORTED) {
       LOG_INF("FONT", "Download cancelled: %s", file.name.c_str());
@@ -396,7 +596,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       RenderLock lock(*this);
       state_ = ERROR;
       pendingErrorAction_ = PendingFontAction::Download;
-      downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+      downloadingFamilyIndex_ = familyIdx;
       errorMessage_ = "Download failed: " + file.name;
       return;
     }
@@ -411,7 +611,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
         RenderLock lock(*this);
         state_ = ERROR;
         pendingErrorAction_ = PendingFontAction::Download;
-        downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+        downloadingFamilyIndex_ = familyIdx;
         errorMessage_ = "Failed to verify: " + file.name;
         return;
       }
@@ -422,7 +622,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
         RenderLock lock(*this);
         state_ = ERROR;
         pendingErrorAction_ = PendingFontAction::Download;
-        downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+        downloadingFamilyIndex_ = familyIdx;
         errorMessage_ = "Checksum mismatch: " + file.name;
         return;
       }
@@ -435,7 +635,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       RenderLock lock(*this);
       state_ = ERROR;
       pendingErrorAction_ = PendingFontAction::Download;
-      downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+      downloadingFamilyIndex_ = familyIdx;
       errorMessage_ = "Invalid font file: " + file.name;
       return;
     }
@@ -449,7 +649,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     RenderLock lock(*this);
     state_ = ERROR;
     pendingErrorAction_ = PendingFontAction::Download;
-    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+    downloadingFamilyIndex_ = familyIdx;
     errorMessage_ = "Failed to prepare backup area";
     return;
   }
@@ -460,7 +660,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     RenderLock lock(*this);
     state_ = ERROR;
     pendingErrorAction_ = PendingFontAction::Download;
-    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+    downloadingFamilyIndex_ = familyIdx;
     errorMessage_ = "Failed to replace installed font";
     return;
   }
@@ -474,7 +674,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     RenderLock lock(*this);
     state_ = ERROR;
     pendingErrorAction_ = PendingFontAction::Download;
-    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+    downloadingFamilyIndex_ = familyIdx;
     errorMessage_ = "Failed to finalize font install";
     return;
   }
@@ -487,7 +687,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   family.installed = true;
   family.hasUpdate = false;
   family.hasResumableDownload = false;
-  syncSelectedIndexForNewActionCount();
+  // syncSelectedIndexForNewActionCount() is deferred to downloadFamily() —
+  // it needs families_ which is empty during this impl.
 
   RenderLock lock(*this);
   state_ = COMPLETE;
@@ -578,7 +779,7 @@ void FontDownloadActivity::loop() {
           if (family.installed && !family.hasUpdate) {
             promptDeleteFamily(familyIndex);
           } else {
-            downloadFamily(families_[familyIndex]);
+            downloadFamily(familyIndex);
             requestUpdateAndWait();
           }
         }
@@ -605,7 +806,7 @@ void FontDownloadActivity::loop() {
         if (pendingErrorAction_ == PendingFontAction::Delete) {
           deleteFamilyAtIndex(downloadingFamilyIndex_);
         } else {
-          downloadFamily(families_[downloadingFamilyIndex_]);
+          downloadFamily(downloadingFamilyIndex_);
         }
         requestUpdateAndWait();
       } else {
@@ -702,9 +903,9 @@ void FontDownloadActivity::render(RenderLock&&) {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
   } else if (state_ == DOWNLOADING) {
-    const auto& family = families_[downloadingFamilyIndex_];
-
-    std::string statusText = std::string(tr(STR_DOWNLOADING)) + " " + family.name + " (" +
+    // families_ is stashed to SD during downloadFamily(); read the cached
+    // name instead of indexing families_.
+    std::string statusText = std::string(tr(STR_DOWNLOADING)) + " " + downloadingFamilyName_ + " (" +
                              std::to_string(currentFileIndex_ + 1) + "/" + std::to_string(currentFileTotal_) + ")";
     renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, statusText.c_str());
 
@@ -735,9 +936,10 @@ void FontDownloadActivity::render(RenderLock&&) {
     if (!errorMessage_.empty()) {
       renderer.drawCenteredText(UI_10_FONT_ID, centerY + metrics.verticalSpacing, errorMessage_.c_str());
     }
-    const bool canResume = pendingErrorAction_ == PendingFontAction::Download && downloadingFamilyIndex_ >= 0 &&
-                           downloadingFamilyIndex_ < static_cast<int>(families_.size()) &&
-                           families_[downloadingFamilyIndex_].hasResumableDownload;
+    // Use the cached value: families_ may have just been restored (post-impl)
+    // or still empty (if the failure was in the stash itself); either way the
+    // cache reflects the last update from the download attempt.
+    const bool canResume = pendingErrorAction_ == PendingFontAction::Download && downloadingFamilyHasResumable_;
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), canResume ? tr(STR_RESUME) : tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
