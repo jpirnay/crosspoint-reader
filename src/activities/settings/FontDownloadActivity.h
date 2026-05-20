@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,8 @@ class FontDownloadActivity : public Activity {
   struct ManifestFile {
     std::string name;
     size_t size = 0;
+    uint32_t crc32 = 0;
+    bool hasCrc32 = false;  // false = legacy v1 manifest, fall back to size-only check
   };
 
   struct ManifestFamily {
@@ -46,6 +49,10 @@ class FontDownloadActivity : public Activity {
     size_t totalSize = 0;
     bool installed = false;
     bool hasUpdate = false;
+    // True iff a leftover __staging dir from a previous interrupted download
+    // exists for this not-yet-installed family — the next confirm will resume
+    // rather than restart.
+    bool hasResumableDownload = false;
   };
 
   State state_ = WIFI_SELECTION;

@@ -100,7 +100,10 @@ bool FontDownloadActivity::fetchAndParseManifest() {
   }
 
   int version = doc["version"] | 0;
-  if (version != 1) {
+  // v1 (legacy, no crc32) and v2 (with crc32) are both accepted; crc check is
+  // skipped per-file when the field is absent. See upstream PR #1904 for the
+  // CRC32 design we mirror.
+  if (version != 1 && version != 2) {
     LOG_ERR("FONT", "Unsupported manifest version: %d", version);
     errorMessage_ = "Unsupported manifest version";
     return false;
@@ -126,6 +129,10 @@ bool FontDownloadActivity::fetchAndParseManifest() {
       ManifestFile file;
       file.name = fileObj["name"] | "";
       file.size = fileObj["size"] | 0;
+      if (fileObj["crc32"].is<uint32_t>()) {
+        file.crc32 = fileObj["crc32"].as<uint32_t>();
+        file.hasCrc32 = true;
+      }
       family.totalSize += file.size;
       family.files.push_back(std::move(file));
     }
@@ -155,6 +162,12 @@ bool FontDownloadActivity::fetchAndParseManifest() {
           break;
         }
       }
+    } else {
+      // Surface leftover staging from a previously interrupted download so the
+      // UI can offer "Resume" instead of restarting from scratch.
+      char stagingDir[128];
+      FontInstaller::buildStagingDirPath(family.name.c_str(), stagingDir, sizeof(stagingDir));
+      family.hasResumableDownload = Storage.exists(stagingDir);
     }
 
     families_.push_back(std::move(family));
@@ -259,20 +272,14 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   char stagingDir[128];
   char backupDir[128];
   snprintf(liveDir, sizeof(liveDir), "%s/%s", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
-  snprintf(stagingDir, sizeof(stagingDir), "%s/%s__staging", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
-  snprintf(backupDir, sizeof(backupDir), "%s/%s__backup", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  FontInstaller::buildStagingDirPath(family.name.c_str(), stagingDir, sizeof(stagingDir));
+  FontInstaller::buildBackupDirPath(family.name.c_str(), backupDir, sizeof(backupDir));
 
-  if (Storage.exists(stagingDir) && !Storage.removeDir(stagingDir)) {
-    LOG_ERR("FONT", "Failed to clean staging dir: %s", stagingDir);
-    RenderLock lock(*this);
-    state_ = ERROR;
-    pendingErrorAction_ = PendingFontAction::Download;
-    downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
-    errorMessage_ = "Failed to prepare staging area";
-    return;
-  }
-
-  if (!Storage.mkdir(stagingDir)) {
+  // Resume-aware staging: if a __staging dir is left over from a previous
+  // interrupted download, keep it so files already on disk can be reused.
+  // Files are individually re-verified below (size + CRC) before being
+  // accepted, so half-written files are caught.
+  if (!Storage.exists(stagingDir) && !Storage.mkdir(stagingDir)) {
     LOG_ERR("FONT", "Failed to create staging dir: %s", stagingDir);
     RenderLock lock(*this);
     state_ = ERROR;
@@ -303,6 +310,34 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     char stagedPath[128];
     snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, localFilename.c_str());
+
+    // If this file is already present in staging from a previous run and
+    // matches the manifest, skip the download. CRC32 is checked when the
+    // manifest carries one (v2+); otherwise size + magic-byte check is the
+    // best we can do.
+    if (Storage.exists(stagedPath)) {
+      FsFile f;
+      bool sizeOk = false;
+      if (Storage.openFileForRead("FONT", stagedPath, f)) {
+        sizeOk = (f.fileSize() == file.size);
+        f.close();
+      }
+      bool crcOk = !file.hasCrc32;
+      if (sizeOk && file.hasCrc32) {
+        uint32_t actualCrc = 0;
+        if (FontInstaller::computeFileCrc32(stagedPath, actualCrc)) {
+          crcOk = (actualCrc == file.crc32);
+        }
+      }
+      if (sizeOk && crcOk && fontInstaller_.validateCpfontFile(stagedPath)) {
+        LOG_DBG("FONT", "Resuming: reusing %s", stagedPath);
+        fileProgress_ = file.size;
+        fileTotal_ = file.size;
+        continue;
+      }
+      LOG_DBG("FONT", "Resuming: re-downloading stale %s (sizeOk=%d crcOk=%d)", stagedPath, sizeOk, crcOk);
+      Storage.remove(stagedPath);
+    }
 
     // Make sure parent directories exist for the file
     std::string stagedPathStr(stagedPath);
@@ -336,7 +371,9 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     if (result == HttpDownloader::ABORTED) {
       LOG_INF("FONT", "Download cancelled: %s", file.name.c_str());
-      Storage.removeDir(stagingDir);
+      // Keep staging dir so the next launch can resume.
+      Storage.remove(stagedPath);
+      family.hasResumableDownload = !family.installed;
       cancelRequested_ = true;
       RenderLock lock(*this);
       state_ = FAMILY_LIST;
@@ -345,7 +382,10 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     if (result != HttpDownloader::OK) {
       LOG_ERR("FONT", "Download failed: %s (%d)", file.name.c_str(), result);
-      Storage.removeDir(stagingDir);
+      // Drop just the file that failed; keep already-downloaded siblings so
+      // the next retry resumes from here.
+      Storage.remove(stagedPath);
+      family.hasResumableDownload = !family.installed;
       RenderLock lock(*this);
       state_ = ERROR;
       pendingErrorAction_ = PendingFontAction::Download;
@@ -354,9 +394,37 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       return;
     }
 
+    // CRC32: matches upstream PR #1904 — catches truncated/torn writes.
+    if (file.hasCrc32) {
+      uint32_t actualCrc = 0;
+      if (!FontInstaller::computeFileCrc32(stagedPath, actualCrc)) {
+        LOG_ERR("FONT", "Failed to read for CRC: %s", stagedPath);
+        Storage.remove(stagedPath);
+        family.hasResumableDownload = !family.installed;
+        RenderLock lock(*this);
+        state_ = ERROR;
+        pendingErrorAction_ = PendingFontAction::Download;
+        downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+        errorMessage_ = "Failed to verify: " + file.name;
+        return;
+      }
+      if (actualCrc != file.crc32) {
+        LOG_ERR("FONT", "CRC32 mismatch for %s: got %08x expected %08x", file.name.c_str(), actualCrc, file.crc32);
+        Storage.remove(stagedPath);
+        family.hasResumableDownload = !family.installed;
+        RenderLock lock(*this);
+        state_ = ERROR;
+        pendingErrorAction_ = PendingFontAction::Download;
+        downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
+        errorMessage_ = "Checksum mismatch: " + file.name;
+        return;
+      }
+    }
+
     if (!fontInstaller_.validateCpfontFile(stagedPath)) {
       LOG_ERR("FONT", "Invalid .cpfont: %s", stagedPath);
-      Storage.removeDir(stagingDir);
+      Storage.remove(stagedPath);
+      family.hasResumableDownload = !family.installed;
       RenderLock lock(*this);
       state_ = ERROR;
       pendingErrorAction_ = PendingFontAction::Download;
@@ -411,6 +479,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   fontInstaller_.refreshRegistry();
   family.installed = true;
   family.hasUpdate = false;
+  family.hasResumableDownload = false;
   syncSelectedIndexForNewActionCount();
 
   RenderLock lock(*this);
@@ -471,6 +540,7 @@ std::string FontDownloadActivity::confirmButtonLabel() const {
   const auto& family = families_[familyIndexFromList(selectedIndex_)];
   if (family.installed && !family.hasUpdate) return tr(STR_DELETE);
   if (family.hasUpdate) return tr(STR_UPDATE);
+  if (family.hasResumableDownload) return tr(STR_RESUME);
   return tr(STR_DOWNLOAD);
 }
 
@@ -615,6 +685,7 @@ void FontDownloadActivity::render(RenderLock&&) {
             const auto& f = families_[familyIndexFromList(index)];
             if (f.hasUpdate) return tr(STR_UPDATE_AVAILABLE);
             if (f.installed) return tr(STR_INSTALLED);
+            if (f.hasResumableDownload) return tr(STR_RESUME);
             return "";
           },
           true);
@@ -657,7 +728,10 @@ void FontDownloadActivity::render(RenderLock&&) {
     if (!errorMessage_.empty()) {
       renderer.drawCenteredText(UI_10_FONT_ID, centerY + metrics.verticalSpacing, errorMessage_.c_str());
     }
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
+    const bool canResume = pendingErrorAction_ == PendingFontAction::Download && downloadingFamilyIndex_ >= 0 &&
+                           downloadingFamilyIndex_ < static_cast<int>(families_.size()) &&
+                           families_[downloadingFamilyIndex_].hasResumableDownload;
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), canResume ? tr(STR_RESUME) : tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 

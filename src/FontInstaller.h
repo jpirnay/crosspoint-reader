@@ -31,9 +31,20 @@ class FontInstaller {
   /// Validate a .cpfont file on disk (check magic bytes).
   bool validateCpfontFile(const char* path);
 
+  /// Compute CRC32 of a file (esp_rom_crc32_le accumulator, matches
+  /// zlib.crc32 used by scripts/generate-font-manifest.py). Returns false if
+  /// the file cannot be opened. Mirrors the upstream PR #1904 approach so
+  /// our manifests stay binary-compatible.
+  static bool computeFileCrc32(const char* path, uint32_t& outCrc);
+
   /// Build the full SD path for a font file.
   /// Writes "/.crosspoint/fonts/<family>/<filename>" to outBuf.
   static void buildFontPath(const char* family, const char* filename, char* outBuf, size_t outBufSize);
+
+  /// Build the staging-dir path "<FONTS_DIR>/<family>__staging".
+  static void buildStagingDirPath(const char* family, char* outBuf, size_t outBufSize);
+  /// Build the backup-dir path "<FONTS_DIR>/<family>__backup".
+  static void buildBackupDirPath(const char* family, char* outBuf, size_t outBufSize);
 
   /// Delete a family directory and all .cpfont files in it.
   /// If the deleted family is the active reader font, clears the setting.

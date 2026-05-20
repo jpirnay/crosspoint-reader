@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <esp_rom_crc.h>
 
 #include <cctype>
 #include <cstring>
@@ -88,6 +89,32 @@ bool FontInstaller::validateCpfontFile(const char* path) {
 
 void FontInstaller::buildFontPath(const char* family, const char* filename, char* outBuf, size_t outBufSize) {
   snprintf(outBuf, outBufSize, "%s/%s/%s", SdCardFontRegistry::FONTS_DIR, family, filename);
+}
+
+void FontInstaller::buildStagingDirPath(const char* family, char* outBuf, size_t outBufSize) {
+  snprintf(outBuf, outBufSize, "%s/%s__staging", SdCardFontRegistry::FONTS_DIR, family);
+}
+
+void FontInstaller::buildBackupDirPath(const char* family, char* outBuf, size_t outBufSize) {
+  snprintf(outBuf, outBufSize, "%s/%s__backup", SdCardFontRegistry::FONTS_DIR, family);
+}
+
+bool FontInstaller::computeFileCrc32(const char* path, uint32_t& outCrc) {
+  FsFile f;
+  if (!Storage.openFileForRead("FONT", path, f)) {
+    return false;
+  }
+  constexpr size_t BUF_SIZE = 128;
+  uint8_t buf[BUF_SIZE];
+  uint32_t crc = 0;
+  while (f.available()) {
+    const int n = f.read(buf, BUF_SIZE);
+    if (n <= 0) break;
+    crc = esp_rom_crc32_le(crc, buf, static_cast<uint32_t>(n));
+  }
+  f.close();
+  outCrc = crc;
+  return true;
 }
 
 FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {

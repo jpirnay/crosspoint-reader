@@ -1422,6 +1422,8 @@ namespace {
 struct RemoteManifestFile {
   std::string name;
   size_t size = 0;
+  uint32_t crc32 = 0;
+  bool hasCrc32 = false;
 };
 
 struct RemoteManifestFamily {
@@ -1475,7 +1477,9 @@ bool fetchRemoteFontManifest(FontInstaller& installer, std::vector<RemoteManifes
   }
 
   const int version = doc["version"] | 0;
-  if (version != 1) {
+  // v1 (legacy, no crc32) and v2 (with crc32) — crc check is skipped per-file
+  // when absent. See upstream PR #1904 and scripts/generate-font-manifest.py.
+  if (version != 1 && version != 2) {
     outError = "Unsupported manifest version";
     return false;
   }
@@ -1501,6 +1505,10 @@ bool fetchRemoteFontManifest(FontInstaller& installer, std::vector<RemoteManifes
       RemoteManifestFile file;
       file.name = fileObj["name"] | "";
       file.size = static_cast<size_t>(fileObj["size"] | 0);
+      if (fileObj["crc32"].is<uint32_t>()) {
+        file.crc32 = fileObj["crc32"].as<uint32_t>();
+        file.hasCrc32 = true;
+      }
       if (!isValidFontFileName(file.name)) {
         LOG_ERR("WEB", "Manifest entry rejected, invalid file name in %s: %s", family.name.c_str(), file.name.c_str());
         fileNamesOk = false;
@@ -1577,11 +1585,9 @@ bool installRemoteFamily(const RemoteManifestFamily& family, const std::string& 
     return false;
   }
 
-  if (Storage.exists(stagingDir) && !Storage.removeDir(stagingDir)) {
-    outError = "Failed to prepare staging area";
-    return false;
-  }
-  if (!Storage.mkdir(stagingDir)) {
+  // Resumable staging: keep an existing __staging dir from a prior attempt so
+  // already-downloaded files can be reused (size + CRC validated per file).
+  if (!Storage.exists(stagingDir) && !Storage.mkdir(stagingDir)) {
     outError = "Failed to create staging area";
     return false;
   }
@@ -1600,9 +1606,32 @@ bool installRemoteFamily(const RemoteManifestFamily& family, const std::string& 
     char stagedPath[128];
     int sn = snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, localFilename.c_str());
     if (sn < 0 || static_cast<size_t>(sn) >= sizeof(stagedPath)) {
+      // Path-length bugs are not resumable; nuke staging so we don't get stuck.
       Storage.removeDir(stagingDir);
       outError = std::string("File path too long: ") + localFilename;
       return false;
+    }
+
+    // Reuse a previously-downloaded file if it still matches the manifest.
+    if (Storage.exists(stagedPath)) {
+      FsFile f;
+      bool sizeOk = false;
+      if (Storage.openFileForRead("WEB", stagedPath, f)) {
+        sizeOk = (static_cast<size_t>(f.size()) == file.size);
+        f.close();
+      }
+      bool crcOk = !file.hasCrc32;
+      if (sizeOk && file.hasCrc32) {
+        uint32_t actualCrc = 0;
+        if (FontInstaller::computeFileCrc32(stagedPath, actualCrc)) {
+          crcOk = (actualCrc == file.crc32);
+        }
+      }
+      if (sizeOk && crcOk && installer.validateCpfontFile(stagedPath)) {
+        LOG_DBG("WEB", "Resuming: reusing %s", stagedPath);
+        continue;
+      }
+      Storage.remove(stagedPath);
     }
 
     // Ensure intermediate subdirectories exist inside stagingDir
@@ -1616,13 +1645,23 @@ bool installRemoteFamily(const RemoteManifestFamily& family, const std::string& 
 
     auto result = HttpDownloader::downloadToFile(url, stagedPath, nullptr);
     if (result != HttpDownloader::OK) {
-      Storage.removeDir(stagingDir);
+      // Drop just the failed file; keep already-downloaded siblings.
+      Storage.remove(stagedPath);
       outError = std::string("Download failed: ") + file.name;
       return false;
     }
 
+    if (file.hasCrc32) {
+      uint32_t actualCrc = 0;
+      if (!FontInstaller::computeFileCrc32(stagedPath, actualCrc) || actualCrc != file.crc32) {
+        Storage.remove(stagedPath);
+        outError = std::string("Checksum mismatch: ") + file.name;
+        return false;
+      }
+    }
+
     if (!installer.validateCpfontFile(stagedPath)) {
-      Storage.removeDir(stagingDir);
+      Storage.remove(stagedPath);
       outError = std::string("Invalid font file: ") + file.name;
       return false;
     }
