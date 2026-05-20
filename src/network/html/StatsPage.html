@@ -310,8 +310,10 @@
     // seconds.
     function formatEta(seconds) {
       if (!seconds || seconds <= 0) return "—";
-      const h = Math.floor(seconds / 3600);
-      const m = Math.round((seconds % 3600) / 60);
+      let h = Math.floor(seconds / 3600);
+      let m = Math.round((seconds % 3600) / 60);
+      // Rounding can push m to 60 (e.g. 3570s → 0h 60m); carry into hours.
+      if (m === 60) { h += 1; m = 0; }
       if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
       if (m > 0) return `${m}m`;
       return "<1m";

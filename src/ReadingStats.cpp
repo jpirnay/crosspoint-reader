@@ -118,7 +118,6 @@ uint16_t ReadingStatsStore::computeCurrentStreak(uint16_t today) const {
   // yesterday. After that the chain is broken.
   uint16_t anchor = today;
   if (getSecondsForDay(anchor) == 0) {
-    if (anchor == 0) return 0;
     anchor -= 1;
     if (getSecondsForDay(anchor) == 0) return 0;
   }
@@ -170,11 +169,8 @@ void ReadingStatsStore::markFinished(const std::string& docId, const std::string
 }
 
 size_t ReadingStatsStore::getFinishedBookCount() const {
-  size_t n = 0;
-  for (const auto& b : books) {
-    if (b.finishedCount > 0) ++n;
-  }
-  return n;
+  return static_cast<size_t>(
+      std::count_if(books.begin(), books.end(), [](const BookReadingStats& b) { return b.finishedCount > 0; }));
 }
 
 const BookReadingStats* ReadingStatsStore::findBook(const std::string& docId) const {

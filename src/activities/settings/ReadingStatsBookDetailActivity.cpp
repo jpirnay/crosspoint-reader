@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <I18n.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <array>
@@ -107,9 +108,19 @@ void ReadingStatsBookDetailActivity::render(RenderLock&&) {
   // Header — title (truncated) and author. Title fallback to docId so we
   // still produce a usable screen if the book's metadata was never recorded.
   std::string headerTitle = (book && !book->title.empty()) ? book->title : docId;
-  if (headerTitle.size() > 28) {
-    headerTitle.resize(28);
-    headerTitle += "…";
+  {
+    constexpr size_t kMaxChars = 28;
+    const auto* p = reinterpret_cast<const unsigned char*>(headerTitle.c_str());
+    const auto* start = p;
+    size_t chars = 0;
+    while (*p != 0 && chars < kMaxChars) {
+      utf8NextCodepoint(&p);
+      ++chars;
+    }
+    if (*p != 0) {
+      headerTitle.resize(static_cast<size_t>(p - start));
+      headerTitle += "…";
+    }
   }
   GUI.drawHeader(renderer,
                  Rect{contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight},

@@ -905,23 +905,27 @@ void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
     case BA::BTN_PAGE_FORWARD:
       if (currentPage < totalPages - 1) {
         currentPage++;
+        globalReadingSessionTracker().onPageTurn();
         requestUpdate();
       }
       break;
     case BA::BTN_PAGE_BACK:
       if (currentPage > 0) {
         currentPage--;
+        globalReadingSessionTracker().onPageTurn();
         requestUpdate();
       }
       break;
     case BA::BTN_PAGE_FORWARD_10:
       currentPage += 10;
       clampPage();
+      globalReadingSessionTracker().onPageTurn();
       requestUpdate();
       break;
     case BA::BTN_PAGE_BACK_10:
       currentPage -= 10;
       clampPage();
+      globalReadingSessionTracker().onPageTurn();
       requestUpdate();
       break;
     case BA::BTN_STAR_PAGE:

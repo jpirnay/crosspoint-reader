@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 
 #include "MappedInputManager.h"
 #include "ReadingStatsBookDetailActivity.h"
@@ -35,9 +36,9 @@ std::string formatDuration(uint32_t totalSeconds) {
 
 void ReadingStatsBookListActivity::rebuildSortedBooks() {
   sortedBooks.clear();
-  for (const auto& b : READING_STATS.getBooks()) {
-    sortedBooks.push_back(&b);
-  }
+  sortedBooks.reserve(READING_STATS.getBooks().size());
+  std::transform(READING_STATS.getBooks().begin(), READING_STATS.getBooks().end(), std::back_inserter(sortedBooks),
+                 [](const BookReadingStats& b) { return &b; });
   std::sort(sortedBooks.begin(), sortedBooks.end(),
             [](const BookReadingStats* a, const BookReadingStats* b) { return a->totalSeconds > b->totalSeconds; });
 }

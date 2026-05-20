@@ -523,21 +523,25 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
     case BA::BTN_PAGE_FORWARD:
       if (currentPage + 1 < pageCount) {
         currentPage++;
+        globalReadingSessionTracker().onPageTurn();
         requestUpdate();
       }
       break;
     case BA::BTN_PAGE_BACK:
       if (currentPage > 0) {
         currentPage--;
+        globalReadingSessionTracker().onPageTurn();
         requestUpdate();
       }
       break;
     case BA::BTN_PAGE_FORWARD_10:
       currentPage = (currentPage + 10 < pageCount) ? currentPage + 10 : pageCount - 1;
+      globalReadingSessionTracker().onPageTurn();
       requestUpdate();
       break;
     case BA::BTN_PAGE_BACK_10:
       currentPage = (currentPage >= 10) ? currentPage - 10 : 0;
+      globalReadingSessionTracker().onPageTurn();
       requestUpdate();
       break;
     case BA::BTN_NEXT_SECTION:
@@ -547,6 +551,7 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
                                      [this](const auto& ch) { return ch.startPage > currentPage; });
         if (it != chapters.end()) {
           currentPage = it->startPage;
+          globalReadingSessionTracker().onPageTurn();
           requestUpdate();
         }
       }
@@ -559,6 +564,7 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
 
         if (prevChapter != chapters.rend()) {
           currentPage = prevChapter->startPage;
+          globalReadingSessionTracker().onPageTurn();
           requestUpdate();
         }
       }

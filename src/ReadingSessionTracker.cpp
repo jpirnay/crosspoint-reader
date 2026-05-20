@@ -53,7 +53,10 @@ void ReadingSessionTracker::markFinished() {
   if (!active) return;
   const int64_t walltime = HalClock::isSynced() ? static_cast<int64_t>(HalClock::now()) : 0;
   READING_STATS.markFinished(docId, title, author, static_cast<time_t>(walltime));
-  READING_STATS.saveToFile();
+  if (!READING_STATS.saveToFile()) {
+    LOG_ERR("RST", "saveToFile failed (markFinished) doc=%s title=%s author=%s wall=%lld", docId.c_str(), title.c_str(),
+            author.c_str(), (long long)walltime);
+  }
   LOG_DBG("RST", "Marked finished doc=%s wall=%lld", docId.c_str(), (long long)walltime);
 }
 
@@ -77,7 +80,10 @@ void ReadingSessionTracker::end() {
   if (seconds > 0 && !docId.empty()) {
     READING_STATS.recordSession(docId, title, author, seconds, pagesTurnedThisSession, lastKnownProgress,
                                 static_cast<time_t>(walltime));
-    READING_STATS.saveToFile();
+    if (!READING_STATS.saveToFile()) {
+      LOG_ERR("RST", "saveToFile failed (session end) doc=%s title=%s author=%s secs=%u pages=%u wall=%lld",
+              docId.c_str(), title.c_str(), author.c_str(), seconds, pagesTurnedThisSession, (long long)walltime);
+    }
   }
 
   active = false;

@@ -85,7 +85,7 @@ class CardLayout {
     void centeredMessage(const char* msg);
   };
 
-  CardLayout(GfxRenderer& renderer, Rect contentRect, int startY, CardLayoutConfig cfg = {});
+  CardLayout(GfxRenderer& renderer, Rect contentRect, int startY, const CardLayoutConfig& cfg = {});
 
   // Render a single card. `bodyFn` receives a `Body&` and may call its
   // helpers in any order; the card auto-sizes to whatever the body draws.

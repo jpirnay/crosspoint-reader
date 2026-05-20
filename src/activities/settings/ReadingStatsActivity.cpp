@@ -3,10 +3,12 @@
 #include <Arduino.h>  // millis()
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -178,7 +180,8 @@ void ReadingStatsActivity::render(RenderLock&&) {
   if (!store.getBooks().empty()) {
     std::vector<const BookReadingStats*> sorted;
     sorted.reserve(store.getBooks().size());
-    for (const auto& b : store.getBooks()) sorted.push_back(&b);
+    std::transform(store.getBooks().begin(), store.getBooks().end(), std::back_inserter(sorted),
+                   [](const BookReadingStats& b) { return &b; });
     std::sort(sorted.begin(), sorted.end(),
               [](const BookReadingStats* a, const BookReadingStats* b) { return a->totalSeconds > b->totalSeconds; });
 
@@ -199,7 +202,7 @@ void ReadingStatsActivity::render(RenderLock&&) {
         if (maxLabelWidth > 0 && renderer.getTextWidth(UI_10_FONT_ID, label.c_str()) > maxLabelWidth) {
           while (!label.empty() &&
                  renderer.getTextWidth(UI_10_FONT_ID, label.c_str()) + ellipsisWidth > maxLabelWidth) {
-            label.pop_back();
+            utf8RemoveLastChar(label);
           }
           label += "…";
         }
