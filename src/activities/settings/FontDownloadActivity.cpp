@@ -130,7 +130,13 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     family.description = fObj["description"] | "";
     // styles[] in the JSON is intentionally ignored — see ManifestFamily.
 
+    if (!FontInstaller::isValidFamilyName(family.name.c_str())) {
+      LOG_ERR("FONT", "Manifest entry rejected, invalid family name: %s", family.name.c_str());
+      continue;
+    }
+
     family.totalSize = 0;
+    bool fileNamesOk = true;
     for (JsonObject fileObj : fObj["files"].as<JsonArray>()) {
       ManifestFile file;
       file.name = fileObj["name"] | "";
@@ -139,9 +145,15 @@ bool FontDownloadActivity::fetchAndParseManifest() {
         file.crc32 = fileObj["crc32"].as<uint32_t>();
         file.hasCrc32 = true;
       }
+      if (!FontInstaller::isValidFontFileName(file.name.c_str())) {
+        LOG_ERR("FONT", "Manifest entry rejected, invalid file name in %s: %s", family.name.c_str(), file.name.c_str());
+        fileNamesOk = false;
+        break;
+      }
       family.totalSize += file.size;
       family.files.push_back(std::move(file));
     }
+    if (!fileNamesOk) continue;
 
     family.installed = fontInstaller_.isFamilyInstalled(family.name.c_str());
 
@@ -225,7 +237,8 @@ bool readU8(FsFile& f, uint8_t& v) { return f.read(&v, 1) == 1; }
 bool readU32(FsFile& f, uint32_t& v) {
   uint8_t buf[4];
   if (f.read(buf, 4) != 4) return false;
-  v = buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24);
+  v = static_cast<uint32_t>(buf[0]) | (static_cast<uint32_t>(buf[1]) << 8) | (static_cast<uint32_t>(buf[2]) << 16) |
+      (static_cast<uint32_t>(buf[3]) << 24);
   return true;
 }
 bool readStr(FsFile& f, std::string& s) {
@@ -460,8 +473,17 @@ void FontDownloadActivity::downloadFamily(int familyIdx) {
   downloadingFamilyHasResumable_ = family.hasResumableDownload;
 
   // Restore families_ regardless of success/error/abort outcome, then merge
-  // back the mutations the impl made on the local family copy.
-  if (restoreFamiliesFromSd() && familyIdx >= 0 && familyIdx < static_cast<int>(families_.size())) {
+  // back the mutations the impl made on the local family copy. Without the
+  // restored manifest the activity can't render the family list, so a failed
+  // restore is fatal — drop to ERROR rather than continuing with empty state.
+  if (!restoreFamiliesFromSd()) {
+    RenderLock lock(*this);
+    state_ = ERROR;
+    pendingErrorAction_ = PendingFontAction::Download;
+    errorMessage_ = "Failed to restore manifest";
+    return;
+  }
+  if (familyIdx >= 0 && familyIdx < static_cast<int>(families_.size())) {
     families_[familyIdx].installed = family.installed;
     families_[familyIdx].hasUpdate = family.hasUpdate;
     families_[familyIdx].hasResumableDownload = family.hasResumableDownload;

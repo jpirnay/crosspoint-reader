@@ -30,6 +30,19 @@ bool FontInstaller::isValidFamilyName(const char* name) {
   return true;
 }
 
+bool FontInstaller::isValidFontFileName(const char* name) {
+  if (name == nullptr || name[0] == '\0') return false;
+  // Matches the cap used by the web-server manifest parser; the SD-side path buffer is 128
+  // bytes including the family prefix, so 60 leaves plenty of headroom.
+  static constexpr size_t MAX_FONT_FILE_NAME_LEN = 60;
+  const size_t nameLen = strlen(name);
+  if (nameLen > MAX_FONT_FILE_NAME_LEN) return false;
+  if (name[0] == '/') return false;
+  if (strchr(name, '\\') != nullptr) return false;
+  if (strstr(name, "..") != nullptr) return false;
+  return true;
+}
+
 bool FontInstaller::ensureFamilyDir(const char* familyName) {
   if (!isValidFamilyName(familyName)) {
     LOG_ERR("FONT", "Invalid family name: %s", familyName ? familyName : "<null>");

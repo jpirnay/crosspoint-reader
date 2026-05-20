@@ -25,6 +25,11 @@ class FontInstaller {
   /// Validate a family name: alphanumeric + hyphen + underscore only, no path traversal.
   static bool isValidFamilyName(const char* name);
 
+  /// Validate a font file name as it appears in a manifest entry: non-empty, length-bounded,
+  /// no absolute paths, no backslashes, no traversal components. Slashes are allowed for
+  /// "<family>/<file>"-style entries.
+  static bool isValidFontFileName(const char* name);
+
   /// Ensure /.crosspoint/fonts/<family>/ directory exists.
   bool ensureFamilyDir(const char* familyName);
 
