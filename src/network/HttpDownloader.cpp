@@ -6,6 +6,7 @@
 #include <NetworkClientSecure.h>
 #include <StreamString.h>
 #include <base64.h>
+#include <esp_heap_caps.h>
 
 #include <cstring>
 #include <memory>
@@ -127,6 +128,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   LOG_DBG("HTTP", "Downloading: %s", url.c_str());
   LOG_DBG("HTTP", "Destination: %s", destPath.c_str());
+  LOG_DBG("HTTP", "Heap free: %u, largest block: %u", esp_get_free_heap_size(),
+          heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
 
   http.begin(*client, url.c_str());
   http.setReuse(false);

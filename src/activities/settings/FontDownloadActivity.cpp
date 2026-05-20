@@ -348,6 +348,13 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     std::string url = baseUrl_ + file.name;
 
+    // Give the previous TLS connection (manifest fetch on first iteration, or
+    // the previous file otherwise) time to fully release its socket and TLS
+    // buffers. Without this, http.GET() can fail immediately with -1
+    // (HTTPC_ERROR_CONNECTION_REFUSED) on the next request — same workaround
+    // the browser-driven install path uses in CrossPointWebServer.
+    delay(500);
+
     auto result = HttpDownloader::downloadToFile(url, stagedPath, [this](unsigned int downloaded, unsigned int total) {
       mappedInput.update();
       fileProgress_ = downloaded;
