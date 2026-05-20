@@ -87,8 +87,7 @@ WrappedLabel wrapLabel(const GfxRenderer& renderer, const char* label, int maxWi
   // until label + "…" fits.
   const int ellipsisW = renderer.getTextWidth(fontId, "…");
   std::string truncated = s;
-  while (!truncated.empty() &&
-         renderer.getTextWidth(fontId, truncated.c_str()) + ellipsisW > maxWidth) {
+  while (!truncated.empty() && renderer.getTextWidth(fontId, truncated.c_str()) + ellipsisW > maxWidth) {
     truncated.pop_back();
   }
   out.line1 = truncated + "…";
