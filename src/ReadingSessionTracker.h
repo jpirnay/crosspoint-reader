@@ -41,6 +41,12 @@ class ReadingSessionTracker {
   // out when the session is flushed. Cheap; OK to call on every page turn.
   void updateProgress(uint8_t progress);
 
+  // Record that the user has marked the current session's book as finished.
+  // Persists immediately (a finish event is rare and the user expects it to
+  // survive even if the device dies before the session ends normally).
+  // No-op when no session is active.
+  void markFinished();
+
   // Flush the session into ReadingStatsStore and reset internal state.
   // Subsequent onPageTurn() calls are no-ops until begin() is called again.
   // Persists the stats file. If the session contributed no reading time it

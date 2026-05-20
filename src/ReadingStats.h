@@ -29,8 +29,9 @@ struct BookReadingStats {
   // 0 if HalClock was never synced when the session ran. Treat as "unknown".
   time_t firstReadEpoch = 0;
   time_t lastReadEpoch = 0;
-  uint8_t progress = 0;   // 0-100, snapshot of last known progress
-  bool finished = false;  // user-marked finished (Phase 1: always false)
+  uint8_t progress = 0;          // 0-100, snapshot of last known progress
+  uint16_t finishedCount = 0;    // number of times the user has marked it finished
+  time_t lastFinishedEpoch = 0;  // wallclock of the most recent finish (0 if unknown)
   // Sparse day buckets, sorted ascending by dayIndex. Only days with reading
   // are stored — the typical case is a few dozen entries. Bucket with
   // dayIndex == 0 is reserved for "clock-unknown" sessions and is excluded
@@ -78,14 +79,46 @@ class ReadingStatsStore {
   void recordSession(const std::string& docId, const std::string& title, const std::string& author,
                      uint32_t sessionSeconds, uint32_t sessionPagesTurned, uint8_t progress, time_t walltimeEpoch);
 
+  // Mark the given book as having been finished once more. Bumps the per-
+  // book counter and last-finished epoch (when walltime is available).
+  // Creates the per-book entry on demand for books that have been opened
+  // but never accumulated a session — e.g. a quick "mark as read" from the
+  // menu before any reading time was recorded.
+  void markFinished(const std::string& docId, const std::string& title, const std::string& author,
+                    time_t walltimeEpoch);
+
   // Lookup by document hash; returns nullptr if unknown.
   const BookReadingStats* findBook(const std::string& docId) const;
+
+  // ---- Reading speed / time-to-finish estimates -----------------------------
+  //
+  // Average seconds spent reading per 1% of book progress. We compute this
+  // from a book's own history when it has covered enough ground to be
+  // statistically meaningful, otherwise fall back to the global average over
+  // all books. Returns 0 when no usable signal exists yet (caller should
+  // render the ETA as "—").
+  //
+  // The minimum-progress gate prevents wildly optimistic estimates from books
+  // the user has barely opened (e.g. 30 seconds of reading at 2% progress
+  // shouldn't extrapolate to a 25-minute book).
+  static constexpr uint8_t MIN_BOOK_PROGRESS_FOR_PERSONAL_RATE = 3;  // %
+  static constexpr uint32_t MIN_GLOBAL_SECONDS_FOR_RATE = 60;        // s
+  float avgSecondsPerPercent(const std::string& docId) const;
+  float globalAvgSecondsPerPercent() const;
+
+  // ETA in seconds for finishing `remainingPercent` (0..100) of a book.
+  // Uses the per-book rate when available, else the global average. Returns
+  // 0 when no rate is available or when remainingPercent <= 0.
+  uint32_t estimateRemainingSeconds(const std::string& docId, float remainingPercent) const;
 
   const std::vector<BookReadingStats>& getBooks() const { return books; }
   uint32_t getGlobalTotalSeconds() const { return globalTotalSeconds; }
   uint32_t getGlobalTotalSessions() const { return globalTotalSessions; }
   uint32_t getGlobalTotalPagesTurned() const { return globalTotalPagesTurned; }
   size_t getBookCount() const { return books.size(); }
+  // Count of distinct books that have been finished at least once. Derived
+  // on read so we don't need a separate aggregate counter to keep in sync.
+  size_t getFinishedBookCount() const;
 
   // Read-only view of the global day map.
   const std::vector<DayBucket>& getGlobalDays() const { return globalDays; }

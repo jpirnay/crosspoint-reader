@@ -257,6 +257,7 @@ void TxtReaderActivity::launchFinishedBookFlow() {
                              requestUpdate();
                              return;
                            }
+                           globalReadingSessionTracker().markFinished();
                            const auto& menuResult = std::get<MenuResult>(result.data);
                            if (menuResult.action == static_cast<int>(BookFinished::FinishedBookAction::GoHome)) {
                              if (SETTINGS.moveFinishedBooksToCompleted) {

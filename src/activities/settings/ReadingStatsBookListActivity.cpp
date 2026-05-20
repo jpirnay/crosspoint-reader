@@ -94,8 +94,11 @@ void ReadingStatsBookListActivity::render(RenderLock&&) {
         [this](int index) {
           const auto* b = sortedBooks[index];
           // Title is the primary label; fall back to docId so a row without
-          // metadata is still recognizable.
-          return b->title.empty() ? b->docId : b->title;
+          // metadata is still recognizable. Finished books get a leading
+          // checkmark so the user can spot completions at a glance.
+          std::string label = b->title.empty() ? b->docId : b->title;
+          if (b->finishedCount > 0) label = "✓ " + label;
+          return label;
         },
         [this](int index) {
           // Subtitle row: author, when known. Empty string is treated by the

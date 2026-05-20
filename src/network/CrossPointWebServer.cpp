@@ -446,7 +446,12 @@ void CrossPointWebServer::handleStatsApi() const {
   doc["totalSessions"] = store.getGlobalTotalSessions();
   doc["totalPagesTurned"] = store.getGlobalTotalPagesTurned();
   doc["bookCount"] = static_cast<uint32_t>(store.getBookCount());
+  doc["finishedBookCount"] = static_cast<uint32_t>(store.getFinishedBookCount());
   doc["todayDayIndex"] = today;
+  // Global reading pace (seconds per book progress percent) — exposed so the
+  // dashboard can render fallback ETAs for books that don't yet have enough
+  // personal data to estimate from.
+  doc["globalSecondsPerPercent"] = store.globalAvgSecondsPerPercent();
   if (haveStreak) {
     doc["currentStreak"] = store.computeCurrentStreak(today);
     doc["longestStreak"] = store.computeLongestStreak();
@@ -473,7 +478,15 @@ void CrossPointWebServer::handleStatsApi() const {
     obj["firstReadEpoch"] = static_cast<int64_t>(book.firstReadEpoch);
     obj["lastReadEpoch"] = static_cast<int64_t>(book.lastReadEpoch);
     obj["progress"] = book.progress;
-    obj["finished"] = book.finished;
+    obj["finishedCount"] = book.finishedCount;
+    obj["lastFinishedEpoch"] = static_cast<int64_t>(book.lastFinishedEpoch);
+    // Keep the legacy bool so the existing dashboard JS keeps working.
+    obj["finished"] = book.finishedCount > 0;
+    // Estimated seconds to finish the book at the user's pace. 0 = unknown
+    // (no rate available yet, or the book is already at 100%).
+    const float remainingPercent = book.progress < 100 ? (100.0f - static_cast<float>(book.progress)) : 0.0f;
+    obj["etaSeconds"] = store.estimateRemainingSeconds(book.docId, remainingPercent);
+    obj["secondsPerPercent"] = store.avgSecondsPerPercent(book.docId);
     JsonArray days = obj["days"].to<JsonArray>();
     for (const auto& d : book.days) {
       JsonArray pair = days.add<JsonArray>();

@@ -146,9 +146,73 @@ uint16_t ReadingStatsStore::computeLongestStreak() const {
   return longest;
 }
 
+void ReadingStatsStore::markFinished(const std::string& docId, const std::string& title, const std::string& author,
+                                     time_t walltimeEpoch) {
+  if (docId.empty()) return;
+  auto it = std::find_if(books.begin(), books.end(), [&docId](const BookReadingStats& b) { return b.docId == docId; });
+  if (it == books.end()) {
+    BookReadingStats fresh;
+    fresh.docId = docId;
+    fresh.title = title;
+    fresh.author = author;
+    books.push_back(std::move(fresh));
+    it = books.end() - 1;
+  } else {
+    if (!title.empty()) it->title = title;
+    if (!author.empty()) it->author = author;
+  }
+  it->finishedCount += 1;
+  it->progress = 100;
+  if (walltimeEpoch != 0) {
+    it->lastFinishedEpoch = walltimeEpoch;
+    if (it->lastReadEpoch < walltimeEpoch) it->lastReadEpoch = walltimeEpoch;
+  }
+}
+
+size_t ReadingStatsStore::getFinishedBookCount() const {
+  size_t n = 0;
+  for (const auto& b : books) {
+    if (b.finishedCount > 0) ++n;
+  }
+  return n;
+}
+
 const BookReadingStats* ReadingStatsStore::findBook(const std::string& docId) const {
   auto it = std::find_if(books.begin(), books.end(), [&docId](const BookReadingStats& b) { return b.docId == docId; });
   return it == books.end() ? nullptr : &*it;
+}
+
+float ReadingStatsStore::globalAvgSecondsPerPercent() const {
+  if (globalTotalSeconds < MIN_GLOBAL_SECONDS_FOR_RATE) return 0.0f;
+  // Average over books that have actual progress recorded. A book at 0%
+  // contributes time but no progress denominator and would skew the rate
+  // toward infinity. Books with progress >= MIN_BOOK_PROGRESS_FOR_PERSONAL_RATE
+  // are considered "real readings" for the purpose of the global average.
+  uint32_t totalProgressPercents = 0;
+  uint32_t totalSecondsFromCountedBooks = 0;
+  for (const auto& b : books) {
+    if (b.progress < MIN_BOOK_PROGRESS_FOR_PERSONAL_RATE) continue;
+    totalProgressPercents += b.progress;
+    totalSecondsFromCountedBooks += b.totalSeconds;
+  }
+  if (totalProgressPercents == 0 || totalSecondsFromCountedBooks == 0) return 0.0f;
+  return static_cast<float>(totalSecondsFromCountedBooks) / static_cast<float>(totalProgressPercents);
+}
+
+float ReadingStatsStore::avgSecondsPerPercent(const std::string& docId) const {
+  const BookReadingStats* b = findBook(docId);
+  if (b && b->progress >= MIN_BOOK_PROGRESS_FOR_PERSONAL_RATE && b->totalSeconds > 0) {
+    return static_cast<float>(b->totalSeconds) / static_cast<float>(b->progress);
+  }
+  return globalAvgSecondsPerPercent();
+}
+
+uint32_t ReadingStatsStore::estimateRemainingSeconds(const std::string& docId, float remainingPercent) const {
+  if (remainingPercent <= 0.0f) return 0;
+  if (remainingPercent > 100.0f) remainingPercent = 100.0f;
+  const float rate = avgSecondsPerPercent(docId);
+  if (rate <= 0.0f) return 0;
+  return static_cast<uint32_t>(remainingPercent * rate + 0.5f);
 }
 
 bool ReadingStatsStore::saveToFile() const {

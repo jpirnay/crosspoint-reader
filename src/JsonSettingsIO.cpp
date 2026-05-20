@@ -624,7 +624,11 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
     obj["firstReadEpoch"] = static_cast<int64_t>(book.firstReadEpoch);
     obj["lastReadEpoch"] = static_cast<int64_t>(book.lastReadEpoch);
     obj["progress"] = book.progress;
-    obj["finished"] = book.finished;
+    obj["finishedCount"] = book.finishedCount;
+    obj["lastFinishedEpoch"] = static_cast<int64_t>(book.lastFinishedEpoch);
+    // Derived for backwards-compatibility with consumers (web dashboard,
+    // older firmware) that still read the bool field.
+    obj["finished"] = book.finishedCount > 0;
     writeDays(obj["days"].to<JsonArray>(), book.days);
   }
 
@@ -677,7 +681,15 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
     book.firstReadEpoch = static_cast<time_t>(obj["firstReadEpoch"] | (int64_t)0);
     book.lastReadEpoch = static_cast<time_t>(obj["lastReadEpoch"] | (int64_t)0);
     book.progress = obj["progress"] | (uint8_t)0;
-    book.finished = obj["finished"] | false;
+    // finishedCount is the canonical field. Old files that only have the
+    // bool "finished" land here as 1 so the per-book screen still shows the
+    // book as having been finished at least once.
+    if (!obj["finishedCount"].isNull()) {
+      book.finishedCount = obj["finishedCount"] | (uint16_t)0;
+    } else if (obj["finished"] | false) {
+      book.finishedCount = 1;
+    }
+    book.lastFinishedEpoch = static_cast<time_t>(obj["lastFinishedEpoch"] | (int64_t)0);
     readDays(obj["days"].as<JsonArray>(), book.days);
     store.books.push_back(std::move(book));
   }

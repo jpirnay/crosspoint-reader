@@ -143,12 +143,32 @@ void ReadingStatsBookDetailActivity::render(RenderLock&&) {
     layout.card(tr(STR_READING_STATS_TOTAL_TIME), [&](CardLayout::Body& b) {
       b.rowLR(tr(STR_READING_STATS_TOTAL_TIME), formatDuration(book->totalSeconds));
       b.rowLR(tr(STR_READING_STATS_PAGES_PER_MIN), formatPagesPerMin(book->pagesTurned, book->totalSeconds));
+      // Time-to-finish estimate based on the user's pace. We display it on the
+      // detail screen so the reader sees the projection even when not actively
+      // reading the book; the reader's status bar can pick this up live.
+      if (book->progress < 100) {
+        const float remainingPercent = 100.0f - static_cast<float>(book->progress);
+        const uint32_t etaSeconds = store.estimateRemainingSeconds(book->docId, remainingPercent);
+        b.rowLR(tr(STR_READING_STATS_ETA),
+                etaSeconds > 0 ? formatDuration(etaSeconds) : std::string(tr(STR_READING_STATS_UNKNOWN)));
+      }
     });
 
     // ---- History card ----
     layout.card(tr(STR_READING_STATS_HISTORY), [&](CardLayout::Body& b) {
       b.rowLR(tr(STR_READING_STATS_FIRST_READ), formatDateOrRelative(book->firstReadEpoch));
       b.rowLR(tr(STR_READING_STATS_LAST_READ), formatDateOrRelative(book->lastReadEpoch));
+      if (book->finishedCount > 0) {
+        // Pretty-print as just the date for a single finish, or "Nx — date"
+        // for re-reads so the count and recency are both visible.
+        std::string val = formatDateOrRelative(book->lastFinishedEpoch);
+        if (book->finishedCount > 1) {
+          char buf[16];
+          snprintf(buf, sizeof(buf), "%ux — ", book->finishedCount);
+          val = std::string(buf) + val;
+        }
+        b.rowLR(tr(STR_READING_STATS_FINISHED), val);
+      }
     });
 
     // ---- Per-book sparkline (only when clock-anchored data exists) ----

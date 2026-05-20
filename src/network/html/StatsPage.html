@@ -305,6 +305,18 @@
       return ((pages * 60) / seconds).toFixed(1);
     }
 
+    // Compact "time-to-finish" rendering. For long projections, "1h 23m" is
+    // less noisy than "1h 23m 45s" — round to the nearest minute and drop the
+    // seconds.
+    function formatEta(seconds) {
+      if (!seconds || seconds <= 0) return "—";
+      const h = Math.floor(seconds / 3600);
+      const m = Math.round((seconds % 3600) / 60);
+      if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+      if (m > 0) return `${m}m`;
+      return "<1m";
+    }
+
     // Renders a 30-bar sparkline into `host` for the day window
     // [todayDayIndex - 29 .. todayDayIndex] using a map of dayIndex → seconds.
     function renderSparkline(host, daysMap, todayDayIndex, windowSize = 30) {
@@ -382,6 +394,9 @@
       allTime.className = "card";
       const curStreak = data.currentStreak != null ? String(data.currentStreak) : "—";
       const maxStreak = data.longestStreak != null ? String(data.longestStreak) : "—";
+      const finishedRow = (data.finishedBookCount && data.finishedBookCount > 0)
+        ? `<div class="info-row"><span class="label">Finished</span><span class="value">${data.finishedBookCount}</span></div>`
+        : "";
       allTime.innerHTML = `
         <h2>All time</h2>
         <div class="grid">
@@ -394,6 +409,7 @@
           <div class="info-row"><span class="label">Total time</span><span class="value">${formatDuration(data.totalSeconds)}</span></div>
           <div class="info-row"><span class="label">Pages turned</span><span class="value">${data.totalPagesTurned}</span></div>
           <div class="info-row"><span class="label">Pages/min</span><span class="value">${formatPagesPerMin(data.totalPagesTurned, data.totalSeconds)}</span></div>
+          ${finishedRow}
         </div>
       `;
       content.appendChild(allTime);
@@ -423,8 +439,8 @@
             <tr>
               <th data-col="title">Title</th>
               <th data-col="totalSeconds" class="num">Time</th>
-              <th data-col="sessions" class="num">Sessions</th>
-              <th data-col="pagesTurned" class="num">Pages</th>
+              <th data-col="progress" class="num">Progress</th>
+              <th data-col="etaSeconds" class="num">To finish</th>
               <th data-col="lastReadEpoch" class="num">Last read</th>
             </tr>
           </thead>
@@ -436,11 +452,15 @@
           const tr = document.createElement("tr");
           tr.className = "book-row";
           tr.dataset.docId = b.docId;
+          const finishedMark = b.finishedCount > 0
+            ? `<span title="Finished${b.finishedCount > 1 ? ' ' + b.finishedCount + '×' : ''}" style="margin-right:6px">✓</span>`
+            : "";
+          const etaCell = b.progress >= 100 ? "done" : formatEta(b.etaSeconds);
           tr.innerHTML = `
-            <td>${escapeHtml(b.title || b.docId)}</td>
+            <td>${finishedMark}${escapeHtml(b.title || b.docId)}</td>
             <td class="num">${formatDuration(b.totalSeconds)}</td>
-            <td class="num">${b.sessions}</td>
-            <td class="num">${b.pagesTurned}</td>
+            <td class="num">${b.progress}%</td>
+            <td class="num">${etaCell}</td>
             <td class="num">${formatDateOrRelative(b.lastReadEpoch)}</td>
           `;
           tr.addEventListener("click", () => toggleBookDetail(b, tr, data.todayDayIndex));
@@ -483,6 +503,12 @@
       const cell = document.createElement("td");
       cell.colSpan = 5;
       const avg = book.sessions > 0 ? formatDuration(Math.floor(book.totalSeconds / book.sessions)) : "—";
+      const finishedDetail = book.finishedCount > 0
+        ? `<div><span class="label">Finished</span><span>${book.finishedCount}× — ${formatDateOrRelative(book.lastFinishedEpoch)}</span></div>`
+        : "";
+      const etaDetail = book.progress < 100
+        ? `<div><span class="label">Time to finish</span><span>${formatEta(book.etaSeconds)}</span></div>`
+        : "";
       cell.innerHTML = `
         <div class="book-detail-grid">
           <div><span class="label">Author</span><span>${escapeHtml(book.author || "—")}</span></div>
@@ -491,6 +517,8 @@
           <div><span class="label">Pages/min</span><span>${formatPagesPerMin(book.pagesTurned, book.totalSeconds)}</span></div>
           <div><span class="label">First read</span><span>${formatDateOrRelative(book.firstReadEpoch)}</span></div>
           <div><span class="label">Last read</span><span>${formatDateOrRelative(book.lastReadEpoch)}</span></div>
+          ${etaDetail}
+          ${finishedDetail}
         </div>
       `;
       if (todayDayIndex && book.days && book.days.length > 0) {

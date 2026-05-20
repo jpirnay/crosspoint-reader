@@ -129,6 +129,11 @@ void ReadingStatsActivity::render(RenderLock&&) {
     b.rowLR(tr(STR_READING_STATS_PAGES), std::to_string(store.getGlobalTotalPagesTurned()));
     b.rowLR(tr(STR_READING_STATS_PAGES_PER_MIN),
             formatPagesPerMin(store.getGlobalTotalPagesTurned(), store.getGlobalTotalSeconds()));
+    // Only show the finished row once the user has actually finished a book —
+    // otherwise it's just clutter saying "0".
+    if (store.getFinishedBookCount() > 0) {
+      b.rowLR(tr(STR_READING_STATS_FINISHED), std::to_string(store.getFinishedBookCount()));
+    }
   });
 
   // ---- 30-day sparkline card ----

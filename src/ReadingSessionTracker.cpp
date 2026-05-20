@@ -49,6 +49,14 @@ void ReadingSessionTracker::updateProgress(uint8_t progress) {
   lastKnownProgress = progress;
 }
 
+void ReadingSessionTracker::markFinished() {
+  if (!active) return;
+  const int64_t walltime = HalClock::isSynced() ? static_cast<int64_t>(HalClock::now()) : 0;
+  READING_STATS.markFinished(docId, title, author, static_cast<time_t>(walltime));
+  READING_STATS.saveToFile();
+  LOG_DBG("RST", "Marked finished doc=%s wall=%lld", docId.c_str(), (long long)walltime);
+}
+
 void ReadingSessionTracker::end() {
   if (!active) return;
   // Final idle flush so we credit the time between the last page turn and now,

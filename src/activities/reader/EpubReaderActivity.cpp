@@ -505,6 +505,9 @@ void EpubReaderActivity::loop() {
               requestUpdate();
               return;
             }
+            // User confirmed they're done with this book — credit a finish
+            // to the in-flight session before any tear-down side effects.
+            globalReadingSessionTracker().markFinished();
             const auto& menuResult = std::get<MenuResult>(result.data);
             if (menuResult.action == static_cast<int>(BookFinished::FinishedBookAction::GoHome)) {
               if (SETTINGS.moveFinishedBooksToCompleted) {
@@ -765,6 +768,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                 requestUpdate();
                 return;
               }
+              globalReadingSessionTracker().markFinished();
               const auto& menuResult = std::get<MenuResult>(result.data);
               if (menuResult.action == static_cast<int>(BookFinished::FinishedBookAction::GoHome)) {
                 if (SETTINGS.moveFinishedBooksToCompleted) {
@@ -1618,6 +1622,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
               requestUpdate();
               return;
             }
+            globalReadingSessionTracker().markFinished();
             const auto& menuResult = std::get<MenuResult>(result.data);
             if (menuResult.action == static_cast<int>(BookFinished::FinishedBookAction::GoHome)) {
               if (SETTINGS.moveFinishedBooksToCompleted) {
