@@ -71,9 +71,10 @@ intervals = [
     ### Combining Diacritical Marks (minimal subset) ###
     # Needed for proper rendering of many extended Latin languages
     (0x0300, 0x036F),
-    ### Greek & Coptic ###
-    # Used in science, maths, philosophy, some academic texts
-    # (0x0370, 0x03FF),
+    ### Greek (essential monotonic subset) ###
+    # Covers uppercase (Α–Ω) and lowercase (α–ω) letters including
+    # accented monotonic vowels; excludes polytonic, archaic, and Coptic
+    (0x0391, 0x03C9),
     ### Cyrillic ###
     # Russian, Ukrainian, Bulgarian, etc.
     (0x0400, 0x04FF),
@@ -331,9 +332,12 @@ for index, glyph in enumerate(all_glyphs):
 
 COMBINING_MARKS_START = 0x0300
 COMBINING_MARKS_END = 0x036F
+GREEK_START = 0x0391
+GREEK_END = 0x03C9
 all_codepoints = [g.code_point for g in glyph_props]
 kernable_codepoints = set(cp for cp in all_codepoints
-                          if not (COMBINING_MARKS_START <= cp <= COMBINING_MARKS_END))
+                          if not (COMBINING_MARKS_START <= cp <= COMBINING_MARKS_END)
+                          and not (GREEK_START <= cp <= GREEK_END))
 
 # Map each kernable codepoint to the font-stack index that serves it
 # (same priority logic as load_glyph).
@@ -742,6 +746,7 @@ if compress:
         (0x0100, 0x017F),   # Latin Extended-A
         (0x0180, 0x024F),   # Latin Extended-B
         (0x0300, 0x036F),   # Combining Diacritical Marks
+        (0x0391, 0x03C9),   # Greek (essential monotonic)
         (0x0400, 0x04FF),   # Cyrillic
         (0x1EA0, 0x1EF9),   # Vietnamese Extended
         (0x2000, 0x206F),   # General Punctuation
