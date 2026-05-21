@@ -920,6 +920,7 @@ void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       const int prevPage = currentPage;
       currentPage += 10;
       clampPage();
+      // cppcheck-suppress knownConditionTrueFalse
       if (currentPage != prevPage) {
         globalReadingSessionTracker().onPageTurn();
       }
@@ -930,6 +931,7 @@ void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       const int prevPage = currentPage;
       currentPage -= 10;
       clampPage();
+      // cppcheck-suppress knownConditionTrueFalse
       if (currentPage != prevPage) {
         globalReadingSessionTracker().onPageTurn();
       }
