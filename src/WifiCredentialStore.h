@@ -31,8 +31,6 @@ class WifiCredentialStore {
   // Private constructor for singleton
   WifiCredentialStore() = default;
 
-  bool loadFromBinaryFile();
-
   friend bool JsonSettingsIO::saveWifi(const WifiCredentialStore&, const char*);
   friend bool JsonSettingsIO::loadWifi(WifiCredentialStore&, const char*, bool*);
 

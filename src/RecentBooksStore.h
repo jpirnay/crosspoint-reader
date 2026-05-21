@@ -89,9 +89,6 @@ class RecentBooksStore {
   bool setReaderOverrides(const std::string& path, int8_t embeddedStyleOverride, int8_t imageRenderingOverride,
                           int8_t fontFamilyOverride, const std::string& sdFontFamilyOverride, int8_t fontSizeOverride,
                           bool bionicReadingOverride, int8_t paragraphAlignmentOverride);
-
- private:
-  bool loadFromBinaryFile();
 };
 
 // Helper macro to access recent books store

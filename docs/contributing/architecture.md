@@ -158,8 +158,8 @@ Typical persisted areas on SD:
     progress.bin
     cover.bmp
     sections/*.bin
-  settings.bin
-  state.bin
+  settings.json
+  state.json
 ```
 
 For binary cache formats, see `docs/file-formats.md`.
