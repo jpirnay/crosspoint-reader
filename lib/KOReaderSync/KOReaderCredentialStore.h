@@ -32,8 +32,6 @@ class KOReaderCredentialStore {
   // Private constructor for singleton
   KOReaderCredentialStore() = default;
 
-  bool loadFromBinaryFile();
-
   friend bool JsonSettingsIO::saveKOReader(const KOReaderCredentialStore&, const char*);
   friend bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore&, const char*, bool*);
 

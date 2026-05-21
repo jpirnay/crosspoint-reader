@@ -5,16 +5,12 @@
 #include <HalStorage.h>
 #include <JsonSettingsIO.h>
 #include <Logging.h>
-#include <Serialization.h>
 #include <Xtc.h>
 
 #include <algorithm>
 
 namespace {
-constexpr uint8_t RECENT_BOOKS_FILE_VERSION = 3;
-constexpr char RECENT_BOOKS_FILE_BIN[] = "/.crosspoint/recent.bin";
 constexpr char RECENT_BOOKS_FILE_JSON[] = "/.crosspoint/recent.json";
-constexpr char RECENT_BOOKS_FILE_BAK[] = "/.crosspoint/recent.bin.bak";
 constexpr int MAX_RECENT_BOOKS = 10;
 }  // namespace
 
@@ -231,114 +227,12 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
 }
 
 bool RecentBooksStore::loadFromFile() {
-  // Try JSON first
   if (Storage.exists(RECENT_BOOKS_FILE_JSON)) {
     String json = Storage.readFile(RECENT_BOOKS_FILE_JSON);
     if (!json.isEmpty()) {
       return JsonSettingsIO::loadRecentBooks(*this, json.c_str());
     }
   }
-
-  // Fall back to binary migration
-  if (Storage.exists(RECENT_BOOKS_FILE_BIN)) {
-    if (loadFromBinaryFile()) {
-      saveToFile();
-      Storage.rename(RECENT_BOOKS_FILE_BIN, RECENT_BOOKS_FILE_BAK);
-      LOG_DBG("RBS", "Migrated recent.bin to recent.json");
-      return true;
-    }
-  }
-
   return false;
 }
 
-bool RecentBooksStore::loadFromBinaryFile() {
-  FsFile inputFile;
-  if (!Storage.openFileForRead("RBS", RECENT_BOOKS_FILE_BIN, inputFile)) {
-    return false;
-  }
-
-  uint8_t version;
-  serialization::readPod(inputFile, version);
-  if (version == 1 || version == 2) {
-    // Old version, just read paths
-    uint8_t count;
-    serialization::readPod(inputFile, count);
-    std::vector<RecentBook> tmpRecentBooks;
-    tmpRecentBooks.reserve(count);
-    for (uint8_t i = 0; i < count; i++) {
-      std::string path;
-      if (!serialization::readString(inputFile, path)) {
-        LOG_ERR("RBS", "Corrupt recent.bin: string too long at entry %u", i);
-        inputFile.close();
-        return false;
-      }
-
-      // load book to get missing data
-      RecentBook book = getDataFromBook(path);
-      if (version == 2) {
-        // v2 always stores title and author after path; consume them regardless
-        // of whether live metadata was found, to keep the stream aligned.
-        std::string storedTitle, storedAuthor;
-        if (!serialization::readString(inputFile, storedTitle) || !serialization::readString(inputFile, storedAuthor)) {
-          LOG_ERR("RBS", "Corrupt recent.bin: string too long at entry %u", i);
-          inputFile.close();
-          return false;
-        }
-        // Prefer live metadata; fall back to stored when live is unavailable.
-        const std::string& title = !book.title.empty() ? book.title : storedTitle;
-        const std::string& author = !book.title.empty() ? book.author : storedAuthor;
-        if (!title.empty()) {
-          tmpRecentBooks.push_back({path, title, author, "", ""});
-        }
-      } else {
-        // v1: no stored title/author bytes
-        if (!book.title.empty()) {
-          tmpRecentBooks.push_back(book);
-        }
-      }
-    }
-    recentBooks = std::move(tmpRecentBooks);
-  } else if (version == 3) {
-    uint8_t count;
-    serialization::readPod(inputFile, count);
-
-    std::vector<RecentBook> tmpRecentBooks;
-    tmpRecentBooks.reserve(count);
-    uint8_t omitted = 0;
-
-    for (uint8_t i = 0; i < count; i++) {
-      std::string path, title, author, coverBmpPath;
-      if (!serialization::readString(inputFile, path) || !serialization::readString(inputFile, title) ||
-          !serialization::readString(inputFile, author) || !serialization::readString(inputFile, coverBmpPath)) {
-        LOG_ERR("RBS", "Corrupt recent.bin: string too long at entry %u", i);
-        inputFile.close();
-        return false;
-      }
-
-      // Omit books with missing title (e.g. saved before metadata was available)
-      if (title.empty()) {
-        omitted++;
-        continue;
-      }
-
-      tmpRecentBooks.push_back({path, title, author, "", coverBmpPath});
-    }
-    recentBooks = std::move(tmpRecentBooks);
-
-    if (omitted > 0) {
-      inputFile.close();
-      saveToFile();
-      LOG_DBG("RBS", "Omitted %u recent book(s) with missing title", omitted);
-      return true;
-    }
-  } else {
-    LOG_ERR("RBS", "Deserialization failed: Unknown version %u", version);
-    inputFile.close();
-    return false;
-  }
-
-  inputFile.close();
-  LOG_DBG("RBS", "Recent books loaded from binary file (%d entries)", static_cast<int>(recentBooks.size()));
-  return true;
-}

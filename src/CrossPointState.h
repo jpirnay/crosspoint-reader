@@ -106,9 +106,6 @@ class CrossPointState {
   bool saveToFile() const;
 
   bool loadFromFile();
-
- private:
-  bool loadFromBinaryFile();
 };
 
 // Helper macro to access settings

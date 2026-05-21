@@ -372,9 +372,6 @@ class CrossPointSettings {
   // global default.
   static int getBuiltinReaderFontId(uint8_t family, uint8_t size);
 
-  // If count_only is true, returns the number of settings items that would be written.
-  uint8_t writeSettings(FsFile& file, bool count_only = false) const;
-
   bool saveToFile() const;
   bool loadFromFile();
   void loadStartupFromNvs();
@@ -382,10 +379,6 @@ class CrossPointSettings {
 
   static void validateFrontButtonMapping(CrossPointSettings& settings);
 
- private:
-  bool loadFromBinaryFile();
-
- public:
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
