@@ -534,7 +534,7 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
         requestUpdate();
       }
       break;
-    case BA::BTN_PAGE_FORWARD_10:
+    case BA::BTN_PAGE_FORWARD_10: {
       const uint32_t prevPage = currentPage;
       currentPage = (currentPage + 10 < pageCount) ? currentPage + 10 : pageCount - 1;
       if (currentPage != prevPage) {
@@ -542,7 +542,8 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       }
       requestUpdate();
       break;
-    case BA::BTN_PAGE_BACK_10:
+    }
+    case BA::BTN_PAGE_BACK_10: {
       const uint32_t prevPage = currentPage;
       currentPage = (currentPage >= 10) ? currentPage - 10 : 0;
       if (currentPage != prevPage) {
@@ -550,6 +551,7 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       }
       requestUpdate();
       break;
+    }
     case BA::BTN_NEXT_SECTION:
       if (xtc->hasChapters()) {
         const auto& chapters = xtc->getChapters();

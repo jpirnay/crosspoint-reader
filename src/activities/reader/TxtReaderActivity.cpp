@@ -916,7 +916,7 @@ void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
         requestUpdate();
       }
       break;
-    case BA::BTN_PAGE_FORWARD_10:
+    case BA::BTN_PAGE_FORWARD_10: {
       const int prevPage = currentPage;
       currentPage += 10;
       clampPage();
@@ -925,16 +925,17 @@ void TxtReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       }
       requestUpdate();
       break;
-    case BA::BTN_PAGE_BACK_10:
+    }
+    case BA::BTN_PAGE_BACK_10: {
       const int prevPage = currentPage;
       currentPage -= 10;
       clampPage();
       if (currentPage != prevPage) {
         globalReadingSessionTracker().onPageTurn();
       }
-
       requestUpdate();
       break;
+    }
     case BA::BTN_STAR_PAGE:
       bookmarkStore.toggle(0, static_cast<uint16_t>(currentPage));
       requestUpdate();
