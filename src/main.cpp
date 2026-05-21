@@ -135,7 +135,25 @@ constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
 
+// How the device is coming back to life, resolved once at boot. Both resume
+// flows suppress the splash and leave the panel holding its pre-boot frame; a
+// plain boot shows the splash. See setup() for the resolution.
+enum class BootResume : uint8_t {
+  Splash,       // cold boot, flash, panic, or plain reboot
+  Silent,       // heap-defrag ESP.restart() (RTC flag; lost on power loss)
+  QuickResume,  // wake from a quick-resume deep sleep (SD flag; survives power loss)
+};
+
+// Latched true once enterDeepSleep() commits to sleeping, before it tears down
+// the current activity. WiFi activities call silentRestart() in onExit() to
+// clear heap fragmentation on the way out, but deep sleep is a full chip reset
+// on wake and already clears the heap, so rebooting here would just power the
+// device back up against the user's sleep gesture. Never cleared:
+// startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
+static bool deepSleepInProgress = false;
+
 void silentRestart() {
+  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=home)");
@@ -144,6 +162,7 @@ void silentRestart() {
 }
 
 void silentRestartToReader() {
+  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   silentRebootTarget = SILENT_REBOOT_TARGET_READER;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=reader)");
@@ -217,6 +236,10 @@ void enterDeepSleep(bool fromTimeout = false) {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
   }
+
+  // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
+  // a WiFi activity would otherwise silentRestart() here and reboot instead.
+  deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
 
   // Persist the moon-icon-overlaid framebuffer after goToSleep() has painted it.
@@ -421,34 +444,43 @@ void setup() {
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
 
-  const bool seamlessWake = !isSilentReboot && !APP_STATE.showBootScreen;
-  setupDisplayAndFonts(seamlessWake);
+  // Resolve the single boot-presentation decision. Skipping the splash also
+  // skips the panel-clearing pass and the X3 initial-full-sync arming (see
+  // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
+  // retained frame and input dispatches against a visible UI.
+  const BootResume resume = isSilentReboot              ? BootResume::Silent
+                            : !APP_STATE.showBootScreen ? BootResume::QuickResume
+                                                        : BootResume::Splash;
 
-  if (isSilentReboot) {
-    // After a silent reboot the panel still shows the previous session's pixels but
-    // the SDK's RED-RAM diff buffer was cleared by begin(). A FAST refresh would only
-    // flip pixels the SDK *thinks* changed, leaving the old screen visible. Force the
-    // first paint to HALF_REFRESH so the panel cleanly repaints; subsequent paints
-    // resume FAST as normal.
-    renderer.setNextDisplayRefreshMode(HalDisplay::HALF_REFRESH);
-  } else if (seamlessWake && loadSleepFrameBuffer()) {
-    // Quick Resume wake: framebuffer restored. Overlay a small loading icon to signal
-    // the device is busy reaching the reader (replacing the moon icon painted at sleep).
-    const auto pageHeight = renderer.getScreenHeight();
-    renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-    // Next sleep (whether crash, cold boot, or anything that doesn't go through enterDeepSleep)
-    // must fall back to a proper boot screen.
-    APP_STATE.showBootScreen = true;
-    APP_STATE.saveToFile();
-  } else {
-    if (seamlessWake) {
-      // We promised a seamless wake but the framebuffer file was missing or unreadable —
-      // reset the flag so future cycles don't hit the same bad state.
+  setupDisplayAndFonts(resume != BootResume::Splash);
+
+  switch (resume) {
+    case BootResume::Silent:
+      // After a silent reboot the panel still shows the previous session's pixels but
+      // the SDK's RED-RAM diff buffer was cleared by begin(). A FAST refresh would only
+      // flip pixels the SDK *thinks* changed, leaving the old screen visible. Force the
+      // first paint to HALF_REFRESH so the panel cleanly repaints; subsequent paints
+      // resume FAST as normal.
+      renderer.setNextDisplayRefreshMode(HalDisplay::HALF_REFRESH);
+      break;
+    case BootResume::QuickResume:
+      // One-shot flag: re-arm the splash for the next non-quick-resume boot. Save
+      // before any painting so a hang in the blocking paint path can't strand
+      // us in a quick-resume-with-no-frame loop on the next boot.
       APP_STATE.showBootScreen = true;
       APP_STATE.saveToFile();
-    }
-    activityManager.goToBoot();
+      if (loadSleepFrameBuffer()) {
+        // Frame restored: swap the sleep moon for the loading icon.
+        const auto pageHeight = renderer.getScreenHeight();
+        renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      } else {
+        activityManager.goToBoot();  // frame file missing, fall back to the splash
+      }
+      break;
+    case BootResume::Splash:
+      activityManager.goToBoot();
+      break;
   }
 
   HalClock::restore();
@@ -460,10 +492,10 @@ void setup() {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
         std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
-  } else if (isSilentReboot && silentRebootTargetSnapshot == SILENT_REBOOT_TARGET_READER &&
+  } else if (resume == BootResume::Silent && silentRebootTargetSnapshot == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
     activityManager.goToReader(APP_STATE.openEpubPath);
-  } else if (isSilentReboot) {
+  } else if (resume == BootResume::Silent) {
     // target == home (or reader with no open book): land on home — don't fall
     // through to the sleep-wake "resume reader" logic, which fires on stale
     // openEpubPath + lastSleepFromReader from a prior session.
