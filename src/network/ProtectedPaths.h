@@ -15,15 +15,27 @@ namespace protectedpaths {
 inline constexpr const char* SENSITIVE_FILES[] = {"/.crosspoint/wifi.json", "/.crosspoint/opds.json",
                                                   "/.crosspoint/koreader.json"};
 
+inline bool isHexDigit(char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'); }
+
 // SdFat also opens a name by its generated 8.3 alias (".crosspoint" is
-// CROSSP~1), which no spelling check can map back to the long name.
+// CROSSP~1), which no spelling check can map back to the long name. Check every
+// '~', since the long name may hold one of its own: a digit after it marks an
+// alias, and so do four hex digits that end the base (SdFat's tail when ~1 is
+// taken, FatFile::makeUniqueSfn).
 inline bool isShortAlias(const char* first, const char* last) {
-  const char* tilde = static_cast<const char*>(memchr(first, '~', static_cast<size_t>(last - first)));
-  if (!tilde || tilde + 1 >= last || tilde[1] < '0' || tilde[1] > '9') return false;
   const char* dot = static_cast<const char*>(memchr(first, '.', static_cast<size_t>(last - first)));
-  const size_t base = static_cast<size_t>((dot ? dot : last) - first);
+  const char* baseEnd = dot ? dot : last;
   const size_t ext = dot ? static_cast<size_t>(last - dot - 1) : 0;
-  return base <= 8 && ext <= 3;
+  if (baseEnd - first > 8 || ext > 3) return false;
+  for (const char* tilde = first; tilde < last; tilde++) {
+    if (*tilde != '~') continue;
+    if (tilde + 1 < last && tilde[1] >= '0' && tilde[1] <= '9') return true;
+    if (baseEnd - tilde == 5 && isHexDigit(tilde[1]) && isHexDigit(tilde[2]) && isHexDigit(tilde[3]) &&
+        isHexDigit(tilde[4])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 inline bool isSensitivePath(const char* path) {
